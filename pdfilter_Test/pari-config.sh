@@ -27,7 +27,11 @@ case "$(uname -s)" in
       LIBS="-L$PARI/Olinux-x86_64 -l:libpari.a -l:libgfortran.a -lquadmath -lm -l:libgmp.a"
     else
       echo "No PARI tree at $PARI: using the PARI installed on the system."
-      INC="-I/usr/include/pari"
+      INC=""
+      for d in /usr/include/pari /usr/include/x86_64-linux-gnu/pari /usr/local/include/pari; do   # Debian/Ubuntu use the second
+        if [ -f "$d/pari.h" ]; then INC="-I$d"; break; fi
+      done
+      [ -n "$INC" ] || { echo "pari.h not found: install libpari-dev, or set PARI to a compiled PARI source tree."; exit 1; }
       LINK=""
       LIBS="-lpari -lgmp -lm -lgfortran"
     fi

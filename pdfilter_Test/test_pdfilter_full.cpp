@@ -57,17 +57,17 @@
 // 55 % are even polynomials and 25 % have bb1 = bb2 = bb3 = 0 (as dep does): dense random polynomials are not what
 // the filter sees in practice.
 //
-// Reproduce on Linux (this directory):   bash build-linux.sh && ./test_pdfilter 100                    -> 0 failures
-//                                        FFLAGS_EXTRA=-mfpmath=387 bash build-linux.sh && ./test_pdfilter 100   -> x87 failures
-//                                        bash build-linux.sh && ./test_pdfilter 100 -rm up                     -> rounding-up failures
-//                                        ./test_pdfilter 100 -g orig -block 10000   is Eric's configuration (-g orig = his generator)
+// Reproduce on Linux (this directory):   TEST=test_pdfilter_full.cpp bash build-linux.sh && build/test_pdfilter_full 100            -> 0 failures
+//                                        FFLAGS_EXTRA=-mfpmath=387 TEST=test_pdfilter_full.cpp bash build-linux.sh && build/test_pdfilter_full 100   -> x87 failures
+//                                        build/test_pdfilter_full 100 -rm up                                  -> rounding-up failures
+//                                        build/test_pdfilter_full 100 -g orig -block 10000   is Eric's first configuration (-g orig = his generator)
 //
 // WHAT IT CANNOT SEE.  Because it only uses polynomials that must be kept, it only detects a filter that rejects
 // TOO MUCH.  A filter that rejects too little (rounding down or toward zero, -Ofast, a self-test that switched the
 // filter off) keeps everything and passes.  Detecting that needs polynomials that must be rejected; they were left out.
 //
-// Build: bash build-linux.sh.  The PARI calls used were checked against the declarations of PARI 2.17.3; the program was
-// compiled and run against PARI 2.8 only.
+// Build: TEST=test_pdfilter_full.cpp bash build-linux.sh   (this is the larger, earlier harness; test_pdfilter.cpp is the one to use).
+// It was compiled and run against PARI 2.8 (Windows) and PARI 2.17.3 (Linux, GCC 15.2).
 // ---------------------------------------------------------------------------------------------------------
 
 #include <cstdio>
@@ -470,7 +470,7 @@ static int run(int argc, char **argv)
     else if (a == "-real") realFile = nxt();
     else if (a == "-pat") patN = atoi(nxt().c_str());
     else if (a == "-rm") { std::string v = nxt(); hostile = v == "up" ? 1 : v == "down" ? 2 : v == "zero" ? 3 : 0; if (!hostile) { usage(argv[0]); return 2; } }
-    else if (a[0] != '-' && atoll(a.c_str()) > 0) N = atoll(a.c_str()) * 10000;          // Eric's usage: ./test_pdfilter N
+    else if (a[0] != '-' && atoll(a.c_str()) > 0) N = atoll(a.c_str()) * 10000;          // Eric's usage: test_pdfilter_full N
     else { usage(argv[0]); return 2; }
   }
   if (reuse < 1) reuse = 1;
