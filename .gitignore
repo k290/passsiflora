@@ -6,3 +6,5 @@ dist/
 nf_enum_cl.h
 nf_cuda_fatbin.h
 nf_cuda.fatbin
+pdfilter_Test/build/
+pdfilter_Test/fault_build/
