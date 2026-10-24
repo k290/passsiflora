@@ -1,6 +1,8 @@
 # Which faults of the pre-filter can the test detect?   Linux, or Windows with MSYS2 / MinGW-w64.
 #   bash fault_checks.sh [N] [test source]        default: N = 100 (1,000,000 polynomials), test_pdfilter.cpp
-#   e.g.  bash fault_checks.sh 100 test_pdfilter_eric.cpp     to see what Eric's version of the test detects
+#   e.g.  bash fault_checks.sh 100 test_pdfilter_linux.cpp    (Eric's file with the small patch; Linux only)
+#   Eric's original file is in the history:  git show ccb629f:pdfilter_Test/test_pdfilter_eric.cpp > /tmp/eric_original.cpp
+#         and then  bash fault_checks.sh 100 /tmp/eric_original.cpp  shows what it detects.
 # The test is built once and linked against pdfilter.f90 as it is and against deliberately broken versions of it.  It is run
 # with the AVX2/FMA build and with the baseline build of the filter, and the number of valid polynomials that the broken
 # filter wrongly REJECTED is printed ("none" is the unbroken filter and must be 0).  A test that finds 0 for a fault cannot see it.

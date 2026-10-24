@@ -8,8 +8,12 @@ filter wrongly rejected a valid polynomial.
 
 | file | what it is |
 |---|---|
-| `test_pdfilter.cpp` | **the test to use**: Eric's second version plus four small changes (below).  Builds on Linux and on Windows. |
-| `test_pdfilter_eric.cpp` | Eric's second version exactly as he sent it (Linux, PARI 2.9 or later). |
+| `test_pdfilter.cpp` | **the test to use**: Eric's second version plus four small changes (below), rewritten so that it builds on Linux and on Windows. |
+| `test_pdfilter_linux.cpp` | Eric's second version with the same four changes applied as a small patch (+47 / -15 lines; Linux only, PARI 2.9 or later).  `git diff ccb629f:pdfilter_Test/test_pdfilter_eric.cpp HEAD:pdfilter_Test/test_pdfilter_linux.cpp` shows the diff against Eric's file.  It gives the same numbers as `test_pdfilter.cpp` on Linux. |
+| `CHANGES.md` | the changes to Eric's test, each with its reason, and how the filter picks `chain_block` or `chain_general`. |
+| `WORKED_EXAMPLE.md` | a worked example for students: small polynomials followed step by step through `chain_block` and `chain_general`. |
+| `chain_trace.cpp` | the program that produced those traces (`TEST=chain_trace.cpp bash build-linux.sh`, then `build/chain_trace show ...` or `build/chain_trace test`). |
+| Eric's original | not in the tree; `git show ccb629f:pdfilter_Test/test_pdfilter_eric.cpp` (it is the file he sent). |
 | `test_pdfilter_full.cpp` | an earlier, larger harness (several generators, a corpus of real polynomials, rounding-mode options). |
 | `build-linux.sh`, `build-windows.sh`, `pari-config.sh` | build the filter (AVX2/FMA and baseline) and the test. |
 | `fault_checks.sh`, `rmshim.c` | break the filter on purpose and count how many valid polynomials each version of the test sees rejected. |
@@ -21,7 +25,8 @@ filter wrongly rejected a valid polynomial.
 Linux (gfortran, g++ and PARI; `PARI=/path/to/compiled/pari-tree`, otherwise Eric's tree, otherwise the system PARI, `apt install libpari-dev`):
 
     bash build-linux.sh && build/test_pdfilter 100          # 100 blocks of 10000 polynomials; a second argument is the seed
-    TEST=test_pdfilter_eric.cpp bash build-linux.sh         # builds Eric's version instead
+    TEST=test_pdfilter_linux.cpp bash build-linux.sh        # builds the small patch of Eric's file instead (build/test_pdfilter_linux)
+    git show ccb629f:pdfilter_Test/test_pdfilter_eric.cpp > /tmp/eric_original.cpp && TEST=/tmp/eric_original.cpp bash build-linux.sh   # Eric's original
 
 Windows (MSYS2 / MinGW-w64, PARI compiled for it):
 
@@ -29,7 +34,7 @@ Windows (MSYS2 / MinGW-w64, PARI compiled for it):
 
 Which faults does a version of the test see?
 
-    bash fault_checks.sh 100 [test_pdfilter.cpp | test_pdfilter_eric.cpp]
+    bash fault_checks.sh 100 [test_pdfilter.cpp | test_pdfilter_linux.cpp | /tmp/eric_original.cpp]
 
 ## The four changes to Eric's version
 
@@ -62,7 +67,7 @@ AVX2 build / baseline build.  `bash fault_checks.sh 100 [test]` reproduces a tab
 | small primes up to 2^14 (gross) | 71,857 / 8,074 | 90,384 / 8,242 | 72,474 / 8,139 | 89,967 / 8,486 |
 
 Linux: Ubuntu 26.04 on WSL2, GCC 15.2, PARI 2.17.3 (Ubuntu package), seed 12345 for `test_pdfilter.cpp`, clock seed for Eric's version.
-Windows: MSYS2 MinGW-w64 GCC 16.2, PARI 2.8 (Eric's version does not compile there as it is: it needs `long long` written before `pari.h`, `llabs` and
+Windows: MSYS2 MinGW-w64 GCC 16.2, PARI 2.8 (Eric's file and `test_pdfilter_linux.cpp` do not compile there as they are: they need `long long` written before `pari.h`, `llabs` and
 `isirreducible`, which is how it was run).  The identical rounding-up count on both systems is a coincidence: the failing polynomials differ and other seeds
 give different counts.
 

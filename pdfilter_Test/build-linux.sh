@@ -15,8 +15,8 @@ $FC -O3 -march=x86-64-v3 $FFLAGS_EXTRA -I../src -cpp -J "$OUT" -DPDF_MOD=pdfilte
 $FC -O3 -march=x86-64 -mtune=generic $FFLAGS_EXTRA -I../src -cpp -J "$OUT" -DPDF_MOD=pdfilter_base "-DPDF_INIT_NAME='pdf_init_base'" "-DPDF_FILTER_NAME='pdf_filter_base'" -c pdfilter.f90 -o "$OUT/pdfilter_base.o" || exit 1
 
 # Build the test program
-TEST=${TEST:-test_pdfilter.cpp}      # the test source; TEST=test_pdfilter_eric.cpp builds Eric's version
-PROG=${TEST%.cpp}
+TEST=${TEST:-test_pdfilter.cpp}      # the test source; TEST=test_pdfilter_linux.cpp builds Eric's file with the small patch (Linux only)
+PROG=$(basename "${TEST%.cpp}")
 $CXX -O3 -w $INC -c -o "$OUT/$PROG.o" "$TEST" || exit 1
 $CXX -O3 $LINK -o "$OUT/$PROG$EXE" "$OUT/$PROG.o" "$OUT/pdfilter_v3.o" "$OUT/pdfilter_base.o" $LIBS || exit 1
 echo "built $OUT/$PROG$EXE"

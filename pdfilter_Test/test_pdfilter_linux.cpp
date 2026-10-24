@@ -8,6 +8,10 @@
 // by the user).  Every one of these transformed polynomials should also pass the pdfilter.
 // From the Euclidean chain perspective the polynomials will appear to be completely
 // random.
+//
+// CHANGED after measuring which deliberately injected faults of the filter this test detects (fault_checks.sh):
+// the blocks passed to the filter have varying sizes (blockSizes); genPoly() shifts x -> x+t in three quarters of
+// the polynomials and sets the x^8 coefficient to 0 in a quarter of them; the seed is printed and can be given.
 
 
 #include <iostream>
@@ -18,6 +22,10 @@
 using namespace std;
 
 #define BLOCK_SIZE 10000
+
+// The sizes of the blocks passed to the filter: one is chosen at random for each call.  The filter works through
+// its input in chunks of 64 polynomials, so a block size that is always 10000 always ends with the same chunk of 16.
+static const long blockSizes[] = {1, 7, 63, 64, 65, 127, 255, 1000, 4096, 10000};
 
 #if defined(__x86_64__) || defined(_M_X64)
   #define NF_PDF_DISPATCH 1
@@ -66,18 +74,20 @@ static void nfPdfSetup(int numPrimes, int *pSet)
 int main(int argc, char **argv)
   {
 
-  if(argc!=2)  {
-    cout << "Usage: " << argv[0] << " N\n";
-    cout << "where N is the number of blocks of polynomials to test.\n";
+  if(argc<2 || argc>3)  {
+    cout << "Usage: " << argv[0] << " N [seed]\n";
+    cout << "where N*" << BLOCK_SIZE << " is the number of polynomials to test.\n";
     exit(1);  }
 
   long N = atoi(argv[1]);
+  unsigned long seed = (argc==3) ? strtoul(argv[2],NULL,10) : (unsigned long)time(NULL);
 
   pari_init(100000000,10000);  // 100 MB
 
   // Seed the ransom number generator (both Pari and C)
-  setrand(utoi((unsigned long)time(NULL)));
-  srand(time(NULL));
+  setrand(utoi(seed));
+  srand(seed);
+  cout << "seed = " << seed << "\n";
   
   // Setup the pdf filter.  Hardcode the set S = {2,5}
   int numPrimes = 2;
@@ -96,13 +106,19 @@ int main(int argc, char **argv)
 
   long ltop = avma;
   
-  for(long i=1; i<=N; ++i) {
+  long remaining = N*BLOCK_SIZE;   // the number of polynomials still to test
+
+  while(remaining > 0) {
 
     // Reset the Pari stack for each block.
     avma = ltop;
 
+    // Choose the size of this block at random (but not more than remains to be tested).
+    long blockSize = blockSizes[random_Fl(sizeof(blockSizes)/sizeof(blockSizes[0]))];
+    if(blockSize > remaining)  blockSize = remaining;
+
     // Generate a block of random polynomials
-    for(long b=0; b<BLOCK_SIZE; ++b) {
+    for(long b=0; b<blockSize; ++b) {
       //GEN f = tschirnhaus(testPoly);
       GEN f = genPoly();
 
@@ -135,14 +151,14 @@ int main(int argc, char **argv)
       }
 
     // Call the pd filter on the whole block
-    nfPdfFilter(polyBlock, BLOCK_SIZE, (signed char*)polyFlag);
+    nfPdfFilter(polyBlock, blockSize, (signed char*)polyFlag);
 
     // Every polynomial should be good.  Check for failures.  Print failures to screen.
-    long accum = 0;  for(long k=0; k<BLOCK_SIZE; ++k)  accum = accum + polyFlag[k];
-    if( accum != BLOCK_SIZE ) {
-      totalFailures = totalFailures + (BLOCK_SIZE - accum);
+    long accum = 0;  for(long k=0; k<blockSize; ++k)  accum = accum + polyFlag[k];
+    if( accum != blockSize ) {
+      totalFailures = totalFailures + (blockSize - accum);
       cout << "pdfilter failed.  Failed polynomials:\n";
-      for(long b=0; b<BLOCK_SIZE; ++b) {
+      for(long b=0; b<blockSize; ++b) {
         if(polyFlag[b]==0) {
 	  long g[11];
           for(int k=0; k<=10; ++k)  g[k] = polyBlock[b*11+k];
@@ -154,20 +170,23 @@ int main(int argc, char **argv)
       }
 
     // Increment the test count.
-    totalPolysTested = totalPolysTested + BLOCK_SIZE;
+    totalPolysTested = totalPolysTested + blockSize;
+    remaining = remaining - blockSize;
   
-    } // End loop on i
+    } // End loop on blocks
 
   cout << "Total polynomials tested = " << totalPolysTested << "\n";
   cout << "Total failures = " << totalFailures << "\n";
 
+  return totalFailures ? 1 : 0;
   }
 
 
 
 // Generate an irreducible degree 10 polynomial with square discriminant.
 // If g(x) is an irreducible quintic, then set f = g(x^2).
-// disc(f) = (-1) * 2^10 * (disc(g))^2 * g[0]^5. So we set g[0] to be a square.
+// disc(f) = (-1) * 2^10 * (disc(g))^2 * g[0]. So we set g[0] to be a square.
+// (The comment had g[0]^5, which has the same square class.)
 GEN genPoly()
   {
   GEN f;
@@ -176,6 +195,10 @@ GEN genPoly()
   do {
     long c[5];
     for(int i=0; i<=4; ++i)  c[i] = rand()%100;
+
+    // A quarter of the polynomials get a zero x^8 coefficient: the Euclidean chain then has the degrees 10, 9, 6, ...
+    // as in 25% of the polynomials that pass the discriminant test in the application.
+    if( rand()%4 == 0 )  c[4] = 0;
 
     // Force the constant coeff to be a square mod q for any q we are interested in
     // So it can be an integral square or from the set {-1,2,5}.
@@ -189,6 +212,15 @@ GEN genPoly()
     f = mkpoln(11,gen_1,gen_0,stoi(c[4]),gen_0,stoi(c[3]),gen_0,stoi(c[2]),gen_0,stoi(c[1]),gen_0,stoi(c[0]));
 
   } while ( !polisirreducible(f) );
+
+  // Replace x by x+t in three quarters of the polynomials.  The discriminant, and with it the square class, does not
+  // change.  The coefficients become signed and large, the odd powers are no longer zero, and the zeros of the
+  // Euclidean chain appear by cancellation instead of being zero coefficients.  |t| <= 30 keeps them below 2^63.
+  if( rand()%4 != 0 ) {
+    long t = 1 + rand()%30;
+    if( rand()%2 )  t = -t;
+    f = ZX_translate(f, stoi(t));
+    }
 
   return(f);
   }
