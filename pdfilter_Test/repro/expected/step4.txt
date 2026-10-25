@@ -1,0 +1,80 @@
+$ for m in none up down zero; do echo "== PROXY_MODE=$m"; PROXY_MODE=$m OCL_LIB=./libOpenCL.so.1 run ./app_feed_good S.txt out.txt; echo "result lines: $(wc -l < out.txt)"; done
+== PROXY_MODE=none
+[clGetPlatformIDs of ./libOpenCL.so.1 called; MXCSR rounding bits now 0]
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 8 8 8 8
+result lines: 8
+== PROXY_MODE=up
+[stub OpenCL: rounding mode now up, MXCSR rounding control = 2]
+[clGetPlatformIDs of ./libOpenCL.so.1 called; MXCSR rounding bits now 2]
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 8 0 0 0
+result lines: 0
+== PROXY_MODE=down
+[stub OpenCL: rounding mode now down, MXCSR rounding control = 1]
+[clGetPlatformIDs of ./libOpenCL.so.1 called; MXCSR rounding bits now 1]
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 8 8 8 8
+result lines: 8
+== PROXY_MODE=zero
+[stub OpenCL: rounding mode now zero, MXCSR rounding control = 3]
+[clGetPlatformIDs of ./libOpenCL.so.1 called; MXCSR rounding bits now 3]
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 8 8 8 8
+result lines: 8
+$ PROXY_MODE=up OCL_LIB=./libOpenCL.so.1 run ./app_feed_good S0.txt out.txt; echo "result lines: $(wc -l < out.txt)"
+[stub OpenCL: rounding mode now up, MXCSR rounding control = 2]
+[clGetPlatformIDs of ./libOpenCL.so.1 called; MXCSR rounding bits now 2]
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 8 8 8 8
+result lines: 8
+$ PROXY_MODE=up OCL_LIB=./libOpenCL.so.1 each S ./app_feed_good S.txt
+S1: StatVec: 1 0 0 0, result lines: 0
+S2: StatVec: 1 0 0 0, result lines: 0
+S3: StatVec: 1 0 0 0, result lines: 0
+S4: StatVec: 1 0 0 0, result lines: 0
+S5: StatVec: 1 0 0 0, result lines: 0
+S6: StatVec: 1 0 0 0, result lines: 0
+S7: StatVec: 1 0 0 0, result lines: 0
+S8: StatVec: 1 0 0 0, result lines: 0
+$ PROXY_MODE=up OCL_LIB=./libOpenCL.so.1 NF_VERIFY=1 ./app_feed_good S.txt out.txt 2>&1 | grep -v '^NF_TIMING'; echo "exit status ${PIPESTATUS[0]}"
+[stub OpenCL: rounding mode now up, MXCSR rounding control = 2]
+[clGetPlatformIDs of ./libOpenCL.so.1 called; MXCSR rounding bits now 2]
+polDisc pre-filter: AVX2/FMA build.
+NF_VERIFY MISMATCH at poly 0: exact=1 filtered=0
+exit status 3
+$ for m in none up; do echo "== PROXY_MODE=$m"; PROXY_MODE=$m OCL_LIB=./libOpenCL.so.1 run ./app_feed_good T.txt out.txt; echo "result lines: $(wc -l < out.txt)"; done
+== PROXY_MODE=none
+[clGetPlatformIDs of ./libOpenCL.so.1 called; MXCSR rounding bits now 0]
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 3 3 3 3
+result lines: 3
+== PROXY_MODE=up
+[stub OpenCL: rounding mode now up, MXCSR rounding control = 2]
+[clGetPlatformIDs of ./libOpenCL.so.1 called; MXCSR rounding bits now 2]
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 3 0 0 0
+result lines: 0
+$ ./pdf_check_good alone < T.txt 2>&1 > /dev/null
+3 polynomials, 0 rejected
+$ ./pdf_check_good alone up < T.txt 2>&1 > /dev/null
+3 polynomials, 0 rejected
+$ PROXY_MODE=up ./pdf_check_good alone ocl < T.txt 2>&1 > /dev/null
+[stub OpenCL: rounding mode now up, MXCSR rounding control = 2]
+3 polynomials, 3 rejected
+$ PROXY_MODE=up ./pdf_check_good alone ocl-late < T.txt 2>&1 > /dev/null
+[stub OpenCL: rounding mode now up, MXCSR rounding control = 2]
+3 polynomials, 0 rejected
+$ sed -n 1p S.txt > S1.txt
+$ inst/app_feed_good S1.txt out.txt 2>&1 | grep '^CGIT j=  1' | head -n 3
+CGIT j=  1 it=  1  10   9   9        1.0000       10.0000
+CGIT j=  1 it=  2   9   9   6        1.0000       10.0000
+CGIT j=  1 it=  3   9   6   8     -306.0000     -306.0000
+$ PROXY_MODE=up OCL_LIB=./libOpenCL.so.1 inst/app_feed_good S1.txt out.txt 2>&1 | grep '^CGIT j=  1' | head -n 3
+CGIT j=  1 it=  1  10   9   9        1.0000     -999.0000
+CGIT j=  1 it=  2   9   9   8        1.0000     -999.0000
+CGIT j=  1 it=  3   9   8   7        1.0000    -1009.0000
+$ PROXY_MODE=up OCL_LIB=./libOpenCL.so.1 NF_PDFDEBUG=1 inst/app_feed_good S1.txt out.txt 2>&1 | grep '^pdf prime'
+pdf prime  1: in        1 retried        1 kept        1
+pdf prime  2: in        1 retried        1 kept        1
+pdf prime  3: in        1 retried        1 kept        0

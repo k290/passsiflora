@@ -1,0 +1,26 @@
+$ wc -l < polys.txt; wc -l < junk.txt
+20000
+5000
+$ fresh() { n=0; while read -r p; do [ "$(echo "$p" | "$@" 2>/dev/null | cut -d' ' -f2)" = 0 ] && n=$((n+1)); done; echo $n; }
+$ echo "good:          $(fresh ./pdf_check_good alone < polys.txt)"
+good:          0
+$ echo "x87 AVX2:      $(NF_FORCE_BASE=0 fresh ./pdf_check_x87 alone < polys.txt)"
+x87 AVX2:      4732
+$ echo "x87 baseline:  $(NF_FORCE_BASE=1 fresh ./pdf_check_x87 alone < polys.txt)"
+x87 baseline:  5399
+$ echo "up, shim:      $(fresh ./pdf_check_good alone up < polys.txt)"
+up, shim:      586
+$ echo "up, lib first: $(PROXY_MODE=up fresh ./pdf_check_good alone ocl < polys.txt)"
+up, lib first: 1098
+$ echo "down, shim:    $(fresh ./pdf_check_good alone down < polys.txt)"
+down, shim:    0
+$ echo "zero, shim:    $(fresh ./pdf_check_good alone zero < polys.txt)"
+zero, shim:    0
+$ echo "junk, good:    $(./pdf_check_good alone < junk.txt 2>&1 > /dev/null)"
+junk, good:    5000 polynomials, 5000 rejected
+$ echo "junk, down:    $(PROXY_MODE=down ./pdf_check_good alone ocl < junk.txt 2>&1 > /dev/null)"
+junk, down:    [stub OpenCL: rounding mode now down, MXCSR rounding control = 1]
+5000 polynomials, 0 rejected
+$ echo "junk, zero:    $(PROXY_MODE=zero ./pdf_check_good alone ocl < junk.txt 2>&1 > /dev/null)"
+junk, zero:    [stub OpenCL: rounding mode now zero, MXCSR rounding control = 3]
+5000 polynomials, 0 rejected

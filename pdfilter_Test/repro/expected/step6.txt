@@ -1,0 +1,96 @@
+$ bash $R/build/test-suite-unix.sh $W/cpu_good $DF 7 $WUS | sort
+SUMMARY: MATCH 7  DIFF 0
+sf3_DS-15x271_Grp47of6553600 MATCH exit=0 wall=... s
+sf3_DS-16x270_Grp74of3932160 MATCH exit=0 wall=... s
+sf3_DS-16x271-1_Grp99of2000000 MATCH exit=0 wall=... s
+sf3_DS-16x271-25_Grp79of2000000 MATCH exit=0 wall=... s
+sf4_DS-13x271-25_Grp98of200000 MATCH exit=0 wall=... s
+sf5_DS-14x11_Grp10973of705883 MATCH exit=0 wall=... s
+sf5_DS-14x11_Grp33043of705883 MATCH exit=0 wall=... s
+$ bash $R/build/test-suite-unix.sh $W/cpu_x87 $DF 7 $WUS | sort
+SUMMARY: MATCH 3  DIFF 4
+sf3_DS-15x271_Grp47of6553600 MATCH exit=0 wall=... s
+sf3_DS-16x270_Grp74of3932160 DIFF exit=0 wall=... s
+sf3_DS-16x271-1_Grp99of2000000 MATCH exit=0 wall=... s
+sf3_DS-16x271-25_Grp79of2000000 MATCH exit=0 wall=... s
+sf4_DS-13x271-25_Grp98of200000 DIFF exit=0 wall=... s
+sf5_DS-14x11_Grp10973of705883 DIFF exit=0 wall=... s
+sf5_DS-14x11_Grp33043of705883 DIFF exit=0 wall=... s
+$ stats() { d=$(mktemp -d); cp $DF/$1.dat $d/in; ( cd $d && $2 > so.txt 2>/dev/null; echo "== $1"; grep StatVec so.txt; diff <(grep -v 'Elapsed Time' out) <(grep -v 'Elapsed Time' $DF/wu_$1.out.truth) ); rm -rf $d; }
+$ for wu in sf5_DS-14x11_Grp33043of705883 sf5_DS-14x11_Grp10973of705883 sf4_DS-13x271-25_Grp98of200000 sf3_DS-16x270_Grp74of3932160; do stats $wu $W/cpu_x87 > stats_$wu.txt & done; wait; cat stats_*.txt
+== sf3_DS-16x270_Grp74of3932160
+StatVec: 411279013 6 6 0
+0a1
+> x^10 - 80*x^8 + 400*x^7 - 10840*x^6 - 108448*x^5 - 102400*x^4 + 1896000*x^3 + 3592080*x^2 - 8868480*x - 21935872
+3,5c4,6
+< #   Num Polys passing PolDisc test = 6 (1.45886e-06%).
+< #   Num Polys passing irreducibility test = 6 (100%).
+< #   Num Polys passing field disc test = 0 (0%).
+---
+> #   Num Polys passing PolDisc test = 11 (2.67458e-06%).
+> #   Num Polys passing irreducibility test = 11 (100%).
+> #   Num Polys passing field disc test = 1 (9.09091%).
+== sf4_DS-13x271-25_Grp98of200000
+StatVec: 190024191 60 60 2
+5,7c5,7
+< #   Num Polys passing PolDisc test = 60 (3.15749e-05%).
+< #   Num Polys passing irreducibility test = 60 (100%).
+< #   Num Polys passing field disc test = 2 (3.33333%).
+---
+> #   Num Polys passing PolDisc test = 66 (3.47324e-05%).
+> #   Num Polys passing irreducibility test = 66 (100%).
+> #   Num Polys passing field disc test = 2 (3.0303%).
+== sf5_DS-14x11_Grp10973of705883
+StatVec: 89826675 90 65 3
+6,8c6,8
+< #   Num Polys passing PolDisc test = 90 (0.000100193%).
+< #   Num Polys passing irreducibility test = 65 (72.2222%).
+< #   Num Polys passing field disc test = 3 (4.61538%).
+---
+> #   Num Polys passing PolDisc test = 102 (0.000113552%).
+> #   Num Polys passing irreducibility test = 75 (73.5294%).
+> #   Num Polys passing field disc test = 3 (4%).
+== sf5_DS-14x11_Grp33043of705883
+StatVec: 62485322 103 88 4
+7,9c7,9
+< #   Num Polys passing PolDisc test = 103 (0.000164839%).
+< #   Num Polys passing irreducibility test = 88 (85.4369%).
+< #   Num Polys passing field disc test = 4 (4.54545%).
+---
+> #   Num Polys passing PolDisc test = 109 (0.000174441%).
+> #   Num Polys passing irreducibility test = 93 (85.3211%).
+> #   Num Polys passing field disc test = 4 (4.30108%).
+$ for m in none up; do PROXY_MODE=$m OCL_LIB=$W/libOpenCL.so.1 bash $R/build/test-suite-unix.sh $W/cpu_ocl_good $DF 1 sf5_DS-14x11_Grp33043of705883 | head -n 1; done
+sf5_DS-14x11_Grp33043of705883 MATCH exit=0 wall=... s
+sf5_DS-14x11_Grp33043of705883 DIFF exit=0 wall=... s
+$ gcc -o printf_rounding $RP/printf_rounding.c -lm && ./printf_rounding
+nearest  85.3211  (value 85.321100917431)
+up       85.3212  (value 85.321100917432)
+down     85.3211  (value 85.321100917431)
+zero     85.3211  (value 85.321100917431)
+$ ocl() { d=$(mktemp -d); cp $DF/$1.dat $d/in; ( cd $d && s=$SECONDS; PROXY_MODE=$2 OCL_LIB=$W/libOpenCL.so.1 $W/cpu_ocl_good > so.txt 2>/dev/null; echo "== PROXY_MODE=$2: $(grep StatVec so.txt), took $((SECONDS-s)) s"; diff <(grep -v 'Elapsed Time' out) <(grep -v 'Elapsed Time' $DF/wu_$1.out.truth) ); rm -rf $d; }
+$ for m in none up down zero; do ocl sf5_DS-14x11_Grp33043of705883 $m > ocl_$m.txt & done; wait; cat ocl_none.txt ocl_up.txt ocl_down.txt ocl_zero.txt
+== PROXY_MODE=none: StatVec: 62485322 109 93 4, took ... s
+== PROXY_MODE=up: StatVec: 62485322 109 93 4, took ... s
+8c8
+< #   Num Polys passing irreducibility test = 93 (85.3212%).
+---
+> #   Num Polys passing irreducibility test = 93 (85.3211%).
+== PROXY_MODE=down: StatVec: 62485322 109 93 4, took ... s
+7,9c7,9
+< #   Num Polys passing PolDisc test = 109 (0.00017444%).
+< #   Num Polys passing irreducibility test = 93 (85.321%).
+< #   Num Polys passing field disc test = 4 (4.30107%).
+---
+> #   Num Polys passing PolDisc test = 109 (0.000174441%).
+> #   Num Polys passing irreducibility test = 93 (85.3211%).
+> #   Num Polys passing field disc test = 4 (4.30108%).
+== PROXY_MODE=zero: StatVec: 62485322 109 93 4, took ... s
+7,9c7,9
+< #   Num Polys passing PolDisc test = 109 (0.00017444%).
+< #   Num Polys passing irreducibility test = 93 (85.321%).
+< #   Num Polys passing field disc test = 4 (4.30107%).
+---
+> #   Num Polys passing PolDisc test = 109 (0.000174441%).
+> #   Num Polys passing irreducibility test = 93 (85.3211%).
+> #   Num Polys passing field disc test = 4 (4.30108%).

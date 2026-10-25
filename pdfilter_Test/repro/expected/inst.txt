@@ -1,0 +1,56 @@
+$ diff $S/pdfilter.f90 inst/pdfilter.f90
+189a190
+>     if (c == 1) write(0, '(a,i3,10f9.4)') 'LDS j=', j, a(1, 0:9)
+200a202,203
+>     integer :: it_, first_
+>     real(8) :: acc_at_
+231a235
+>     it_ = 0; first_ = -1; acc_at_ = 0
+232a237,239
+>       if (first_ < 0 .and. base(1) == aint(base(1))) then
+>         first_ = it_; acc_at_ = acc(1)
+>       end if
+235c242
+<       e = shiftr(e, 1)
+---
+>       e = shiftr(e, 1); it_ = it_ + 1
+238a246,247
+>     write(0, '(a,i3,i4,2f22.6)') 'EU  j=', j, first_, acc_at_, real(acc(1), 8)
+>     write(0, '(a,i3,f18.6,f12.6,l2)') 'CBS j=', j, p(1, 0, ib), acc(1), ok(1)
+259a269
+>     if (c == 1) write(0, '(a,i3,10f14.4)') 'LDD j=', j, a(1, 0:9)
+275a286,287
+>     integer :: it_, first_
+>     real(8) :: acc_at_
+311a324
+>     it_ = 0; first_ = -1; acc_at_ = 0
+312a326,328
+>       if (first_ < 0 .and. base(1) == aint(base(1))) then
+>         first_ = it_; acc_at_ = acc(1)
+>       end if
+315c331
+<       e = shiftr(e, 1)
+---
+>       e = shiftr(e, 1); it_ = it_ + 1
+318a335,336
+>     write(0, '(a,i3,i4,2f22.6)') 'EU  j=', j, first_, acc_at_, real(acc(1), 8)
+>     write(0, '(a,i3,f18.6,f12.6,l2)') 'CBD j=', j, p(1, 0, ib), acc(1), ok(1)
+$ diff $S/chain_general.inc inst/chain_general.inc
+30a31,32
+>     integer :: it_, first_
+>     real(8) :: acc_at_
+81a84
+>       write(0, '(a,i3,a,i3,3i4,2f14.4)') 'CGIT j=', j, ' it=', it, int(du(1)), int(dv(1)), int(dw(1)), real(mm(1), 8), real(lv(1), 8)
+116a120
+>     it_ = 0; first_ = -1; acc_at_ = 0
+117a122,124
+>       if (first_ < 0 .and. base(1) == aint(base(1))) then
+>         first_ = it_; acc_at_ = acc(1)
+>       end if
+120c127
+<       e = shiftr(e, 1)
+---
+>       e = shiftr(e, 1); it_ = it_ + 1
+122a130,131
+>     write(0, '(a,i3,i4,2f22.6)') 'EU  j=', j, first_, acc_at_, real(acc(1), 8)
+>     write(0, '(a,i3,2f18.6,2f4.0)') 'CG  j=', j, real(mm(1), 8), real(acc(1), 8), real(done(1), 8), real(resz(1), 8)

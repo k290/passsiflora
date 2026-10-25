@@ -1,0 +1,48 @@
+$ mkdir -p x87
+$ gfortran -O3 -march=x86-64-v3 -mfpmath=387 -cpp -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" -I$S -J x87 -c $S/pdfilter.f90 -o x87/pdfilter_v3.o
+$ gfortran -O3 -march=x86-64 -mtune=generic -mfpmath=387 -cpp -DPDF_MOD=pdfilter_base "-DPDF_INIT_NAME='pdf_init_base'" "-DPDF_FILTER_NAME='pdf_filter_base'" -I$S -J x87 -c $S/pdfilter.f90 -o x87/pdfilter_base.o
+$ g++ -O3 -o app_feed_x87 obj/app_feed.o $APP x87/pdfilter_v3.o x87/pdfilter_base.o $LIBS
+$ g++ -O3 -o cpu_x87 obj/main.o $APP x87/pdfilter_v3.o x87/pdfilter_base.o $LIBS
+$ g++ -O2 -o pdf_check_x87 $RP/pdf_check.cpp x87/pdfilter_v3.o x87/pdfilter_base.o -lgfortran -ldl
+$ each R ./app_feed_x87 R.txt
+R1: StatVec: 1 0 0 0, result lines: 0
+R2: StatVec: 1 0 0 0, result lines: 0
+R3: StatVec: 1 0 0 0, result lines: 0
+R4: StatVec: 1 0 0 0, result lines: 0
+R5: StatVec: 1 0 0 0, result lines: 0
+R6: StatVec: 1 0 0 0, result lines: 0
+R7: StatVec: 1 0 0 0, result lines: 0
+R8: StatVec: 1 0 0 0, result lines: 0
+$ run ./app_feed_x87 R.txt out.txt; echo "result lines: $(wc -l < out.txt)"
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 8 8 8 8
+result lines: 8
+$ FEED_ALONE=1 run ./app_feed_x87 R.txt out.txt; echo "result lines: $(wc -l < out.txt)"
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 8 0 0 0
+result lines: 0
+$ NF_VERIFY=1 ./app_feed_x87 R6.txt out.txt 2>&1 | grep -v '^NF_TIMING'; echo "exit status ${PIPESTATUS[0]}"
+polDisc pre-filter: AVX2/FMA build.
+NF_VERIFY MISMATCH at poly 0: exact=1 filtered=0
+exit status 3
+$ for n in 1 2 3 4 5 6 7 8; do head -n $n R.txt > b.txt; echo "R1-R$n in one batch: $(./app_feed_x87 b.txt out.txt 2>/dev/null), baseline build: $(NF_FORCE_BASE=1 ./app_feed_x87 b.txt out.txt 2>/dev/null)"; done
+R1-R1 in one batch: StatVec: 1 0 0 0, baseline build: StatVec: 1 0 0 0
+R1-R2 in one batch: StatVec: 2 0 0 0, baseline build: StatVec: 2 0 0 0
+R1-R3 in one batch: StatVec: 3 0 0 0, baseline build: StatVec: 3 0 0 0
+R1-R4 in one batch: StatVec: 4 4 4 4, baseline build: StatVec: 4 4 4 4
+R1-R5 in one batch: StatVec: 5 4 4 4, baseline build: StatVec: 5 4 4 4
+R1-R6 in one batch: StatVec: 6 4 4 4, baseline build: StatVec: 6 4 4 4
+R1-R7 in one batch: StatVec: 7 4 4 4, baseline build: StatVec: 7 4 4 4
+R1-R8 in one batch: StatVec: 8 8 8 8, baseline build: StatVec: 8 8 8 8
+$ for o in good/pdfilter_v3.o x87/pdfilter_v3.o; do echo "== x87 instructions per function in $o"; objdump -d --no-show-raw-insn $o | awk '/^[0-9a-f]+ </{f=$2} /\tf[a-z]+ /{n[f]++} END{for(k in n) print n[k], k}' | sort -k2; done
+== x87 instructions per function in good/pdfilter_v3.o
+== x87 instructions per function in x87/pdfilter_v3.o
+8 <__pdfilter_v3_MOD_chain_block.isra.0>:
+9 <__pdfilter_v3_MOD_chain_block_s.isra.0>:
+70 <__pdfilter_v3_MOD_chain_general.isra.0>:
+65 <__pdfilter_v3_MOD_chain_general_s.isra.0>:
+65 <__pdfilter_v3_MOD_load_block>:
+65 <__pdfilter_v3_MOD_load_block_s>:
+37 <__pdfilter_v3_MOD_vmax_d>:
+4 <pdf_filter_v3>:
+17 <pdf_init_v3>:

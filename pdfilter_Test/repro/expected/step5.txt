@@ -1,0 +1,16 @@
+$ NF_PDFDEBUG=1 run ./app_feed_good junk8.txt out.txt
+polDisc pre-filter: AVX2/FMA build.
+pdf prime  1: in        8 retried        0 kept        5
+pdf prime  2: in        5 retried        0 kept        4
+pdf prime  3: in        4 retried        0 kept        2
+pdf prime  4: in        2 retried        0 kept        0
+StatVec: 8 0 0 0
+$ PROXY_MODE=down OCL_LIB=./libOpenCL.so.1 NF_PDFDEBUG=1 run ./app_feed_good junk8.txt out.txt | grep -v 'kept *8$'
+[stub OpenCL: rounding mode now down, MXCSR rounding control = 1]
+[clGetPlatformIDs of ./libOpenCL.so.1 called; MXCSR rounding bits now 1]
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 8 0 0 0
+$ PROXY_MODE=down OCL_LIB=./libOpenCL.so.1 NF_PDFDEBUG=1 run ./app_feed_good junk8.txt out.txt | grep -c 'kept *8$'
+30
+$ PROXY_MODE=zero OCL_LIB=./libOpenCL.so.1 NF_PDFDEBUG=1 run ./app_feed_good junk8.txt out.txt | grep -c 'kept *8$'
+30

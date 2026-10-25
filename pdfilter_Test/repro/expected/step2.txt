@@ -1,0 +1,20 @@
+$ DF=$W/upstream/Test/dataFiles
+$ bash $R/build/test-suite-unix.sh $W/cpu_good $DF 1 sf5_DS-14x11_Grp33043of705883 sf5_DS-14x11_Grp10973of705883
+sf5_DS-14x11_Grp33043of705883 MATCH exit=0 wall=... s
+sf5_DS-14x11_Grp10973of705883 MATCH exit=0 wall=... s
+SUMMARY: MATCH 2  DIFF 0
+$ run() { "$@" 2>&1 | grep -v '^NF_TIMING'; }
+$ each() { i=0; while read -r p; do i=$((i+1)); echo "$p" > one.txt; echo "$1$i: $("$2" one.txt out.txt 2>/dev/null), result lines: $(wc -l < out.txt)"; done < "$3"; }
+$ each R ./app_feed_good R.txt
+R1: StatVec: 1 1 1 1, result lines: 1
+R2: StatVec: 1 1 1 1, result lines: 1
+R3: StatVec: 1 1 1 1, result lines: 1
+R4: StatVec: 1 1 1 1, result lines: 1
+R5: StatVec: 1 1 1 1, result lines: 1
+R6: StatVec: 1 1 1 1, result lines: 1
+R7: StatVec: 1 1 1 1, result lines: 1
+R8: StatVec: 1 1 1 1, result lines: 1
+$ sed -n 6p R.txt > R6.txt; run ./app_feed_good R6.txt out.txt; cat out.txt
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 1 1 1 1
+x^10 - 100*x^8 + 1750*x^6 + 662500*x^4 + 1390625*x^2 + 625000

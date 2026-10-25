@@ -1,0 +1,36 @@
+$ NF_PDFDEBUG=1 inst/app_feed_good R6.txt out.txt 2>&1 | grep -E '^(LDS j=  1|LDD j= 19|CBD j= 19|pdf prime 2[45])'
+LDS j=  1 429.0000   0.0000 223.0000   0.0000-413.0000   0.0000-268.0000   0.0000-100.0000   0.0000
+pdf prime 24: in        1 retried        0 kept        1
+LDD j= 19   625000.0000        0.0000  1390625.0000        0.0000   662500.0000        0.0000     1750.0000        0.0000     -100.0000        0.0000
+CBD j= 19    5055456.000000    1.000000 T
+pdf prime 25: in        1 retried        0 kept        1
+$ NF_PDFDEBUG=1 inst/app_feed_x87 R6.txt out.txt 2>&1 | grep -E '^(LDS j=  1|LDD j= 19|EU  j= 19|CBD j= 1[789]|pdf prime 2[45])'
+LDS j=  1  -0.1206   0.0000  -0.1821   0.0000  -0.1377   0.0000   0.0156   0.0000   0.0132   0.0000
+CBD j= 17    9865643.046875************ T
+CBD j= 18    -308425.500000************ T
+pdf prime 24: in        1 retried        0 kept        1
+LDD j= 19     2446.4268        0.0000    -1929.0454        0.0000     7180.4492        0.0000     1750.0000        0.0000     -100.0000        0.0000
+EU  j= 19   0              1.000000             -1.000000
+CBD j= 19   14672924.000000   -1.000000 T
+pdf prime 25: in        1 retried        0 kept        0
+$ NF_FORCE_BASE=1 NF_PDFDEBUG=1 inst/app_feed_x87 R6.txt out.txt 2>&1 | grep -E '^(CBD j= 19|pdf prime 2[45])'
+pdf prime 24: in        1 retried        0 kept        1
+CBD j= 19   14672924.000000   -1.000000 T
+pdf prime 25: in        1 retried        0 kept        0
+$ echo 'q=1009; printf("%.4f\n", apply(r->r-q/2048*round(2048*r/q), [429,223,-413,-268,-100])); q=33552361; printf("%.4f\n", apply(r->r-q/2048*round(2048*r/q), [625000,1390625,662500]))' | gp -q
+[-0.1206,-0.1821,-0.1377,0.0156,0.0132]
+[2446.4268,-1929.0454,7180.4492]
+$ rm -f polys.txt; gp -q $RP/genpolys.gp < /dev/null 2> /dev/null; head -n 2000 polys.txt > p2000.txt
+20000 polynomials written to polys.txt, 0 not valid
+$ FEED_ALONE=1 run ./app_feed_good p2000.txt out.txt
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 2000 2000 2000 0
+$ FEED_ALONE=1 run ./app_feed_x87 p2000.txt out.txt
+polDisc pre-filter: AVX2/FMA build.
+StatVec: 2000 1552 1552 0
+$ FEED_ALONE=1 inst/app_feed_x87 p2000.txt out.txt 2> trace.txt; awk -f $RP/classify.awk trace.txt
+StatVec: 2000 1552 1552 0
+prec   load    runs acc=-1 acc=+1  const.int base.later  other rejects
+single noisy  11841     59     39         49         48      1      59
+double exact  12864      0  12864      12864          0      0       0
+double noisy  28905    389    363        377        375      0     389

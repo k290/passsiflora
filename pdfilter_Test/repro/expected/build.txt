@@ -1,0 +1,22 @@
+$ P=$W/upstream/Pari/pari-2.8-1711-ge5c317c; PO=$P/Olinux-x86_64; S=$W/build_src/GetDecicsSrc; RP=$R/pdfilter_Test/repro
+$ : > $S/config.h
+$ INC="-I$S -I$RP/stubs -I$P/src/headers -I$PO"
+$ mkdir -p good obj
+$ gfortran -O3 -march=x86-64-v3 -cpp -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" -I$S -J good -c $S/pdfilter.f90 -o good/pdfilter_v3.o
+$ gfortran -O3 -march=x86-64 -mtune=generic -cpp -DPDF_MOD=pdfilter_base "-DPDF_INIT_NAME='pdf_init_base'" "-DPDF_FILTER_NAME='pdf_filter_base'" -I$S -J good -c $S/pdfilter.f90 -o good/pdfilter_base.o
+$ for f in polDiscTest_cpu TgtMartinet; do g++ -O3 -w $INC -DAPP_VERSION_CPU_STD -c $S/$f.cpp -o obj/$f.o; done
+$ g++ -O2 -w $INC -c $S/nf_gpu_stub.cpp -o obj/nf_gpu_stub.o
+$ for f in app_feed main_ocl stubs/main; do g++ -O3 -w $INC -DAPP_VERSION_CPU_STD -c $RP/$f.cpp -o obj/$(basename $f).o; done
+$ LIBS="-L$PO -l:libpari.a -lgfortran -lquadmath -l:libgmp.a -lm -lpthread -ldl"; APP="obj/TgtMartinet.o obj/polDiscTest_cpu.o obj/nf_gpu_stub.o"
+$ g++ -O3 -o app_feed_good obj/app_feed.o $APP good/pdfilter_v3.o good/pdfilter_base.o $LIBS
+$ g++ -O3 -o cpu_good obj/main.o $APP good/pdfilter_v3.o good/pdfilter_base.o $LIBS
+$ g++ -O3 -o cpu_ocl_good obj/main_ocl.o $APP good/pdfilter_v3.o good/pdfilter_base.o $LIBS
+$ g++ -O2 -o pdf_check_good $RP/pdf_check.cpp good/pdfilter_v3.o good/pdfilter_base.o -lgfortran -ldl
+$ gcc -shared -fPIC -O2 -o libOpenCL.so.1 $RP/stub_opencl.c
+$ cp $RP/R.txt $RP/S.txt $RP/S0.txt $RP/T.txt $RP/junk8.txt .
+$ ls app_feed_good cpu_good cpu_ocl_good pdf_check_good libOpenCL.so.1
+app_feed_good
+cpu_good
+cpu_ocl_good
+libOpenCL.so.1
+pdf_check_good

@@ -1,0 +1,31 @@
+$ gcc -O0 -o red_demo $RP/red_demo.c -lm && ./red_demo
+q = 1009, qi = fl(1/q) = 0.00099108027750247768006  (qi < 1/q)
+           x  round-nearest     x87 (80-bit registers)     round-up   round-down   round-zero   x mod q
+      123456            358             -0.17529296875         -651          358          358   358
+        5045              0                          0            0         1009         1009   0
+        7063              0                          0            0         1009         1009   0
+         200            200              -0.0263671875         -809          200          200   200
+        1008             -1              -0.0146484375           -1         1008         1008   1008
+      101404            504             -0.00732421875         -505          504          504   504
+$ gcc -O0 -o signtest $RP/signtest.c -lm && ./signtest
+stage  q         prec    qi.near  qi.up   mult.  differ  |  stage  q         prec    qi.near  qi.up   mult.  differ
+    1  1009      single  above    above   16608  0  |     16  33553001  double  below    above   32000  0
+    2  929       single  below    above   18048  0  |     17  33552809  double  above    above   32000  0
+    3  881       single  above    above   19040  0  |     18  33552721  double  below    above   32000  0
+    4  809       single  below    above   20736  0  |     19  33552641  double  above    above   32000  0
+    5  769       single  below    above   21792  0  |     20  33552601  double  above    above   32000  0
+    6  761       single  below    above   22016  0  |     21  33552529  double  above    above   32000  0
+    7  33554249  double  above    above   32000  0  |     22  33552521  double  above    above   32000  0
+    8  33554201  double  below    above   32000  0  |     23  33552481  double  below    above   32000  0
+    9  33554009  double  below    above   32000  0  |     24  33552401  double  above    above   32000  0
+   10  33553969  double  above    above   32000  0  |     25  33552361  double  above    above   32000  0
+   11  33553769  double  above    above   32000  0  |     26  33552329  double  above    above   32000  0
+   12  33553649  double  below    above   32000  0  |     27  33552209  double  above    above   32000  0
+   13  33553489  double  above    above   32000  0  |     28  33552161  double  below    above   32000  0
+   14  33553369  double  below    above   32000  0  |     29  33552089  double  below    above   32000  0
+   15  33553049  double  below    above   32000  0  |     30  33551849  double  above    above   32000  0
+30 primes, 886240 reductions of exact multiples under round-up, 0 differ from the lemma
+qi rounded to nearest is above 1/q at 16 of 30 stages, qi rounded up at 30
+part (a), not multiples: 449878 reductions under round-up, 0 differ
+part (b): 1200000 reductions under round-down and toward zero, 0 differ
+x87 lemma: 1200000 reductions and loads in 80-bit long double, 0 differ from L_q

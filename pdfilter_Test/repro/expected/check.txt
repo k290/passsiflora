@@ -1,0 +1,9 @@
+$ git -C upstream log --oneline -1
+638ca4e Merge pull request #5 from drivere/cleanupTestDirectory
+$ git -C upstream status --short | wc -l
+0
+$ ls upstream/Test/dataFiles | grep -c '\.dat$'
+31
+$ ls upstream/Pari/pari-2.8-1711-ge5c317c/Olinux-x86_64 | grep -E '^(libpari\.a|paricfg\.h)$'
+libpari.a
+paricfg.h
