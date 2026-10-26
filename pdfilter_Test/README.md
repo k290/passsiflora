@@ -90,8 +90,9 @@ measures how much the test sees.  For `test_pdfilter.cpp` it is the number of va
 | last stage skipped | 7,983 (7,354) / 8,340 (7,354) | 0 / 0 |
 
 The integer filter does no floating-point arithmetic, so the x87 and rounding faults cannot reach it; the large primes up to 2^29 are inside the range
-where its arithmetic is proved exact.  The small primes up to 2^14 are outside it, and the arithmetic does go wrong there (at q = 16369, 2.4 % of the
-inputs of `mont` in (-2q, 2q) give a result outside (-q, q)), but no wrong verdict appeared in either test: a real fault that sampling missed.
+where its arithmetic is proved exact.  The small primes up to 2^14 are above every proved limit, and `mont` itself does fail there (at q = 16369, 2.4 % of
+the pairs in (-2q, 2q) give a result outside (-q, q)), but the filter's operands do not come near those pairs: no wrong verdict appeared in either test
+or in a directed search, and whether one is possible there is open (see the size limits below).
 Of the seven faults of the arithmetic, `test_pdfilter.cpp` sees the three gross ones, 3 polynomials of a fourth and nothing of the other three; the
 oracle test sees all seven.  The Euler fault only loses rejections (165,045
 missed), the last-stage fault only shows on polynomials that reach stage 30 (all 7,354 from the oracle test's `target` stratum), and the `chain_block_s`
@@ -100,6 +101,38 @@ zero test is seen only by the routing check.
 The oracle test on the floating-point filter of commit 327b04f (`FILTER=<its src>`, AVX2 / baseline): x87 61 / 56 false and 304 / 311 missed
 rejections; rounding up 37,329 / 37,320 false and 7,506 / 7,506 missed; rounding down and toward zero 717,978 missed rejections each, every rejection of
 the run (the "must pass" tests report 0 there).  Details in Section 13 of `pdfilter_chains.tex`.
+
+### How large may the primes be?
+
+Section 8.7 of `pdfilter_chains.tex` ("Where the size limits come from").  Proved: `mont` (R = 2^16) is exact on operands in (-2q, 2q) for q <= 2^13,
+`sredc` (R = 2^32) on differences of products for q <= 2^30 + 23171; for the whole filter, by following the bounds of the values through the chains,
+small primes up to 8385 and large primes up to 1,097,010,265.  Computed exactly (complete searches, on the compiled code by `arith_checks.sh` and in
+Python by `checks.py` C10): `mont` first fails at q = 8241 (first prime 8263, first prime = 1 mod 4 8269, first prime `pdf_init` could choose for
+S = {2,5} 8329), `sredc` on a difference at q = 2^30 + 23279 (first prime 2^30 + 23293, first usable 2^30 + 23377).  Not known: whether the whole-filter
+limits are sharp.  `pdf_init` does not check any limit; its primes (below 2^10 and 2^25) are inside them because of where its search starts,
+and a comment on those two lines of `pdfilter.f90` (179 and 201) states the limits.
+
+The rows S8 ... L31 of `fault_checks.sh` move the primes across these limits (the expected result of each row was written down before it ran).
+Oracle test / `test_pdfilter.cpp`, AVX2 / baseline, 1,000,000 polynomials, seed 12345; the last column runs directed inputs found by `limit_probe.c`
+(a model of the chains with a hill-climbing search) through the same broken build with the oracle test.
+
+| row | primes | proved? | oracle test | `test_pdfilter.cpp` | directed inputs |
+|---|---|---|---|---|---|
+| S8 | 241, 89, 41 | yes | 0 / 0 | 0 / 0 | |
+| S13 | 8161 ... 8009 | yes | 0 / 0 | 0 / 0 | |
+| SC | 8369, 8329 (`mont` has counterexamples) | yes, whole-filter theorem | 0 / 0 | 0 / 0 | |
+| SF | 8761 ... 8521 | no | 0 / 0 | 0 / 0 | none found |
+| S2 | 16369 ... 15881 | no | 0 / 0 | 0 / 0 | none found |
+| SD | 19961 ... 19609 | no | 0 / 0 | 0 / 0 | 1 input: 2,240 / 3,495 |
+| SE | 23929 ... 23561 | no | 3,475 / 4,460 | 252 / 252 | 20 inputs: 2,143 / 3,602 |
+| S15 | 32609 ... 32369 | no | 666,466 / 814,620 | 504,958 / 504,958 | 20 inputs: 2,145 / 3,409 |
+| L24 | 16777121 ... 16774409 | yes | 0 / 0 | 0 / 0 | |
+| L30 | 1073741689 ... | yes | 0 / 0 | 0 / 0 | |
+| LC | 2^30 + 26385 ... 2^30 + 23377 (`sredc` has counterexamples) | yes, whole-filter theorem | 0 / 0 | 0 / 0 | |
+| LF | 1097013329 ... 1097010329 | no | 0 / 0 | 0 / 0 | none found |
+| L31 | 2147483489 ... 2147479129 | no | 0 / 0 | 0 / 0 | 16 inputs: 3,493 / 3,493 |
+
+At SD and L31 the filter gives wrong verdicts that neither test sees in 1,000,000 polynomials; only the directed inputs show them.
 
 ## What the versions of the test detect: the floating-point filter (commit 327b04f)
 

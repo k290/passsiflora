@@ -10,7 +10,8 @@
 #   --gp FILE  also write a PARI/GP script that compares 300 of the discriminants with poldisc():
 #              gp -q FILE < /dev/null   prints "gp: disc samples checked" and nothing else if all agree
 # Exit status 1 if any check fails.  Section C8 prints the numbers of the worked example (q = 41);
-# section C9 checks Section 9 of the document (zeroing the x^8 coefficient) with its own random generator.
+# section C9 checks Section 10 of the document (zeroing the x^8 coefficient) with its own random generator;
+# section C10 checks Section 8.7 (the size limits of the integer arithmetic) with another one.
 import random, sys
 from math import comb
 
@@ -834,6 +835,202 @@ for _ in range(2000):
         nonzero += (pv != 0)
 print(f"C9.8 Tschirnhaus: seed power sums, the 192 substitutions and x^3+x^2+1 checked; {zero} random (h = H(x^r), 2d < r) with pi = 0, "
       f"and pi != 0 in {nonzero} of {2000 - zero} cases with 2d >= r")
+
+# ---------- C10: Section 8.7, the size limits of the integer arithmetic (own random generator; C0-C9 output unchanged)
+print("\n===== C10: size limits of the integer arithmetic (Section 8.7) =====")
+RNG10 = random.Random(20261026)
+
+def s_k(v, k):
+    v %= 1 << k
+    return v - (1 << k) if v >= 1 << (k - 1) else v
+
+def mred(x, q, k):
+    """signed Montgomery reduction with R = 2^k as defined in Lemma 8.1: m = s_k(x q'), u = (x - m q) / R"""
+    R = 1 << k
+    m = s_k(x * pow(q, -1, R), k)
+    assert (x - m * q) % R == 0
+    return (x - m * q) // R, m
+
+def mont16(a, b, q):
+    """the Fortran mont, step by step: lo, m, h1, h2 as 16/32-bit integers"""
+    qinv = s_k(pow(q, -1, 1 << 16), 16)
+    x = a * b
+    lo = s_k(x, 16); m = s_k(lo * qinv, 16)
+    h1 = s_k(x >> 16, 16); h2 = s_k((m * q) >> 16, 16)
+    return s_k(h1 - h2, 16)
+
+# C10.1 the characterisation (Lemma "When the result leaves (-q,q)", Section 8.2): u >= q iff x = (R+m)q + Rt (t >= 0); every (m', t) gives u = q + t; same for u <= -q
+cnt = 0
+for k in (16, 32):
+    R = 1 << k
+    for _ in range(1000 if not QUICK else 100):
+        q = RNG10.randrange(3, (1 << (k - 1)) - 1) | 1
+        mp = RNG10.randrange(-R // 2, R // 2); t = RNG10.randrange(0, 50)
+        x = (R + mp) * q + R * t
+        u, m = mred(x, q, k)
+        check(m == mp and u == q + t, "C10.1 x = (R+m')q + Rt gives m = m', u = q + t")
+        x = (mp - R) * q - R * t
+        u, m = mred(x, q, k)
+        check(m == mp and u == -(q + t), "C10.1 x = (m'-R)q - Rt gives u = -(q + t)")
+        x = RNG10.randrange(-3 * R * q, 3 * R * q)
+        u, m = mred(x, q, k)
+        check((u >= q) == (x - (R + m) * q >= 0), "C10.1 u >= q iff x >= (R+m) q")
+        check((u <= -q) == (x - (m - R) * q <= 0), "C10.1 u <= -q iff x <= (m-R) q")
+        cnt += 1
+    # the smallest |x| that fails: (R/2) q on the positive side, (R/2 + 1) q on the negative one
+    for q in (3, 41, 8191, 8193, (1 << 30) + 1, (1 << 31) - 1):
+        if q >= R // 2: continue
+        check(mred(q * R // 2, q, k)[0] == q, "C10.1 x = qR/2 gives u = q")
+        check(abs(mred(q * R // 2 - 1, q, k)[0]) < q, "C10.1 x = qR/2 - 1 gives |u| < q")
+        check(mred(-(R // 2 + 1) * q, q, k)[0] == -q, "C10.1 x = -(R/2+1)q gives u = -q")
+print(f"C10.1 characterisation of |u| >= q for R = 2^16 and 2^32: {cnt} random q, each with a constructed x on both sides and a random x")
+
+# C10.2 mont: the replayed counterexamples, and the scan of [8193, 8300] by the characterisation (positive and negative side)
+check(mont16(-16481, -16473, 8241) == 8262, "C10.2 mont q=8241 a=-16481 b=-16473 gives 8262 = q + 21")
+check(mont16(16481, -16473, 8241) == -8262, "C10.2 mont q=8241 negative side")
+for (a, b) in ((-16481, -16473), (16473, 16481), (-16481, 16473)):
+    u, _ = mred(a * b, 8241, 16)
+    check(u == mont16(a, b, 8241), "C10.2 the Fortran steps equal the definition")
+
+def mont_witness(q, neg):
+    R = 1 << 16; B = 2 * q - 1
+    ms = range(-R // 2, R // 2) if not neg else range(R // 2 - 1, -R // 2 - 1, -1)
+    for m in ms:
+        x0 = (R + m) * q if not neg else (R - m) * q
+        if x0 > B * B: break
+        for x in range(x0, B * B + 1, R):
+            lo = -(-x // B)
+            a = lo
+            while a * a <= x:
+                if x % a == 0 and x // a <= B: return (a, x // a if not neg else -(x // a))
+                a += 1
+    return None
+
+clean = []
+for q in range(8193, 8301, 2):
+    wp, wn = mont_witness(q, False), mont_witness(q, True)
+    if wp: check(mont16(wp[0], wp[1], q) >= q, f"C10.2 positive witness q={q}")
+    if wn: check(mont16(wn[0], wn[1], q) <= -q, f"C10.2 negative witness q={q}")
+    if not wp and not wn: clean.append(q)
+check(clean == list(range(8193, 8240, 2)) + [8243, 8247, 8251, 8253, 8255, 8257, 8259], "C10.2 the odd q in [8193, 8300] without a counterexample")
+check(min(q for q in range(8193, 8301, 2) if q not in clean) == 8241, "C10.2 first failing odd q = 8241")
+print(f"C10.2 mont: counterexample at q = 8241 replayed; odd q in [8193, 8300] without a counterexample: {len(clean)} (8193..8239, 8243, 8247, 8251..8259)")
+
+# C10.3 sredc on differences (Lemma "Where sredc can fail on a difference", Section 8.7): the reduction, the bound 2(delta-1)^2 >= 2^30, and the complete search of the remaining range
+def sredc_fail_search(delta, neg=False):
+    """all solutions of U + V + 2 + 4 t delta = L q, mu = 2 delta - 4 - U + L - 4t >= (1 if neg else 0), V = ij + i'j', i+j+i'+j' = U"""
+    q = (1 << 30) + delta
+    for L in (1, 2, 3):
+        for U in range(0, 2 * delta - 3 + L):
+            tmax = (2 * delta - 4 + L - U - (1 if neg else 0)) // 4
+            if tmax < 0: break
+            top = L * q - U - 2; vmax = U * U // 4
+            if top < 0: continue
+            tlo = max(0, -(-(top - vmax) // (4 * delta))); thi = min(tmax, top // (4 * delta))
+            for t in range(tlo, thi + 1):
+                V = top - 4 * t * delta
+                if not (0 <= V <= vmax): continue
+                for s in range(U + 1):
+                    s2 = U - s
+                    for i in range(s // 2 + 1):
+                        r = V - i * (s - i)
+                        if r < 0: break
+                        disc = s2 * s2 - 4 * r
+                        if disc < 0: continue
+                        sq = int(disc ** 0.5)
+                        while sq * sq > disc: sq -= 1
+                        while (sq + 1) ** 2 <= disc: sq += 1
+                        if sq * sq == disc and (s2 - sq) % 2 == 0:
+                            return (L, U, t, V, i, s - i, (s2 - sq) // 2, s2 - (s2 - sq) // 2)
+    return None
+
+for d in range(1, 23172, 2):
+    if 2 * (d - 1) ** 2 >= 1 << 30: check(False, "C10.3 the bound 2(delta-1)^2 < 2^30 below 23173"); break
+first = None; failing = []
+for d in range(23173, 23379, 2):
+    w = sredc_fail_search(d)
+    if w:
+        failing.append(d)
+        if first is None: first = (d, w)
+check(first is not None and first[0] == 23279, "C10.3 first failing odd q = 2^30 + 23279")
+fprime = [d for d in failing if is_prime((1 << 30) + d)]
+check(fprime[0] == 23293 and ((1 << 30) + 23293) % 4 == 1, "C10.3 first failing prime 2^30 + 23293, and it is 1 mod 4")
+check([d for d in failing if usable((1 << 30) + d)][0] == 23377, "C10.3 first failing prime usable for S = {2,5}: 2^30 + 23377")
+d, (L, U, t, V, i, j, i2_, j2) = first
+q = (1 << 30) + d; n = q - 1
+a, b, c, dd = n - i, n - j, -(n - i2_), n - j2
+x = a * b - c * dd
+u, m = mred(x, q, 32)
+check(u >= q and x == 2 * n * n - (U * n - V), "C10.3 the witness fails and satisfies the reduction")
+check(sredc_fail_search(d, neg=True) is not None, "C10.3 the negative side fails at the same q")
+reps = [(1073765103, 1073765102, 1073765101, -1073764896, 1073764888), (1073765117, 1073765111, 1073765111, -1073764914, 1073764866),
+        (1073765201, 1073765200, 1073765198, -1073765108, 1073765063), (1073774593, 1073741825, 1073741824, -1073774592, 1073774592)]
+for (qq, a1, b1, c1, d1) in reps:
+    uu, _ = mred(a1 * b1 - c1 * d1, qq, 32)
+    check(uu >= qq and max(abs(a1), abs(b1), abs(c1), abs(d1)) <= qq - 1, f"C10.3 counterexample at q = {qq}")
+check(mred((1 << 31) * 1073774593, 1073774593, 32)[0] == 1073774593, "C10.3 x = 2^31 q returns +q (a true zero)")
+print(f"C10.3 sredc: no failure for odd q = 2^30 + delta, delta <= 23171 (bound), none for delta in [23173, 23277] (search), "
+      f"first at delta = 23279: a,b,c,d = {a}, {b}, {c}, {dd}, sredc = q + {u - q}; first prime delta = 23293 (= 1 mod 4), "
+      f"first usable 23377; {len(failing)} of the {len(range(23279, 23379, 2))} odd delta in [23279, 23377] fail; 4 counterexamples replayed")
+
+# C10.4 the bound propagation of Section 8.7 (Theorem "The limits of the whole filter"): small stage for every odd q <= 9001, large stage at its limit
+def red_bound(X, q, R): return (X + q * (R // 2)) // R
+def load_bound(q): return red_bound(2 * ((1 << 21) - 1) * (q - 1) + (1 << 21) * (q - 1), q, 1 << 32)
+def bounds_ok(q, small):
+    R = 1 << 16 if small else 1 << 32
+    def red(X):
+        if X >= q * (R // 2): raise ValueError
+        return red_bound(X, q, R)
+    def mo(x, y): return red(x * y)
+    def df(x, y):
+        if small and x + y > 32767: raise ValueError
+        return x + y
+    def pr(x1, y1, x2, y2): return df(mo(x1, y1), mo(x2, y2)) if small else red(x1 * y1 + x2 * y2)
+    try:
+        L = load_bound(q)
+        A = [L] * 10 + [1]; B = [mo(A[k], k) for k in range(1, 11)] + [0]
+        for mm in range(9, 0, -1):
+            lc, top = B[mm], A[mm + 1]
+            Rr = [0] * 11; P = [0] * 11
+            Rr[0] = mo(lc, A[0])
+            for k in range(1, mm + 1): Rr[k] = pr(lc, A[k], top, B[k - 1])
+            t = Rr[mm]
+            for k in range(mm): P[k] = pr(lc, Rr[k], t, B[k])
+            A, B = B, P
+        mo(B[0], B[0]); mo(q - 1, B[0]); mo(q - 1, q - 1)
+        bu = max(L, 1); bv = mo(10, L); mmb = 1
+        for _ in range(18):
+            bw = pr(bv, bu, bu, bv)
+            mmb = mo(max(mmb, q - 1), max(bu, bv, bw))
+            bu = bv = max(bu, bv, bw)
+        mo(q - 1, bu); mo(q - 1, q - 1)
+    except ValueError:
+        return False
+    return True
+fails = [q for q in range(3, 9002, 2) if not bounds_ok(q, True)]
+check(fails[0] == 8387 and fails == list(range(8387, 9002, 2)), "C10.4 small stage: passes exactly for odd q <= 8385 (up to 9001)")
+check(bounds_ok(1097010265, False) and not bounds_ok(1097010267, False), "C10.4 large stage: limit 1097010265")
+samp = [RNG10.randrange(3, 1097010265) | 1 for _ in range(300 if not QUICK else 30)]
+check(all(bounds_ok(qq, False) for qq in samp), "C10.4 large stage: random odd q below the limit pass")
+print(f"C10.4 bound propagation: small stage passes for every odd q <= 8385 and fails for every odd q in [8387, 9001]; "
+      f"large stage passes at 1097010265 and {len(samp)} random odd q below, fails at 1097010267")
+
+# C10.5 overflow limits: a difference of two mont results (inputs |a|,|b| <= 2q-1) leaves 16 bits from q = 12801; sredc's x - m q
+# can leave 64 bits only if 2(q-1)^2 + 2^31 q >= 2^63
+def mont_extremes(q):
+    B = 2 * q - 1; best = bestn = 0; R = 1 << 16
+    for a in range(B, 0, -1):
+        if a * B < R * min(best, bestn) - q * R // 2: break
+        for b in range(B, 0, -1):
+            if a * b < R * min(best, bestn) - q * R // 2: break
+            best = max(best, mont16(a, b, q)); bestn = max(bestn, -mont16(a, -b, q))
+    return best, bestn
+e1, e2 = mont_extremes(12799), mont_extremes(12801)
+check(sum(e1) < 32768 <= sum(e2), "C10.5 i2 overflow of a difference of two mont results first possible at q = 12801")
+lo = max(qq for qq in range(1676704560, 1676704570) if 2 * (qq - 1) ** 2 + (1 << 31) * qq < 1 << 63)
+check(lo == 1676704566, "C10.5 sredc: no 64-bit overflow for q <= 1676704566")
+print(f"C10.5 max - min of mont over |a|,|b| <= 2q-1: {sum(e1)} at q = 12799, {sum(e2)} at q = 12801 (16-bit overflow of a "
+      f"difference from 32768); sredc stays within 64 bits for q <= {lo}")
 
 print("\nFAILURES:", len(FAIL))
 sys.exit(1 if FAIL else 0)

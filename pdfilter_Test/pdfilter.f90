@@ -176,7 +176,7 @@ contains
     allgen = (evlen > 0)
 
     ns = 0
-    q = 2_i8**10 - 1
+    q = 2_i8**10 - 1      ! small primes must stay <= 8385, the proved limit (pdfilter_chains.tex, Section 8.7)
     do while (ns < MAXS .and. q > 256)
       if (usable(q, numP, pSet)) then
         ns = ns + 1
@@ -198,7 +198,7 @@ contains
     end do
 
     nq = 0
-    q = 2_i8**25 - 1
+    q = 2_i8**25 - 1      ! large primes must stay <= 1097010265, the proved limit (pdfilter_chains.tex, Section 8.7)
     do while (nq < MAXQ .and. q > 2_i8**24)
       if (usable(q, numP, pSet)) then
         nq = nq + 1
