@@ -1,5 +1,9 @@
 # Worked example: the filter's two Euclidean chains
 
+> The line numbers below are those of the floating-point filter (commit 327b04f), which reduced with `red()`.  The integer filter runs the same
+> algorithms with Montgomery arithmetic (values carry powers of R^-1, which change no zero test and no Legendre symbol); its lines are in
+> `pdfilter_chains.tex`, Appendix A, and its arithmetic is proved in Section 8 there.
+
 For a student who wants to see what `chain_block` (`src/pdfilter.f90`) and `chain_general` (`src/chain_general.inc`) actually do.  Three small polynomials are
 followed step by step: one that the fast chain handles, and two that it cannot, which are sent to the general chain.  Line numbers are those of `src/pdfilter.f90`
 and `src/chain_general.inc` (`inc` below).  Every number in the traces was produced by `chain_trace.cpp` in this directory, a program that follows the Fortran step

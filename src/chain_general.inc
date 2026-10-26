@@ -4,7 +4,8 @@
 ! generic (some degree drops by more than one).  Included twice by
 ! pdfilter.f90, for the small primes (16-bit, R = 2^16) and the large primes
 ! (32-bit, R = 2^32), with GNAME, GK (integer kind), GQ, GQINV, GONE, GNEGR,
-! GEXP, GVMAX and the arithmetic macros
+! GEXP, GVMAX, GSTAGE (the stage number, for the test counters) and the
+! arithmetic macros
 !     GMUL(a, b)        Montgomery product a*b*R^-1 mod q
 !     GDIFF(a, b, c, d) (a*b - c*d)*R^-1 mod q
 !     GZERO(x)          x is 0 mod q
@@ -90,6 +91,9 @@
       ! Lockstep: every lane active with the same deg U' and deg V.
       tmp = (int(1, GK) - act) + abs(dw - dw(1)) + abs(dv - dv(1))
       if (GVMAX(tmp) == 0) then
+#ifdef PDF_STAGES_NAME
+        cnt(6, GSTAGE) = cnt(6, GSTAGE) + 1
+#endif
         t = iu; iu = iw; iw = t
         du = dw
         if (sw(1) > 0) then
@@ -97,6 +101,9 @@
           tmp = du; du = dv; dv = tmp
         end if
       else
+#ifdef PDF_STAGES_NAME
+        cnt(7, GSTAGE) = cnt(7, GSTAGE) + 1
+#endif
         do i = 0, imax
           p(:, i, iu) = merge(p(:, i, iw), p(:, i, iu), act > 0)
         end do

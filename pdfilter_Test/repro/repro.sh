@@ -5,7 +5,8 @@
 #   R=<this repository> W=<an empty work directory> bash repro.sh <part>...       exit status 1 if any output differs
 #
 # parts, in the order of the guide:
-#   sources   upstream sparse checkout at 638ca4e + the repository's build/prepare-src.sh   (only if $W/upstream is absent)
+#   sources   upstream sparse checkout at 638ca4e (only if $W/upstream is absent) + the repository's build/prepare-src.sh,
+#             with the floating-point filter of commit 327b04f (the filter the guide is about)
 #   check     the source tree is as expected (commit, 31 work units, the shipped PARI untouched)
 #   build     recipe step 3: good filter, application objects, feeder, programs, stub OpenCL library
 #   step1     red_demo and signtest (the directed-rounding lemma at the 30 filter primes, and the x87 lemma)
@@ -80,6 +81,9 @@ part_sources() {
   [ -f $W/upstream/Test/dataFiles/sf5_DS-14x11_Grp33043of705883.dat ] && [ -f $W/upstream/Pari/pari-2.8-1711-ge5c317c/Olinux-x86_64/libpari.a ] ||
     { echo "sources: the checkout is incomplete (run 'git checkout -f 638ca4e' in $W/upstream again)"; status=1; return; }
   UPSTREAM=$W/upstream PASSIFLORA=$R OUT=$W/build_src bash $R/build/prepare-src.sh || status=1
+  # The guide is about the floating-point filter of commit 327b04f.  The filter of later commits is integer-only, and the faults of
+  # the guide do not touch it; so the filter sources are taken from that commit, and the transcripts stay those of the guide.
+  for f in pdfilter.f90 chain_general.inc; do git -C "$R" show 327b04f:src/$f > $W/build_src/GetDecicsSrc/$f || status=1; done
 }
 
 part_check() { transcript check <<'EOF'

@@ -55,6 +55,9 @@ module PDF_MOD
   implicit none
   private
   public :: pdf_init, pdf_filter
+#ifdef PDF_STAGES_NAME
+  public :: pdf_stages
+#endif
 
   integer, parameter :: i2 = c_int16_t, i4 = c_int32_t, i8 = c_int64_t
   integer, parameter :: MAXQ = 24, MAXS = 6, BLK = 64
@@ -78,6 +81,14 @@ module PDF_MOD
   ! probe left the generic chain (structurally degenerate families).
   logical, save :: prefgen(MAXS + MAXQ) = .false.
   integer, save :: ncall = 0
+#ifdef PDF_STAGES_NAME
+  ! Test aid, compiled only when the build defines PDF_STAGES_NAME (the test build scripts do, the
+  ! application's do not): the stage at which each polynomial of the last call was rejected (0: kept),
+  ! and per stage, summed over calls: lanes in, through chain_block in pass 1, through chain_general
+  ! in pass 1, retried in pass 2, kept, and iterations of chain_general's lockstep and masked branches.
+  integer(c_int), allocatable, save :: rstage(:)
+  integer(c_long_long), save :: cnt(7, MAXS + MAXQ) = 0
+#endif
 
 contains
 
@@ -424,6 +435,7 @@ contains
 #define GNEGR negrs
 #define GEXP qsexp
 #define GVMAX vmax_s
+#define GSTAGE j
 #define GMUL(a, b) mont(a, b, q, qinv)
 #define GDIFF(a, b, c, d) mont(a, b, q, qinv) - mont(c, d, q, qinv)
 #define GZERO(x) (x == 0 .or. abs(x) == q)
@@ -436,6 +448,7 @@ contains
 #undef GNEGR
 #undef GEXP
 #undef GVMAX
+#undef GSTAGE
 #undef GMUL
 #undef GDIFF
 #undef GZERO
@@ -447,6 +460,7 @@ contains
 #define GNEGR negrv
 #define GEXP qexp
 #define GVMAX vmax_l
+#define GSTAGE (ns + j)
 #define GMUL(a, b) sredc(int(a, i8)*int(b, i8), q, qinv)
 #define GDIFF(a, b, c, d) sredc(int(a, i8)*int(b, i8) - int(c, i8)*int(d, i8), q, qinv)
 #define GZERO(x) (x == 0)
@@ -505,6 +519,13 @@ contains
     do l = 1, n
       idx(l) = l
     end do
+#ifdef PDF_STAGES_NAME
+    if (allocated(rstage)) then
+      if (size(rstage) < n) deallocate(rstage)
+    end if
+    if (.not. allocated(rstage)) allocate(rstage(n))
+    rstage(1:n) = 0
+#endif
     na = n
     ! Stages 1..ns use the small primes, ns+1..ns+nq the large ones.
     ncall = ncall + 1
@@ -525,6 +546,10 @@ contains
           else if (keep(l)) then
             nn = nn + 1
             nidx(nn) = idx(s + l - 1)
+#ifdef PDF_STAGES_NAME
+          else
+            rstage(idx(s + l - 1)) = j
+#endif
           end if
         end do
       end do
@@ -537,9 +562,23 @@ contains
           if (keep(l)) then
             nn = nn + 1
             nidx(nn) = uidx(s + l - 1)
+#ifdef PDF_STAGES_NAME
+          else
+            rstage(uidx(s + l - 1)) = j
+#endif
           end if
         end do
       end do
+#ifdef PDF_STAGES_NAME
+      cnt(1, j) = cnt(1, j) + na
+      if (usegen) then
+        cnt(3, j) = cnt(3, j) + na
+      else
+        cnt(2, j) = cnt(2, j) + na
+      end if
+      cnt(4, j) = cnt(4, j) + nu
+      cnt(5, j) = cnt(5, j) + nn
+#endif
       idx(1:nn) = nidx(1:nn)
       if (debug) write(0, '(a,i3,a,i9,a,i9,a,i9)') 'pdf prime', j, ': in', na, ' retried', nu, ' kept', nn
       na = nn
@@ -552,5 +591,24 @@ contains
       flag(idx(l)) = 1_c_signed_char
     end do
   end subroutine pdf_filter
+
+#ifdef PDF_STAGES_NAME
+  ! Test aid: st(i) = stage at which polynomial i of the last pdf_filter call was rejected (0: kept;
+  ! stages 1..ns are the small primes, ns+1..ns+nq the large ones, in the order pdf_init chose them);
+  ! counts(:, j) = the counters of stage j (see cnt above), zeroed afterwards when reset /= 0;
+  ! primes(j) = the prime of stage j; nstages = ns + nq.  n = 0 reads only the counters and primes.
+  subroutine pdf_stages(n, st, counts, primes, nstages, reset) bind(C, name=PDF_STAGES_NAME)
+    integer(c_int), value :: n, reset
+    integer(c_int), intent(out) :: st(n), nstages
+    integer(c_long_long), intent(out) :: counts(7, MAXS + MAXQ), primes(MAXS + MAXQ)
+    if (n > 0) st = rstage(1:n)
+    counts = cnt
+    primes = 0
+    primes(1:ns) = qs(1:ns)
+    primes(ns+1:ns+nq) = qv(1:nq)
+    nstages = ns + nq
+    if (reset /= 0) cnt = 0
+  end subroutine pdf_stages
+#endif
 
 end module PDF_MOD
