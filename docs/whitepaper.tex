@@ -59,8 +59,8 @@ version uses only integer arithmetic (signed Montgomery reduction on the CPU, un
 the theorems that make the decisions exact (the program text computes exactly the decisions of the exact algorithms, independently of the floating-point
 environment), the contract between the filter and the application, and the evidence: a test of the compiled filter on $25.5$ billion polynomials, complete
 sets at tiny primes, an exact oracle with deliberate faults, a differential test of the exact test of the original GetDecics application, the $31$ test
-work units in every build, and a shim of the GPU kernel.  Along the way it shows that this exact test itself silently drops passing polynomials when its first
-\code{int64} steps overflow, a defect of GetDecics that Passiflora neither causes nor changes.  The proofs are in the full document \cite{P}; here every result is stated with its status and with what it still assumes.
+work units in every build, and a shim of the GPU kernel.  It also proves what that exact test computes, under one condition that the enumeration's search
+region is meant to guarantee and that the real data support: its first \code{int64} steps do not overflow.  The proofs are in the full document \cite{P}; here every result is stated with its status and with what it still assumes.
 \end{abstract}
 
 \tableofcontents
@@ -166,17 +166,18 @@ The proof \cite[Proposition~3.19]{P} follows the code of GetDecics step by step 
 of $f'$ divides $10$ and is found exactly, every pseudo-remainder is the unique one by uniqueness of division in $\Q[x]$, the last step's shortcut replaces the
 resultant by an even power of a rational, and the removal of $S$ is complete.
 
-\paragraph{The overflow.}  Hypothesis (H) is not a formality.  The two \code{int64} iterations multiply coefficients of $f$ by coefficients of $f'$, and then by
-coefficients of the first remainder, and nothing checks that these products fit into $63$ bits.  The source of GetDecics notes the danger for one branch of its
-second iteration (``the result would exceed a long'') and sends that branch to GMP, but the two branches it keeps in \code{int64} are not bounded either.  A signed
-overflow is undefined behaviour in C; in practice the value wraps around modulo $2^{64}$, the GMP steps that follow work on a wrong number, the result is almost
-never a perfect square, and the test answers ``does not pass''.  A polynomial that passes is then lost silently: no error, no message, and the work unit's output
-simply lacks it.
+\paragraph{Hypothesis (H).}  The two \code{int64} iterations multiply coefficients of $f$ by coefficients of $f'$, and then by coefficients of the first
+remainder; the code does not check that these products fit into $63$ bits, and relies on the polynomials it is given.  The polynomials of the enumeration are
+bounded by its search region, and the author of GetDecics has said that polynomials generated for the fields under test should not overflow these steps.  The
+source shows the same design: it sends one branch of the second iteration, where ``the result would exceed a long'', to GMP.  For a polynomial outside that
+region the overflow is undefined behaviour in C; in practice the value wraps around modulo $2^{64}$, the GMP steps that follow work on a wrong number, and the
+test answers ``does not pass''.  (H) states the condition explicitly, so that the proposition says exactly what it rests on.
 
 \paragraph{How it was measured.}  The program \code{test\_poldisc.cpp} links the compiled \code{polDiscTest\_cpu} of GetDecics and compares its flag with the
 definition computed independently by PARI (the discriminant, the primes of $S$ removed, the square test).  It also replays the \code{int64} steps of GetDecics in
-$128$-bit integers, which shows whether one of them overflows.  It runs eight families of polynomials, among them the real candidates of the application and
-polynomials built to pass:
+$128$-bit integers, which shows whether one of them overflows.  It runs eight families of polynomials: the real candidates of the application and the results
+of the test work units, and, to test the proposition itself, families built for the purpose (random coefficients, polynomials built to pass, square factors), which
+the enumeration does not produce:
 
 \begin{table}[ht]
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
@@ -199,37 +200,33 @@ all & 10,735,681 & 2,157,958 & 3,002,223 & 1,844,238 & 0 & 844,265 & 6,664,748 &
 \end{tabular}
 \end{table}
 
-\paragraph{What it shows} \stnum.  Without overflow GetDecics agrees with the definition on all $8{,}891{,}443$ polynomials, as the proposition says.  With
-overflow it does not: of a million polynomials built to pass with large coefficients ($G(x^2)$ shifted, $|G_k|\le10^6$), $844{,}277$ overflow and GetDecics rejects
-$844{,}265$ of them although every one passes.  For random coefficients the overflow starts between sizes $1000$ and $3000$: in samples of $20{,}000$, no
-overflow with coefficients up to $1000$, $43\%$ of the polynomials at $3000$, $87\%$ at $10^4$, almost all from $10^5$.  Coefficient size alone is not the measure,
-though: the real candidates have coefficients up to $2.1\cdot10^9$ and never overflow, because their coefficients grow with the degree in the way that
-polynomials with roots of moderate size do.  What matters is the largest value the \code{int64} steps form.
+\paragraph{What it shows} \stnum.  Wherever (H) holds, GetDecics agrees with the definition: on all $8{,}891{,}443$ polynomials without an overflow, as the
+proposition says.  The constructed families also show what (H) excludes: with coefficients far outside the search region (polynomials built to pass with $|G_k|\le10^6$,
+random coefficients of $3000$ and more) the \code{int64} steps overflow and the answer is no longer the definition's.  Coefficient size alone is not the measure:
+the real candidates have coefficients up to $2.1\cdot10^9$ and never overflow, because their coefficients grow with the degree as those of polynomials with roots of
+moderate size do, which is what the search region produces.  What matters is the largest value the \code{int64} steps form.
 
-\paragraph{An example from a real result.}  One of the $83$ results in the truth files of the test work units is
+\paragraph{The evidence on real data.}  On the $146{,}771$ candidates captured from seven real work units the largest \code{int64} value is $2^{59.45}$ (none above
+$2^{60}$), a factor of about $12$ below the limit $2^{63}$; on the $83$ results of the test work units it is $2^{48.5}$; and on all $733{,}855$ real candidates and
+shifts of Table~\ref{tab:poldisc} no step overflows.  This agrees with the author's statement.  It is a measurement on samples, not a proof from the search bounds,
+so (H) remains a named assumption of this paper, with three and a half bits of measured headroom.
+
+\paragraph{An illustration of the mechanism.}  The following polynomial is constructed; the enumeration does not produce it.  It only shows what (H) excludes.
+One of the $83$ results in the truth files of the test work units (which come with GetDecics) is
 \[ f=x^{10}+600x^7+1350x^6-800x^5+115000x^4+405000x^3+265625x^2-540000x+185000 . \]
 Multiplying its roots by $3$ gives $g(x)=3^{10}f(x/3)$,
 \begin{multline*}
 g=x^{10}+16200x^7+109350x^6-194400x^5+83835000x^4+885735000x^3\\
 +1742765625x^2-10628820000x+10924065000 .
 \end{multline*}
-It defines the same number field, and $\disc g=3^{90}\disc f$, so $g$ passes as $f$ does (PARI: \code{poldisc}, \code{issquare}, \code{nfisisom}).  GetDecics
-rejects $g$: one of its \code{int64} values would be about $2^{67}$.  With the roots multiplied by $2$ instead, the largest value is about $2^{56.5}$ and GetDecics accepts
-the polynomial.
+It defines the same number field, and $\disc g=3^{90}\disc f$, so $g$ passes as $f$ does (PARI: \code{poldisc}, \code{issquare}, \code{nfisisom}).  Its largest
+\code{int64} value would be about $2^{67}$, and GetDecics rejects it; with the roots multiplied by $2$ the largest value is about $2^{56.5}$ and GetDecics accepts it.
+The enumeration produced $f$; scaled copies such as $g$, with roots three times as large, are not among the polynomials it generates.
 
-\paragraph{Does it affect the project?}  On the $146{,}771$ candidates captured from seven real work units the largest \code{int64} value is $2^{59.45}$ (none above
-$2^{60}$), a factor of about $12$ below the limit $2^{63}$; on the $83$ results it is $2^{48.5}$.  So no result of the sampled work units is lost, but the margin is
-three and a half bits, measured on samples, not proved, and the example shows that a passing polynomial whose roots are only three times those of a real result,
-defining the same field, is already lost.  Whether a work unit with larger coefficients loses results is not known; (H) remains a named assumption of this paper.
-
-\paragraph{Passiflora and the overflow.}  The defect is in GetDecics and is present in the stock application, with or without Passiflora.  Passiflora keeps the
-exact test as GetDecics has it (its patch changes only the test's conversions for a $32$-bit \code{long}), so that its output stays the stock program's.  The filter
-rejects only polynomials that provably do not pass, by the definition; a passing polynomial that the overflow makes GetDecics lose is kept by the filter and then
-lost by the exact test exactly as in the stock program.  The filter could differ from the stock program only by rejecting a polynomial that GetDecics wrongly
-\emph{accepts} because of an overflow, which would make the output more correct; it did not happen in the tests (last column of the table).  The fix belongs to
-GetDecics: do the two \code{int64} iterations with overflow-checked arithmetic (GCC's and Clang's \code{\_\_builtin\_mul\_overflow} and
-\code{\_\_builtin\_sub\_overflow}) or in $128$-bit integers, and compute those iterations with GMP when a value does not fit, at the cost of a few instructions per
-product.
+\paragraph{Passiflora and (H).}  Passiflora keeps the exact test as GetDecics has it (its patch changes only the test's conversions for a $32$-bit \code{long}), so
+that its output is the stock program's.  The filter rejects only polynomials that provably do not pass, by the definition, so it never needs (H) for its own
+soundness: (H) enters only where the filter's verdicts are compared with those of the exact test (contract (C1)).  Outside (H) the filter could differ from the
+stock program only by rejecting a polynomial that the exact test would wrongly accept; that did not happen in the tests (last column of the table).
 
 %======================================================================
 \section{Exact integer arithmetic}\label{sec:integer}
@@ -428,7 +425,7 @@ claim & status & rests on \\ \midrule
 GPU filter & \stproved & Theorem E; assumes the device compiler and device correct, host and device code of one format (checked at start-up) \\ \midrule
 compiler correctness & \stassume & tiny-prime test, arithmetic checks with two GCC versions, oracle test, start-up check; docs/BUILDING.md names the checked compilers \\
 (S2), (S3) & \stassume & as above; the start-up check switches the filter off if either fails on the running machine \\
-(H) & \stassume & no overflow on $733{,}855$ real candidates; GetDecics loses $844{,}265$ of $10^6$ large passing polynomials where it fails; the largest value on real candidates is $2^{59.45}$ \\
+(H) & \stassume & the enumeration's search region (the author's statement); no overflow on $733{,}855$ real candidates and shifts, largest value $2^{59.45}$ against $2^{63}$ \\
 (A1), (A2) & \stassume & all work units have $|S|=2$; no thread of the program calls the filter \\
 \bottomrule
 \end{tabularx}
@@ -437,7 +434,7 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 \paragraph{Open items.}
 \begin{itemize}
 \item Whether the size limits $8385$ and $1{,}097{,}010{,}265$ are sharp (no shipped prime is near them).
-\item (H) for the application's polynomials is measured, not proved; the overflow is a defect of GetDecics, to be reported to its maintainer.
+\item (H) for the application's polynomials is measured on real candidates (about $12$ times headroom), not proved from the search bounds.
 \item The GPU filter is checked on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested, and no run-time
   check exercises the filter on the device.
 \item The start-up check covers its own copy of the coefficient split, not \code{pdf\_filter}'s.
