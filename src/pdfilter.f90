@@ -41,6 +41,22 @@
 ! The first stage uses the small primes; each prime rejects about half of the
 ! candidates, and the few survivors continue with the large primes.  All inner
 ! loops vectorise across polynomials (BLK lanes).
+!
+! Contract (pdfilter_chains.tex, Section "The interface contract"):
+!  * pdf_init(numP, pSet): pSet(1:numP) is the set S of primes that the exact
+!    test divides out (upstream's testPolys allows at most 3).  It chooses the
+!    filter primes.  Before the first call no prime is chosen: every flag is 1.
+!  * pdf_filter(pol, n, flag): pol is the row-major C buffer polBuf[i*11 + col]
+!    of n polynomials with int64 coefficients, col 0 the leading coefficient.
+!    n <= 0: nothing is done; otherwise flag(1:n) is written.  flag = 0 only
+!    for a monic polynomial whose discriminant is a non-square modulo a filter
+!    prime; every other polynomial, among them every one with a leading
+!    coefficient other than 1, gets flag = 1.
+!  * Not thread-safe: the module keeps state between calls (the work arrays,
+!    prefgen, ncall, the constants of pdf_init).  The application calls it from
+!    one thread.
+! The branch name barrett-reduction is historic: the arithmetic is Montgomery
+! reduction.
 
 ! Built twice (see the build scripts, -cpp): once per instruction-set level,
 ! with a distinct module name and C symbols; the C++ side picks one at run time.
@@ -61,6 +77,13 @@ module PDF_MOD
 
   integer, parameter :: i2 = c_int16_t, i4 = c_int32_t, i8 = c_int64_t
   integer, parameter :: MAXQ = 24, MAXS = 6, BLK = 64
+  ! The limits the proofs need (pdfilter_chains.tex, Proposition "Every value is in range" and Theorem "The limits of the
+  ! whole filter"): QMIN <= q <= QS_MAX for a small prime, QMIN <= q <= QL_MAX for a large one.  pdf_init skips any other
+  ! prime (function chosen).  pdf_init searches the usable primes below QS_START down to QS_STOP (exclusive), then below
+  ! QL_START down to QL_STOP; these ranges lie inside the limits.
+  integer(i8), parameter :: QMIN = 11, QS_MAX = 8385, QL_MAX = 1097010265
+  integer(i8), parameter :: QS_START = 2_i8**10 - 1, QS_STOP = 256
+  integer(i8), parameter :: QL_START = 2_i8**25 - 1, QL_STOP = 2_i8**24
 
   ! Large primes (32-bit stage, R = 2^32): qinv = q^-1 mod 2^32 as a signed
   ! 32-bit value, one = R mod q, negr = -R mod q, ld(i) = 2^(21i)*R mod q.
@@ -139,6 +162,21 @@ contains
     usable = .true.
   end function usable
 
+  ! The guard of the proofs: a usable prime is chosen only if QMIN <= q <= qmax; otherwise it is skipped, with one line
+  ! on stderr.  Test builds may define PDF_NO_LIMITS to switch the guard off (never the application's build).
+  logical function chosen(q, qmax, numP, pSet)
+    integer(i8), intent(in) :: q, qmax
+    integer(c_int), intent(in) :: numP
+    integer(c_int), intent(in) :: pSet(*)
+    chosen = usable(q, numP, pSet)
+#ifndef PDF_NO_LIMITS
+    if (chosen .and. (q < QMIN .or. q > qmax)) then
+      write(0, '(a,i0,a)') 'pdf_init: usable prime ', q, ' skipped: outside the proved limits of the integer arithmetic'
+      chosen = .false.
+    end if
+#endif
+  end function chosen
+
   ! Inverse of an odd q modulo 2^32 (extended Euclid; every intermediate stays
   ! below 2^33).
   pure integer(i8) function inv32(q)
@@ -174,11 +212,14 @@ contains
     ! NF_GENERAL_ALL=1 sends every lane through chain_general (testing aid).
     call get_environment_variable('NF_GENERAL_ALL', ev, evlen)
     allgen = (evlen > 0)
+    ! A new initialisation starts a new routing history: the calls are counted from here.
+    prefgen = .false.
+    ncall = 0
 
     ns = 0
-    q = 2_i8**10 - 1      ! small primes must stay <= 8385, the proved limit (pdfilter_chains.tex, Section 8.7)
-    do while (ns < MAXS .and. q > 256)
-      if (usable(q, numP, pSet)) then
+    q = QS_START
+    do while (ns < MAXS .and. q > QS_STOP)
+      if (chosen(q, QS_MAX, numP, pSet)) then
         ns = ns + 1
         qi = inv32(q)
         qs(ns)     = int(q, i2)
@@ -198,9 +239,9 @@ contains
     end do
 
     nq = 0
-    q = 2_i8**25 - 1      ! large primes must stay <= 1097010265, the proved limit (pdfilter_chains.tex, Section 8.7)
-    do while (nq < MAXQ .and. q > 2_i8**24)
-      if (usable(q, numP, pSet)) then
+    q = QL_START
+    do while (nq < MAXQ .and. q > QL_STOP)
+      if (chosen(q, QL_MAX, numP, pSet)) then
         nq = nq + 1
         qv(nq)    = int(q, i4)
         qinvv(nq) = int(signedmod(inv32(q), 32), i4)
@@ -215,15 +256,25 @@ contains
       end if
       q = q - 2
     end do
+
+    ! The start-up check: if the compiled arithmetic disagrees with the exact values, use no prime (every flag is 1).
+    if (.not. arith_ok()) then
+      write(0, '(a)') 'pdf_init: the integer arithmetic failed its start-up check; the pre-filter is off (every flag 1)'
+      ns = 0
+      nq = 0
+    end if
   end subroutine pdf_init
 
-  ! Signed Montgomery multiplication, R = 2^16, for odd 2^8 < q < 2^10 and
-  ! qinv = q^-1 mod 2^16 as a signed 16-bit value.  For |a|, |b| < 2q: with
-  ! x = a*b and m = (x*qinv) mod 2^16 in [-2^15, 2^15), x - m*q is divisible by
-  ! 2^16, so (x - m*q)/2^16 = hi(x) - hi(m*q) exactly (hi = 16-bit multiply-
-  ! high, the low halves of x and m*q are equal).  It is congruent to a*b*2^-16
-  ! and lies in (-q, q), as |x| + 2^15*q < 4q^2 + 2^15*q < 2^16*q for q < 2^13.
-  ! The truncations to 16 bits are conversions (modulo 2^16), not overflows.
+  ! Signed Montgomery multiplication, R = 2^16, for the small primes and
+  ! qinv = q^-1 mod 2^16 as a signed 16-bit value.  With x = a*b and
+  ! m = (x*qinv) mod 2^16 in [-2^15, 2^15), x - m*q is divisible by 2^16, so
+  ! (x - m*q)/2^16 = hi(x) - hi(m*q) exactly (hi = 16-bit multiply-high, the
+  ! low halves of x and m*q are equal).  It is congruent to a*b*2^-16 and lies
+  ! in (-q, q) when |x| < 2^15*q: for all |a|, |b| < 2q if q < 2^13, and for the
+  ! values of the chains up to q = 8385 (pdfilter_chains.tex, Theorem "The
+  ! limits of the whole filter").  The truncations to 16 bits are conversions
+  ! (gfortran reduces them modulo 2^16; checked at start-up by arith_ok), not
+  ! overflows.
   elemental integer(i2) function mont(a, b, q, qinv)
     integer(i2), intent(in) :: a, b, q, qinv
     integer(i2) :: lo, m, h1, h2
@@ -255,6 +306,90 @@ contains
     integer(i4), intent(in) :: p0, p1, p2, d0, d1, d2, q, qinv
     ldres = sredc(int(p0, i8)*int(d0, i8) + int(p1, i8)*int(d1, i8) + int(p2, i8)*int(d2, i8), q, qinv)
   end function ldres
+
+  ! Test value k of a known-answer table with |value| <= bound: the extremes first, then pseudo-random values.
+  integer(i8) function kat_val(k, bound, rng)
+    integer, intent(in) :: k
+    integer(i8), intent(in) :: bound
+    integer(i8), intent(inout) :: rng
+    select case (k)
+    case (1); kat_val = bound
+    case (2); kat_val = -bound
+    case (3); kat_val = bound - 1
+    case (4); kat_val = 1 - bound
+    case (5); kat_val = 0
+    case (6); kat_val = 1
+    case (7); kat_val = -1
+    case (8); kat_val = bound / 2
+    case default
+      rng = ieor(rng, shiftl(rng, 13)); rng = ieor(rng, shiftr(rng, 7)); rng = ieor(rng, shiftl(rng, 17))
+      if (bound == huge(0_i8)) then
+        kat_val = rng
+      else
+        kat_val = modulo(rng, 2*bound + 1) - bound
+      end if
+    end select
+  end function kat_val
+
+  ! Start-up check of the compiled arithmetic (pdfilter_chains.tex, Proposition "The start-up check").  For every chosen
+  ! prime: mont (small primes), sredc and ldres (both, with the stored constants) and the 21-bit split of pdf_filter, called
+  ! elementally on arrays as in the chains, on extreme and pseudo-random inputs, against values computed with MODULO and
+  ! exact division only (no conversion out of range, no bit operation on a negative value).  .false. on any mismatch.
+  logical function arith_ok()
+    integer(i2) :: a2(BLK), b2(BLK), u2(BLK)
+    integer(i4) :: u4(BLK), p0(BLK), p1(BLK), p2(BLK), q4, qi4, d(0:2)
+    integer(i8) :: x(BLK), c(BLK), q, lo, m, t, rng
+    integer :: j, l, stage
+    arith_ok = .true.
+    rng = 88172645463325252_i8
+    do stage = 1, ns + nq
+      if (stage <= ns) then
+        j = stage
+        q = qs(j)
+        do l = 1, BLK
+          a2(l) = int(kat_val(l, 2*q - 1, rng), i2)
+          b2(l) = int(kat_val(BLK + 1 - l, 2*q - 1, rng), i2)
+        end do
+        u2 = mont(a2, b2, qs(j), qinvs(j))
+        do l = 1, BLK
+          x(l) = int(a2(l), i8)*int(b2(l), i8)
+          lo = modulo(x(l) + 32768, 65536_i8) - 32768
+          m = modulo(lo*int(qinvs(j), i8) + 32768, 65536_i8) - 32768
+          if (int(u2(l), i8)*65536 /= x(l) - m*q) arith_ok = .false.
+        end do
+        if (modulo(q*int(qinvs(j), i8) - 1, 65536_i8) /= 0) arith_ok = .false.
+        q4 = qsl(j); qi4 = qinvsl(j); d = lds(:, j)
+      else
+        j = stage - ns
+        q = qv(j)
+        q4 = qv(j); qi4 = qinvv(j); d = ldv(:, j)
+      end if
+      if (modulo(q*int(qi4, i8) - 1, 2_i8**32) /= 0) arith_ok = .false.
+      do l = 1, BLK                                    ! sredc on |x| < 2^31 q
+        x(l) = kat_val(l, 2_i8**31*q - 1, rng)
+      end do
+      u4 = sredc(x, q4, qi4)
+      do l = 1, BLK
+        lo = modulo(x(l) + 2_i8**31, 2_i8**32) - 2_i8**31
+        m = modulo(lo*int(qi4, i8) + 2_i8**31, 2_i8**32) - 2_i8**31
+        if (int(u4(l), i8)*2_i8**32 /= x(l) - m*q) arith_ok = .false.
+      end do
+      do l = 1, BLK                                    ! the split and ldres on every int64 coefficient class
+        c(l) = kat_val(l, huge(0_i8), rng)
+      end do
+      c(1:4) = [-huge(0_i8) - 1, 2_i8**42, -2_i8**42, 2_i8**21 - 1]
+      p0 = int(iand(c, 2_i8**21 - 1), i4)
+      p1 = int(iand(shifta(c, 21), 2_i8**21 - 1), i4)
+      p2 = int(shifta(c, 42), i4)
+      u4 = ldres(p0, p1, p2, d(0), d(1), d(2), q4, qi4)
+      do l = 1, BLK
+        t = (c(l) - modulo(c(l), 2_i8**21)) / 2_i8**21
+        if (p0(l) /= modulo(c(l), 2_i8**21) .or. p1(l) /= modulo(t, 2_i8**21) .or. &
+            p2(l) /= (t - modulo(t, 2_i8**21)) / 2_i8**21) arith_ok = .false.
+        if (abs(int(u4(l), i8)) >= q .or. modulo(int(u4(l), i8), q) /= modulo(c(l), q)) arith_ok = .false.
+      end do
+    end do
+  end function arith_ok
 
   ! Small-prime versions of load_block / chain_block (same algorithm).
   subroutine load_block_s(ids, c, j, a)
@@ -527,9 +662,10 @@ contains
     rstage(1:n) = 0
 #endif
     na = n
-    ! Stages 1..ns use the small primes, ns+1..ns+nq the large ones.
-    ncall = ncall + 1
-    probe = (mod(ncall, 64) == 1)
+    ! Stages 1..ns use the small primes, ns+1..ns+nq the large ones.  Calls are counted modulo 64 (1, ..., 64, 1, ...),
+    ! so the counter cannot overflow; the probe is calls 1, 65, 129, ...
+    ncall = mod(ncall, 64) + 1
+    probe = (ncall == 1)
     do j = 1, ns + nq
       nn = 0
       nu = 0
@@ -589,6 +725,15 @@ contains
     flag = 0_c_signed_char
     do l = 1, na
       flag(idx(l)) = 1_c_signed_char
+    end do
+    ! The chains treat every polynomial as monic (a(:, 10) = 1; pol(1, l) is never read): any other one is kept.
+    do l = 1, n
+      if (pol(1, l) /= 1) then
+        flag(l) = 1_c_signed_char
+#ifdef PDF_STAGES_NAME
+        rstage(l) = 0
+#endif
+      end if
     end do
   end subroutine pdf_filter
 

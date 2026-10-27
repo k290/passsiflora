@@ -1,6 +1,7 @@
 # pdfilter_Test
 
-Tests of the pre-filter `pdfilter.f90` (a copy of `src/pdfilter.f90`, the integer version).
+Tests of the pre-filter `src/pdfilter.f90` (with `src/chain_general.inc`; the integer version).  Every test script compiles `../src/pdfilter.f90`
+itself: there is no copy of the filter in this directory, so a test always tests what ships.
 
 * `test_pdfilter_oracle.cpp` compares the filter with an **exact oracle**: for every polynomial and every filter prime it computes the
   Legendre symbol of the discriminant independently, so it sees both a filter that rejects too much and one that rejects too little, and,
@@ -25,9 +26,13 @@ Tests of the pre-filter `pdfilter.f90` (a copy of `src/pdfilter.f90`, the intege
 | `chain_trace.cpp` | the program that produced those traces (`TEST=chain_trace.cpp bash build-linux.sh`, then `build/chain_trace show ...` or `build/chain_trace test`). |
 | Eric's original | not in the tree; `git show ccb629f:pdfilter_Test/test_pdfilter_eric.cpp` (it is the file he sent). |
 | `test_pdfilter_full.cpp` | an earlier, larger harness (several generators, a corpus of real polynomials, rounding-mode options). |
-| `build-linux.sh`, `build-windows.sh`, `pari-config.sh` | build the filter (AVX2/FMA and baseline, with the test hook) and the test; `FILTER=dir` builds another filter (e.g. the floating-point one of commit 327b04f), `REF=dir` links a second filter for the oracle test's differential check. |
+| `build-linux.sh`, `build-windows.sh`, `pari-config.sh` | build the filter (AVX2, `-mavx2`, and baseline, with the test hook) and the test; `FILTER=dir` builds another filter (e.g. the floating-point one of commit 327b04f), `REF=dir` links a second filter for the oracle test's differential check. |
+| `arith_checks.sh`, `arith_checks.f90`, `limit_probe.c` | the compiled reductions against exact models, and a model of the chains beyond the size limits (`pdfilter_chains.tex`, Section 8.7). |
+| `tiny_checks.sh`, `test_tiny.cpp` | the compiled filter on **every** polynomial of complete sets at tiny primes (13: all depressed monic degree-10 polynomials; 17-41: structured sets; shifts), both builds, normal routing and every lane through `chain_general`, against an exact Euclid oracle. |
+| `poldisc_checks.sh`, `test_poldisc.cpp` | upstream's compiled `polDiscTest_cpu` against the definition (PARI), with a 128-bit replay of its int64 steps, and the filter against both (`UPSTREAM=<GetDecicsSrc>`). |
+| `test_gpu_filter.cpp` | the GPU kernel's integer filter (`src/nf_kernel.h`, included, not copied) compiled for the CPU, prime by prime against an exact oracle. |
+| `checks.py` | exact checks of the mathematics (C0-C10), the source-line citations of the document (C11, `--cites`, `--fix-cites`) and its ledger (C12, `--ledger`). |
 | `fault_checks.sh`, `rmshim.c` | break the filter on purpose (floating-point faults, prime ranges, seven faults of the integer arithmetic) and count what each test reports. |
-| `pdfilter.f90` | the filter. |
 | `repro/` | the fault guide of `pdfilter_chains.tex` (floating-point filter of commit 327b04f; `repro.sh` builds that filter). |
 | `test_pdfilter` | Eric's old Linux binary.  It is truncated (4 MB of the ~29 MB its ELF header expects) and segfaults; use the build scripts. |
 
@@ -85,7 +90,8 @@ measures how much the test sees.  For `test_pdfilter.cpp` it is the number of va
 | zero test +-q (`chain_general_s`) | 3,461 (0) / 4,766 (0) | 3 / 3 |
 | Euler: -R only as `negr` | 186,381 (165,045) / 144,825 (108,090) | 0 / 0 |
 | top piece shifted unsigned | 1,012,353 (0) / 1,249,505 (0) | 412,963 / 412,963 |
-| loading constants 2^(20i) | 1,132,612 (0) / 1,383,679 (0) | 751,240 / 751,240 |
+| loading constants 2^(20i), before the start-up check | 1,132,612 (0) / 1,383,679 (0) | 751,240 / 751,240 |
+| loading constants 2^(20i), now (the start-up check switches the filter off) | 717,978 (717,978) / 717,978 (717,978) | 0 / 0 |
 | `chain_general` parity | 236,578 (4,853) / 301,907 (4,846) | 174,075 / 174,075 |
 | last stage skipped | 7,983 (7,354) / 8,340 (7,354) | 0 / 0 |
 
@@ -93,8 +99,12 @@ The integer filter does no floating-point arithmetic, so the x87 and rounding fa
 where its arithmetic is proved exact.  The small primes up to 2^14 are above every proved limit, and `mont` itself does fail there (at q = 16369, 2.4 % of
 the pairs in (-2q, 2q) give a result outside (-q, q)), but the filter's operands do not come near those pairs: no wrong verdict appeared in either test
 or in a directed search, and whether one is possible there is open (see the size limits below).
-Of the seven faults of the arithmetic, `test_pdfilter.cpp` sees the three gross ones, 3 polynomials of a fourth and nothing of the other three; the
-oracle test sees all seven.  The Euler fault only loses rejections (165,045
+The table was run again after `pdf_init`'s guard and start-up check were added (2026-10-27): every row is the same except the loading constants,
+which now fail the start-up check, so the filter switches itself off (every flag 1): the oracle test sees every rejection of the run missed, the
+"must pass" test sees nothing, and the application stays correct, only slower.  The check does not see the unsigned top piece, a fault in
+`pdf_filter`'s own split lines (it evaluates its own copy of them).
+Of the seven faults of the arithmetic, `test_pdfilter.cpp` sees the two gross ones that reach the filter (before the start-up check also the loading
+constants), 3 polynomials of a fourth and nothing of the others; the oracle test sees all seven.  The Euler fault only loses rejections (165,045
 missed), the last-stage fault only shows on polynomials that reach stage 30 (all 7,354 from the oracle test's `target` stratum), and the `chain_block_s`
 zero test is seen only by the routing check.
 
@@ -109,8 +119,9 @@ Section 8.7 of `pdfilter_chains.tex` ("Where the size limits come from").  Prove
 small primes up to 8385 and large primes up to 1,097,010,265.  Computed exactly (complete searches, on the compiled code by `arith_checks.sh` and in
 Python by `checks.py` C10): `mont` first fails at q = 8241 (first prime 8263, first prime = 1 mod 4 8269, first prime `pdf_init` could choose for
 S = {2,5} 8329), `sredc` on a difference at q = 2^30 + 23279 (first prime 2^30 + 23293, first usable 2^30 + 23377).  Not known: whether the whole-filter
-limits are sharp.  `pdf_init` does not check any limit; its primes (below 2^10 and 2^25) are inside them because of where its search starts,
-and a comment on those two lines of `pdfilter.f90` (179 and 201) states the limits.
+limits are sharp.  `pdf_init` enforces them: a usable prime outside [11, 8385] (small) or [11, 1,097,010,265] (large) is skipped with one
+line on stderr (function `chosen`; the shipped search, below 2^10 and 2^25, never meets that case).  Test builds may switch the guard off with
+`-DPDF_NO_LIMITS`; `fault_checks.sh` does so for the rows beyond the limits, and its row SG checks that the guard skips the primes above 8385.
 
 The rows S8 ... L31 of `fault_checks.sh` move the primes across these limits (the expected result of each row was written down before it ran).
 Oracle test / `test_pdfilter.cpp`, AVX2 / baseline, 1,000,000 polynomials, seed 12345; the last column runs directed inputs found by `limit_probe.c`
@@ -131,6 +142,7 @@ Oracle test / `test_pdfilter.cpp`, AVX2 / baseline, 1,000,000 polynomials, seed 
 | LC | 2^30 + 26385 ... 2^30 + 23377 (`sredc` has counterexamples) | yes, whole-filter theorem | 0 / 0 | 0 / 0 | |
 | LF | 1097013329 ... 1097010329 | no | 0 / 0 | 0 / 0 | none found |
 | L31 | 2147483489 ... 2147479129 | no | 0 / 0 | 0 / 0 | 16 inputs: 3,493 / 3,493 |
+| SG | 8761 ... 8521 skipped by the guard; 8369 ... 8081 | yes | 0 / 0 | 0 / 0 | |
 
 At SD and L31 the filter gives wrong verdicts that neither test sees in 1,000,000 polynomials; only the directed inputs show them.
 

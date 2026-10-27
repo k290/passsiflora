@@ -16,5 +16,4 @@ typedef unsigned int nfuint;
 #define NF_KERNEL extern "C" __global__
 #define NF_I64_MIN (-9223372036854775807LL - 1)
 #define NF_GID() ((u64)blockIdx.x * (u64)blockDim.x + (u64)threadIdx.x)
-#define NF_AS_FLOAT(x) __int_as_float(x)
 #define NF_ATOMIC_INC(p) atomicAdd((p), 1u)

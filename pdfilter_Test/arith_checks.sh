@@ -37,7 +37,7 @@ echo "$KINDS" > "$OUT/arith_kinds.inc"
 echo "extracted from $SRC: $(grep -c 'function' "$OUT/arith_funcs.inc") function lines, $(wc -l < "$OUT/arith_funcs.inc") lines in all"
 
 # ---- builds: the flag sets of fault_checks.sh, and -O0
-F3="-O3 -march=x86-64-v3"
+F3="-O3 -march=x86-64 -mavx2 -mno-popcnt"
 FB="-O3 -march=x86-64 -mtune=generic"
 for v in avx2 base O0; do
   case $v in avx2) F=$F3 ;; base) F=$FB ;; O0) F=-O0 ;; esac

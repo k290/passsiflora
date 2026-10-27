@@ -38,6 +38,21 @@ static bool isPrime(long long n)
   return true;
 }
 
+// The kernel's row for an odd prime q < 8192: q; 2^16, 2^32, 2^48, 2^64 mod q (the loading weights; 2^16 mod q is also R mod q,
+// the Montgomery one); (q-1)/2; qneg = -1/q mod 2^32 (the bits of an unsigned 32-bit value); negr = -R mod q
+// (pdfilter_chains.tex, Theorem E).
+static void primeRow(long long q, int row[8])
+{
+  unsigned inv = (unsigned)q;                          // Newton: q*inv = 1 mod 2^k doubles k (q*q = 1 mod 8)
+  for (int k = 0; k < 4; k++) inv *= 2u - (unsigned)q * inv;
+  unsigned qneg = 0u - inv;
+  int qnegbits;  memcpy(&qnegbits, &qneg, 4);
+  long long r = powmod(2, 16, q);
+  int v[8] = { (int)q, (int)r, (int)powmod(2, 32, q), (int)powmod(2, 48, q),
+               (int)powmod(2, 64, q), (int)((q - 1) / 2), qnegbits, (int)(q - r) };
+  memcpy(row, v, sizeof v);
+}
+
 // q = 1 (mod 4) prime in (256, 1024) such that every p in S is a nonzero square mod q.
 static std::vector<int> buildPrimeTable(int numP, const int *pSet)
 {
@@ -50,10 +65,8 @@ static std::vector<int> buildPrimeTable(int numP, const int *pSet)
       if (p % q == 0 || powmod(p, (q - 1) / 2, q) != 1) { ok = false; break; }
     }
     if (!ok) continue;
-    float qi = 1.0f / (float)q;
-    int qibits;  memcpy(&qibits, &qi, 4);
-    int row[8] = { (int)q, (int)powmod(2, 16, q), (int)powmod(2, 32, q), (int)powmod(2, 48, q),
-                   (int)powmod(2, 64, q), (int)((q - 1) / 2), qibits, 0 };
+    int row[8];
+    primeRow(q, row);
     t.insert(t.end(), row, row + 8);
   }
   return t;

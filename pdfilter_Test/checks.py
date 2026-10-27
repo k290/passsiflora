@@ -11,7 +11,8 @@
 #              gp -q FILE < /dev/null   prints "gp: disc samples checked" and nothing else if all agree
 # Exit status 1 if any check fails.  Section C8 prints the numbers of the worked example (q = 41);
 # section C9 checks Section 10 of the document (zeroing the x^8 coefficient) with its own random generator;
-# section C10 checks Section 8.7 (the size limits of the integer arithmetic) with another one.
+# section C10 checks Section 8.7 (the size limits of the integer arithmetic) with another one; C11 checks the source-line citations
+# and C12 the form of the ledger (python3 checks.py --cites / --ledger run one of them alone; see below).
 import random, sys
 from math import comb
 
@@ -25,6 +26,191 @@ def check(cond, what):
         FAIL.append(what)
         if len(FAIL) < 20:
             print("FAILED:", what)
+
+# ---------- C11, defined here so that it can also run alone:
+#   python3 checks.py --cites [--upstream DIR]          only the citation check (C11)
+#   python3 checks.py --fix-cites [REV] [--upstream DIR] renumber the citations after a source edit: REV (default HEAD) is the
+#                                                        version the citations were last right for; then run --cites
+# pdfilter_chains.tex cites source lines as \Lc{file}{n}{anchor} and \Lcr{file}{n}{m}{anchor n}{anchor m}; an anchor is a text
+# that must occur on the cited line (BLANK: an empty line, RBRACE: a line "}").  The pasted listings (lstlisting with firstnumber)
+# must equal the cited range of the source.  DIR is a patched upstream GetDecicsSrc (for the citations of TgtMartinet.cpp).
+import os, re, subprocess, difflib
+CITE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CITE_TEX = os.path.join(CITE_ROOT, "pdfilter_Test", "pdfilter_chains.tex")
+CITE_FILES = {"F": "src/pdfilter.f90", "I": "src/chain_general.inc", "FP": "327b04f:src/pdfilter.f90",
+              "FPI": "327b04f:src/chain_general.inc", "TL": "pdfilter_Test/test_pdfilter_linux.cpp",
+              "TT": "pdfilter_Test/test_pdfilter_tschirnhaus.cpp", "CT": "pdfilter_Test/chain_trace.cpp",
+              "BL": "build/build-linux.sh", "BLFP": "327b04f:build/build-linux.sh", "OCL": "src/nf_gpu_opencl.cpp", "TGT": "upstream:TgtMartinet.cpp",
+              "PD": "upstream:polDiscTest_cpu.cpp", "K": "src/nf_kernel.h", "GC": "src/nf_gpu_common.cpp"}
+CITE_UPSTREAM = sys.argv[sys.argv.index("--upstream") + 1] if "--upstream" in sys.argv[1:-1] else os.environ.get("NF_UPSTREAM_SRC")
+RE_LC = re.compile(r"\\Lc\{(\w+)\}\{(\d+)\}\{([^{}]*)\}")
+RE_LCR = re.compile(r"\\Lcr\{(\w+)\}\{(\d+)\}\{(\d+)\}\{([^{}]*)\}\{([^{}]*)\}")
+RE_LST = re.compile(r"\\begin\{lstlisting\}\[style=fortran,firstnumber=(\d+),caption=\{\\code\{src/([^}]*)\}, lines (\d+)--(\d+):")
+
+def cite_source(key, rev=None):
+    spec = CITE_FILES[key]
+    try:
+        if spec.startswith("upstream:"):
+            if not CITE_UPSTREAM: return None
+            return open(os.path.join(CITE_UPSTREAM, spec[9:])).read().split("\n")
+        if ":" in spec or rev:
+            r, p = spec.split(":") if ":" in spec else (rev, spec)
+            out = subprocess.run(["git", "-C", CITE_ROOT, "show", f"{r}:{p}"], capture_output=True, text=True)
+            return out.stdout.split("\n") if out.returncode == 0 else None
+        return open(os.path.join(CITE_ROOT, spec)).read().split("\n")
+    except OSError:
+        return None
+
+def anchor_on(lines, n, a):
+    if not (1 <= n <= len(lines)): return False
+    t = lines[n - 1]
+    return t.strip() == "" if a == "BLANK" else t.strip() == "}" if a == "RBRACE" else a in t
+
+def listings(tex):
+    """(firstnumber, source key, caption first, caption last, body lines, start offset) of every pasted Fortran listing"""
+    out = []
+    for m in RE_LST.finditer(tex):
+        key = {"pdfilter.f90": "F", "chain\\_general.inc": "I"}[m.group(2)]
+        b0 = tex.index("\n", m.end()) + 1
+        body = tex[b0:tex.index("\\end{lstlisting}", b0)].rstrip("\n").split("\n")
+        out.append((int(m.group(1)), key, int(m.group(3)), int(m.group(4)), body, m.start()))
+    return out
+
+def check_cites():
+    tex = open(CITE_TEX, encoding="utf-8").read()
+    src = {k: cite_source(k) for k in CITE_FILES}
+    n1 = n2 = nl = 0; skipped = set()
+    for m in RE_LC.finditer(tex):
+        k, n, a = m.group(1), int(m.group(2)), m.group(3)
+        if src[k] is None: skipped.add(k); continue
+        n1 += 1; check(anchor_on(src[k], n, a), f"C11 citation {CITE_FILES[k]} line {n}: '{a}' is not on it")
+    for m in RE_LCR.finditer(tex):
+        k, n, e, a, b = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4), m.group(5)
+        if src[k] is None: skipped.add(k); continue
+        n2 += 1
+        check(n < e and anchor_on(src[k], n, a) and anchor_on(src[k], e, b), f"C11 citation {CITE_FILES[k]} lines {n}--{e}: anchors '{a}' / '{b}'")
+    for (first, k, c0, c1, body, _) in listings(tex):
+        nl += 1
+        check(c0 == first and c1 == first + len(body) - 1, f"C11 listing at line {first} of {CITE_FILES[k]}: caption {c0}--{c1}")
+        check(src[k][first - 1:first - 1 + len(body)] == body, f"C11 listing {CITE_FILES[k]} {c0}--{c1} differs from the source")
+    return n1, n2, nl, skipped
+
+def auto_anchor(line):
+    """the longest piece of the line without TeX-special characters, at most 48 characters"""
+    t = line.strip()
+    if not t: return "BLANK"
+    if t == "}": return "RBRACE"
+    best = max((s.strip() for s in re.split(r"[%#\\{}&~$^]", t)), key=len)
+    if len(best) > 48:
+        cut = best[:48]
+        best = (cut[:cut.rfind(" ")] if " " in cut[20:] else cut).strip()
+    return best
+
+def fix_cites(base):
+    tex = open(CITE_TEX, encoding="utf-8").read()
+    maps, new = {}, {}
+    for k, spec in CITE_FILES.items():
+        if ":" in spec: continue                       # a fixed commit, or the upstream source: never renumbered
+        old = open(os.path.join(base, spec)).read().split("\n") if os.path.isdir(base) else cite_source(k, base)
+        cur = cite_source(k)
+        if old is None or cur is None: continue
+        mp = {}
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, cur, autojunk=False).get_opcodes():
+            for d in range(i2 - i1):                   # equal lines map one to one; a rewritten block maps by position
+                mp[i1 + d + 1] = (j1 + min(d, max(j2 - j1 - 1, 0)) + 1, tag == "equal")
+        maps[k], new[k] = mp, cur
+    changed, review = [], []
+    def place(k, n, a):
+        """(new line number, anchor) for the old line n with anchor a"""
+        if k not in maps: return n, a
+        cand, same = maps[k].get(n, (n, False))
+        if anchor_on(new[k], cand, a): return cand, a
+        if not same and cand <= len(new[k]):        # the cited line itself was rewritten: new anchor, to be reviewed
+            a2 = auto_anchor(new[k][cand - 1])
+            review.append(f"{CITE_FILES[k]} line {n} -> {cand}: '{a}' -> '{a2}'")
+            return cand, a2
+        hits = [i + 1 for i in range(len(new[k])) if anchor_on(new[k], i + 1, a)]
+        if not hits: raise SystemExit(f"fix-cites: anchor '{a}' ({CITE_FILES[k]} line {n}) no longer occurs")
+        return min(hits, key=lambda h: abs(h - cand)), a
+    def one(m):
+        k, n, a = m.group(1), int(m.group(2)), m.group(3)
+        n2, a2 = place(k, n, a)
+        if n2 != n: changed.append((k, n, n2))
+        return f"\\Lc{{{k}}}{{{n2}}}{{{a2}}}"
+    def rng(m):
+        k, n, e, a, b = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4), m.group(5)
+        (n2, a2), (e2, b2) = place(k, n, a), place(k, e, b)
+        if (n2, e2) != (n, e): changed.append((k, f"{n}--{e}", f"{n2}--{e2}"))
+        return f"\\Lcr{{{k}}}{{{n2}}}{{{e2}}}{{{a2}}}{{{b2}}}"
+    tex = RE_LCR.sub(rng, RE_LC.sub(one, tex))
+    for (first, k, c0, c1, body, pos) in reversed(listings(tex)):
+        cur = new.get(k)
+        if cur is None: continue
+        hits = [i + 1 for i in range(len(cur) - len(body) + 1) if cur[i:i + len(body)] == body]
+        if len(hits) != 1: raise SystemExit(f"fix-cites: the listing {CITE_FILES[k]} {c0}--{c1} occurs {len(hits)} times in the source")
+        f2 = hits[0]
+        if f2 != first:
+            head = tex[pos:tex.index("\n", pos)]
+            head2 = head.replace(f"firstnumber={first},", f"firstnumber={f2},").replace(f"lines {c0}--{c1}:", f"lines {f2}--{f2 + len(body) - 1}:")
+            tex = tex[:pos] + head2 + tex[pos + len(head):]
+            changed.append((k, f"listing {c0}--{c1}", f"{f2}--{f2 + len(body) - 1}"))
+    open(CITE_TEX, "w", encoding="utf-8").write(tex)
+    print(f"fix-cites (base {base}): {len(changed)} citations renumbered")
+    for c in changed: print("  ", c)
+    for r in review: print("   REVIEW (the cited line was rewritten; does the text still mean it?):", r)
+
+# ---------- C12, the ledger (appendix "The ledger"):  python3 checks.py --ledger   prints it as text; every run checks its form:
+# four cells per row, a status macro of the legend in the second, no unfilled placeholder anywhere in the document.
+LEDGER_STATUS = {"\\stproved": "proved", "\\stquoted": "quoted", "\\stnum": "checked numerically", "\\streport": "reported",
+                 "\\stassume": "named assumption"}
+PLACEHOLDERS = ("POLDISCLEDGER", "TINYLEDGER", "WULEDGER", "GPULEDGER", "POLDISCROWS", "POLDISCTEXT", "GPUSHIM", "TINYROWS",
+                "TINYTEXT", "GPURESULTS", "CPUSPEED")   # the markers used while the document was written, before the runs had finished
+
+def ledger_rows():
+    tex = open(CITE_TEX, encoding="utf-8").read()
+    body = tex[tex.index("% LEDGER-BEGIN") + len("% LEDGER-BEGIN"):tex.index("% LEDGER-END")]
+    return [[c.strip() for c in re.split(r"(?<!\\)&", r)] for r in body.split("\\\\\n") if r.strip()]
+
+def detex(s):
+    for m, w in LEDGER_STATUS.items(): s = s.replace(m + "{}", "[" + w + "]").replace(m, "[" + w + "]")
+    s = re.sub(r"\\(?:ref|label)\{([^}]*)\}", r"\1", s)
+    s = re.sub(r"\\cite(?:\[([^]]*)\])?\{([^}]*)\}", lambda m: "[" + m.group(2) + (", " + m.group(1) if m.group(1) else "") + "]", s)
+    for _ in range(3): s = re.sub(r"\\(?:code|textbf|emph|texttt)\{([^{}]*)\}", r"\1", s)
+    s = s.replace("~", " ").replace("\\_", "_").replace("{,}", ",").replace("\\ ", " ").replace("\\,", " ")
+    s = re.sub(r"\\(le|ge|equiv|cdot|nmid|pmod|bmod|dots|chi|mid)(?![a-zA-Z])", lambda m: {"le": "<=", "ge": ">=", "equiv": "=", "cdot": "*", "dots": "..."}.get(m.group(1), m.group(1)), s)
+    s = re.sub(r"\\[a-zA-Z]+", "", s)
+    return re.sub(r"\s+", " ", s.replace("$", "").replace("{", "").replace("}", "")).strip()
+
+def check_ledger():
+    rows = ledger_rows()
+    for i, r in enumerate(rows):
+        check(len(r) == 4, f"C12 ledger row {i + 1}: {len(r)} cells")
+        check(any(m in r[1] for m in LEDGER_STATUS), f"C12 ledger row {i + 1}: no status macro in '{r[1]}'")
+    tex = open(CITE_TEX, encoding="utf-8").read()
+    for p in PLACEHOLDERS:
+        check(re.search(r"\b" + p + r"\b", tex) is None, f"C12 placeholder {p} left in the document")
+    count = {}
+    for r in rows:
+        for m, w in LEDGER_STATUS.items():
+            if m in r[1]: count[w] = count.get(w, 0) + 1
+    return rows, count
+
+if "--ledger" in sys.argv[1:]:
+    rows, count = check_ledger()
+    for i, r in enumerate(rows):
+        print(f"[{i + 1}] {detex(r[0])}\n      status:   {detex(r[1])}\n      checked:  {detex(r[2])}\n      rests on: {detex(r[3])}")
+    print(f"C12 ledger: {len(rows)} rows; " + ", ".join(f"{w} {n}" for w, n in sorted(count.items())))
+    print("FAILURES:", len(FAIL))
+    sys.exit(1 if FAIL else 0)
+
+if "--fix-cites" in sys.argv[1:]:
+    i = sys.argv.index("--fix-cites")
+    fix_cites(sys.argv[i + 1] if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("-") else "HEAD")
+if "--cites" in sys.argv[1:] or "--fix-cites" in sys.argv[1:]:
+    c1, c2, cl, sk = check_cites()
+    print(f"C11 citations: {c1} lines and {c2} ranges with their anchors, {cl} listings; files not available: {sorted(sk) or 'none'}")
+    print("FAILURES:", len(FAIL))
+    sys.exit(1 if FAIL else 0)
 
 # ---------- polynomials: ascending coefficient lists, trimmed (zero polynomial = [])
 def trim(p):
@@ -1031,6 +1217,16 @@ lo = max(qq for qq in range(1676704560, 1676704570) if 2 * (qq - 1) ** 2 + (1 <<
 check(lo == 1676704566, "C10.5 sredc: no 64-bit overflow for q <= 1676704566")
 print(f"C10.5 max - min of mont over |a|,|b| <= 2q-1: {sum(e1)} at q = 12799, {sum(e2)} at q = 12801 (16-bit overflow of a "
       f"difference from 32768); sredc stays within 64 bits for q <= {lo}")
+
+# ---------- C11: the source-line citations and the pasted listings of pdfilter_chains.tex (the functions are at the top)
+print("\n===== C11: source-line citations of the document =====")
+c1, c2, cl, sk = check_cites()
+print(f"C11 citations: {c1} lines and {c2} ranges with their anchors, {cl} listings; files not available: {sorted(sk) or 'none'}")
+
+# ---------- C12: the ledger (the functions are at the top; --ledger prints it)
+print("\n===== C12: the ledger of the document =====")
+rows, count = check_ledger()
+print(f"C12 ledger: {len(rows)} rows; " + ", ".join(f"{w} {n}" for w, n in sorted(count.items())))
 
 print("\nFAILURES:", len(FAIL))
 sys.exit(1 if FAIL else 0)

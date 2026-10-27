@@ -30,15 +30,22 @@ cp ../passiflora/src/* GetDecicsSrc/
 * **GMP**, **BOINC's application libraries** (`libboinc.a`, `libboinc_api.a`, and
   `libboinc_opencl.a` for the GPU build) and, for the GPU build, an OpenCL library and the
   Khronos OpenCL headers.
-* **gfortran** (GCC 11 or newer) for `pdfilter.f90`.
+* **gfortran** for `pdfilter.f90`.  Checked: GCC 15.2 (Ubuntu, WSL) and GCC 16.2 (MSYS2 MinGW-w64), with
+  `pdfilter_Test/arith_checks.sh` (the compiled reductions against exact models, all three flag sets) and
+  `pdfilter_Test/tiny_checks.sh` (the whole filter on complete sets of polynomials at tiny primes).  The filter relies on
+  gfortran reducing an out-of-range `int(x, kind)` modulo 2^k and on `shifta` being arithmetic (`pdfilter_chains.tex`,
+  Section 8.1); with another compiler or version run those two scripts first.  At run time `pdf_init` checks the compiled
+  arithmetic on known inputs and switches the filter off (every polynomial goes to the exact test) if it disagrees.
 
 ## 3. Compile (Linux)
 
 Inside `GetDecicsSrc` (with an empty `config.h` next to the sources):
 
 ```bash
-# the Fortran filter, twice: AVX2/FMA and baseline; the C++ side picks one at run time
-gfortran -O3 -march=x86-64-v3 -cpp -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" \
+# the Fortran filter, twice: AVX2 and baseline; the C++ side picks one at run time (the AVX2 one when the CPU reports
+# AVX2 and FMA).  The AVX2 object is compiled with -mavx2 only (not -march=x86-64-v3, which would also allow BMI1/2,
+# LZCNT, MOVBE and F16C), so the run-time check covers every instruction set extension it may use.
+gfortran -O3 -march=x86-64 -mavx2 -mno-popcnt -cpp -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" \
          "-DPDF_FILTER_NAME='pdf_filter_v3'" -c pdfilter.f90 -o pdfilter_v3.o
 gfortran -O3 -march=x86-64 -mtune=generic -cpp -DPDF_MOD=pdfilter_base "-DPDF_INIT_NAME='pdf_init_base'" \
          "-DPDF_FILTER_NAME='pdf_filter_base'" -c pdfilter.f90 -o pdfilter_base.o
@@ -57,7 +64,9 @@ must evaluate its floating-point bounds exactly as upstream does.
 
 CUDA kernel: `build/build-cuda-kernel.sh` compiles `src/nf_kernel.cu` with `nvcc --fmad=false` (CUDA 12.x, with a host
 gcc <= 13; Ubuntu 22.04's gcc 11 works) and writes `src/nf_cuda_fatbin.h`; compile `nf_gpu_common.cpp` and
-`nf_gpu_cuda.cpp` instead of the stub and link `-ldl` on Linux (nothing from CUDA is linked).
+`nf_gpu_cuda.cpp` instead of the stub and link `-ldl` on Linux (nothing from CUDA is linked).  `nf_cuda_fatbin.h` and the
+MUSA library (`build/build-musa.sh`) are built from `src/nf_kernel.h` and `src/nf_port_cuda.h`: rebuild them whenever
+either changes (the OpenCL kernel is embedded as source by every GPU build and needs nothing extra).
 
 OpenCL GPU build: embed the kernel (`nf_enum_cl.h` is `R"NFCL(` + `nf_port_opencl.h` + `nf_kernel.h` + `)NFCL"`), compile
 `nf_gpu_common.cpp` and `nf_gpu_opencl.cpp` instead of the stub, and link `libboinc_opencl.a` and `-lOpenCL` (everything else

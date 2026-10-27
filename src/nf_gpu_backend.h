@@ -14,7 +14,7 @@ static const size_t NF_MAX_NODES = 1u << 17;   // nodes per batch
 static const unsigned NF_OUT_CAP = 1u << 18;   // survivor records per launch
 
 // Pick the device and build / load the kernel.  primes = the filter-prime table, 8 ints per prime
-// (q, 2^16, 2^32, 2^48, 2^64 mod q, (q-1)/2, bits of 1.0f/q, 0).  Returns false when no device of
+// (q, 2^16, 2^32, 2^48, 2^64 mod q, (q-1)/2, bits of -1/q mod 2^32, -2^16 mod q).  Returns false when no device of
 // this kind is assigned to the task (the app then runs on the CPU); exits on real errors.
 bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes);
 

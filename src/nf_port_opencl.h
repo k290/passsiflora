@@ -15,5 +15,4 @@ typedef uint nfuint;
 #define NF_KERNEL __kernel
 #define NF_I64_MIN LONG_MIN
 #define NF_GID() ((u64)get_global_id(0))
-#define NF_AS_FLOAT(x) as_float(x)
 #define NF_ATOMIC_INC(p) atomic_inc(p)

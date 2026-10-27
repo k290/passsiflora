@@ -11,8 +11,8 @@ cd "$(dirname "$0")"
 OUT=${OUT:-build}
 mkdir -p "$OUT"
 
-SRC=${FILTER:+$FILTER/}pdfilter.f90
-$FC -O3 -march=x86-64-v3 $FFLAGS_EXTRA -I../src -cpp -J "$OUT" -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" "-DPDF_STAGES_NAME='pdf_stages_v3'" -c "$SRC" -o "$OUT/pdfilter_v3.o" || exit 1
+SRC=${FILTER:-../src}/pdfilter.f90      # the shipped source: src/ is the only copy of the filter
+$FC -O3 -march=x86-64 -mavx2 -mno-popcnt $FFLAGS_EXTRA -I../src -cpp -J "$OUT" -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" "-DPDF_STAGES_NAME='pdf_stages_v3'" -c "$SRC" -o "$OUT/pdfilter_v3.o" || exit 1
 $FC -O3 -march=x86-64 -mtune=generic $FFLAGS_EXTRA -I../src -cpp -J "$OUT" -DPDF_MOD=pdfilter_base "-DPDF_INIT_NAME='pdf_init_base'" "-DPDF_FILTER_NAME='pdf_filter_base'" "-DPDF_STAGES_NAME='pdf_stages_base'" -c "$SRC" -o "$OUT/pdfilter_base.o" || exit 1
 
 REFOBJ=

@@ -10,7 +10,10 @@ asks whether the rest is a perfect square. Only about one polynomial in 10^7 pas
 
 The value upstream tests differs from Disc(A) only by rational square factors
 (the content of B contributes c^10, the last sub-resultant step (B0/h)^(2k)), so the
-question is the same for Disc(A). Take a prime q ≡ 1 (mod 4) such that every p in S
+question is the same for Disc(A). This holds whenever upstream's first two sub-resultant
+iterations, which it does in int64 before switching to GMP, do not overflow; when they do,
+upstream's own result is undefined (`pdfilter_Test/pdfilter_chains.tex`, Proposition "What
+the exact test computes", measured by `pdfilter_Test/poldisc_checks.sh`). Take a prime q ≡ 1 (mod 4) such that every p in S
 is a quadratic residue mod q. If the polynomial passed, Disc(A) would be
 ± (product of primes in S) × (a square), so its Legendre symbol mod q could only be 0
 or 1. **A Legendre symbol of −1 is therefore a proof that the polynomial fails.**
@@ -32,10 +35,18 @@ Disc(A) mod q comes from a Euclid chain over F_q:
   lane; the odd powers of lc(V) from Res(V,U′) = lc(V)^(deg U′ − deg U + deg V)·Res(V,U)
   are tracked explicitly.
 
-All arithmetic is on floating-point residues small enough that every product is exact
-(single precision for q < 2^10, double for q < 2^25) with the symmetric residue
-representation, so the reduction has no branch and vectorises. The CPU build
-contains an AVX2/FMA and a baseline (SSE2) copy and picks one at run time.
+All arithmetic is integer arithmetic: signed Montgomery multiplication with R = 2^16 in
+16-bit lanes for the six small primes (2^8 < q < 2^10) and R = 2^32 with 64-bit products
+for the 24 large ones (2^24 < q < 2^25), and a three-piece loading of the 64-bit
+coefficients. The filter does no floating-point operation, so its result does not depend
+on the rounding mode, on x87 or SSE code, or on `-ffast-math`. `pdf_init` chooses a prime
+only inside the proved limits of the arithmetic (q ≤ 8385 small, q ≤ 1,097,010,265 large,
+q ≥ 11; any other usable prime is skipped with a line on stderr), and at the end checks the
+compiled arithmetic on known inputs; if that check fails it uses no prime, so every flag is
+1 and the exact test alone decides. The proofs (exactness, ranges, limits, the start-up
+check, the masked loop of the general path) are in `pdfilter_Test/pdfilter_chains.tex`.
+The CPU build contains an AVX2 copy (compiled with `-mavx2`; used when the CPU has AVX2
+and FMA) and a baseline (SSE2) copy and picks one at run time.
 
 ## 2. Exact shortcuts in the enumeration (patch)
 
@@ -59,8 +70,10 @@ The stock GPU app offloads only the discriminant test and feeds it from one CPU 
 
 Passiflora's CPU code walks only the outer loops and queues a *node* per fixed
 (a1…a3) state — 18 doubles and 35 integers. The OpenCL kernel runs one work item per
-(node, m2): the complete m1 loop, the bb4…bb9 bound tests in the original order, and a
-single-precision version of the filter above with up to 24 small primes. It counts every
+(node, m2): the complete m1 loop, the bb4…bb9 bound tests in the original order, and an
+integer version of the filter above (unsigned 32-bit Montgomery arithmetic with R = 2^16,
+residues kept in [0, 2q)) with up to 24 small primes (14 for S = {2, 5}); it is exact like the CPU filter
+(`pdfilter_chains.tex`, Theorem E). It counts every
 polynomial of the original enumeration (the application reports that number) and returns
 only the ~1 in 10^5 that survive the filter. The CPU then finishes those exactly as
 before: the Fortran filter with large primes, the GMP test, PARI's irreducibility test and

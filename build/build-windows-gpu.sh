@@ -16,7 +16,7 @@ PY
 { echo "LIBRARY OpenCL.dll"; echo "EXPORTS"; for f in clGetPlatformIDs clGetPlatformInfo clGetDeviceIDs clGetDeviceInfo clCreateContext clCreateCommandQueue clCreateProgramWithSource clBuildProgram clGetProgramBuildInfo clCreateKernel clCreateBuffer clReleaseMemObject clEnqueueWriteBuffer clEnqueueReadBuffer clEnqueueNDRangeKernel clSetKernelArg clFinish; do echo $f; done; } > OpenCL.def
 x86_64-w64-mingw32-dlltool -d OpenCL.def -l libOpenCL.a -D OpenCL.dll
 INC="-I. -I/root/nf/clinc -I$B -I$B/lib -I$B/api -I$WP/src/headers -I$WP/Omingw-x86_64 -I$G/include"
-x86_64-w64-mingw32-gfortran -O3 -march=x86-64-v3 -cpp -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" -c pdfilter.f90 -o pdfilter_v3.o
+x86_64-w64-mingw32-gfortran -O3 -march=x86-64 -mavx2 -mno-popcnt -cpp -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" -c pdfilter.f90 -o pdfilter_v3.o
 x86_64-w64-mingw32-gfortran -O3 -march=x86-64 -mtune=generic -cpp -DPDF_MOD=pdfilter_base "-DPDF_INIT_NAME='pdf_init_base'" "-DPDF_FILTER_NAME='pdf_filter_base'" -c pdfilter.f90 -o pdfilter_base.o
 for f in polDiscTest_cpu TgtMartinet GetDecics; do
   x86_64-w64-mingw32-g++ -O3 -w -DMINGW -DAPP_VERSION_CPU_STD $INC -c -o $f.o $f.cpp

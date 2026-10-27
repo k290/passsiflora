@@ -14,6 +14,7 @@
 //   * doubles: same operation order, no FMA contraction, IEEE sqrt / divide;
 //   * integers: unsigned wrap-around arithmetic, like the CPU's long long;
 //   * double -> int64 uses the x86 rule (out of range or NaN gives INT64_MIN).
+// The pre-filter itself is exact integer arithmetic (redc below), with no floating-point operation.
 
 // Backend specifics (address spaces, types, atomics, ...) come from nf_port_opencl.h or
 // nf_port_cuda.h, which must be included first.
@@ -21,8 +22,6 @@
 #define ND 18
 #define NI 35
 #define REC 12        // output record: node, m2, m1, bb1..bb9
-
-#define MAGICS 12582912.0f   // 1.5 * 2^23
 
 // ---- helpers -------------------------------------------------------------
 
@@ -32,14 +31,20 @@ NF_INLINE i64 d2l(double x)
   return (i64)x;
 }
 
-NF_INLINE float reds(float x, float q, float qi)
+// The filter is integer-only (pdfilter_chains.tex, Theorem E): unsigned 32-bit arithmetic, which wraps modulo 2^32 by the definition
+// of OpenCL C and CUDA, for an odd prime q < 8192 (the table's primes are below 1024).  Residues are kept in [0, 2q): a value is 0 mod q
+// exactly when it is 0 or q.  Montgomery reduction with R = 2^16: for 0 <= t < 8q^2, m = t*qneg mod 2^16 (qneg = -1/q mod 2^32, whose
+// low 16 bits are -1/q mod 2^16) makes t + m*q (< 2^30, no wrap) divisible by 2^16, and (t + m*q) / 2^16 < t/2^16 + q < 2q is
+// congruent to t/R mod q.
+NF_INLINE nfuint redc(nfuint t, nfuint q, nfuint qneg)
 {
-  return x - q * ((x * qi + MAGICS) - MAGICS);
+  nfuint m = (t * qneg) & 0xFFFFu;
+  return (t + m * q) >> 16;
 }
 
-// x mod q as a float in [-(q-1)/2, (q-1)/2].  Limbs of 16 bits, weights
-// c1 = 2^16, c2 = 2^32, c3 = 2^48 mod q (all < 1024): the sum stays below 2^28.
-NF_INLINE float coef_mod(i64 x, int q, int c1, int c2, int c3, int w64)
+// x mod q in [0, q).  Limbs of 16 bits, weights c1 = 2^16, c2 = 2^32, c3 = 2^48 mod q (all < q): the sum is at most
+// (2^16 - 1)(1 + 3(q - 1)) < 2^31 for q < 8192 (below 2^28 for the table's q < 1024).
+NF_INLINE nfuint coef_mod(i64 x, int q, int c1, int c2, int c3, int w64)
 {
   u64 u = (u64)x;
   int r = (int)(u & 0xFFFF) + (int)((u >> 16) & 0xFFFF) * c1
@@ -47,74 +52,75 @@ NF_INLINE float coef_mod(i64 x, int q, int c1, int c2, int c3, int w64)
   if (x < 0) r -= w64;          // x = u - 2^64
   r %= q;
   if (r < 0) r += q;
-  if (r > q / 2) r -= q;
-  return (float)r;
+  return (nfuint)r;
 }
 
-// chi(Disc A) = -1 mod q proven?  Same algorithm as chain_general.inc for one lane.
-NF_INLINE int chi_reject(const float *a, float q, float qi, int e)
+// chi(Disc A) = -1 mod q proven?  Same algorithm as chain_general.inc for one lane.  Every product of two residues and every
+// lv*U(i) + (2q - lu)*V(i) is below 8q^2 and is reduced by redc, so each polynomial is its exact counterpart times a power of
+// R^-1, a square; Euler's criterion runs in the Montgomery domain from one = R mod q, and -1 is negr = -R mod q or negr + q.
+NF_INLINE int chi_reject(const nfuint *a, nfuint q, nfuint qneg, nfuint one, nfuint negr, int e)
 {
-  float u[12], v[12], w[12];
+  nfuint u[12], v[12], w[12];
   #pragma unroll
   for (int i = 0; i <= 10; i++) u[i] = a[10 - i];
-  u[11] = 0.0f;
+  u[11] = 0u;
   #pragma unroll
-  for (int i = 0; i <= 9; i++) v[i] = reds((float)(10 - i) * a[10 - i], q, qi);
-  v[10] = 0.0f; v[11] = 0.0f;
+  for (int i = 0; i <= 9; i++) v[i] = redc((nfuint)(10 - i) * a[10 - i], q, qneg);
+  v[10] = 0u; v[11] = 0u;
   int du = 10, dv = 9, done = 0;
-  float mm = 1.0f;
+  nfuint mm = 1u;
 
   for (int it = 0; it < 40; it++) {
-    float lu = u[0], lv = v[0];
+    nfuint lu = u[0], lv = v[0];
     #pragma unroll
     for (int i = 0; i < 11; i++)
-      w[i] = (i < du) ? reds(lv * u[i + 1] - lu * v[i + 1], q, qi) : 0.0f;
-    w[11] = 0.0f;
+      w[i] = (i < du) ? redc(lv * u[i + 1] + (2u * q - lu) * v[i + 1], q, qneg) : 0u;
+    w[11] = 0u;
     int dw = du - 1;
-    while (dw >= 0 && w[0] == 0.0f) {
+    while (dw >= 0 && (w[0] == 0u || w[0] == q)) {
       #pragma unroll
       for (int i = 0; i < 11; i++) w[i] = w[i + 1];
-      w[11] = 0.0f;
+      w[11] = 0u;
       dw--;
     }
     if (dw < 0) return 0;                       // resultant vanishes mod q: keep
     int ev = dw - du + dv;  if (ev < 0) ev = -ev;
-    if (ev & 1) mm = reds(mm * lv, q, qi);
+    if (ev & 1) mm = redc(mm * lv, q, qneg);
     #pragma unroll
     for (int i = 0; i < 12; i++) u[i] = w[i];
     du = dw;
     if (du < dv) {
       #pragma unroll
-      for (int i = 0; i < 12; i++) { float t = u[i]; u[i] = v[i]; v[i] = t; }
+      for (int i = 0; i < 12; i++) { nfuint t = u[i]; u[i] = v[i]; v[i] = t; }
       int t = du; du = dv; dv = t;
     }
     if (dv == 0) {
-      if (du & 1) mm = reds(mm * v[0], q, qi);
+      if (du & 1) mm = redc(mm * v[0], q, qneg);
       done = 1;
       break;
     }
   }
   if (!done) return 0;
-  float acc = 1.0f, base = mm;
+  nfuint acc = one, base = mm;
   for (int ee = e; ee > 0; ee >>= 1) {
-    if (ee & 1) acc = reds(acc * base, q, qi);
-    base = reds(base * base, q, qi);
+    if (ee & 1) acc = redc(acc * base, q, qneg);
+    base = redc(base * base, q, qneg);
   }
-  return acc == -1.0f;
+  return acc == negr || acc == negr + q;
 }
 
-// bb[1..10] as c[1..10] (leading coefficient 1 implied).  1 = survives all primes.
+// bb[1..10] as c[1..10] (leading coefficient 1 implied).  1 = survives all primes.  Row of qt: see primeRow in nf_gpu_common.cpp.
 NF_INLINE int survives(const i64 *c, NF_C int *qt, nfuint np)
 {
   for (nfuint p = 0; p < np; p++) {
     int q = qt[p * 8 + 0], c1 = qt[p * 8 + 1], c2 = qt[p * 8 + 2], c3 = qt[p * 8 + 3];
     int w64 = qt[p * 8 + 4], e = qt[p * 8 + 5];
-    float qf = (float)q, qi = NF_AS_FLOAT(qt[p * 8 + 6]);
-    float a[11];
+    nfuint qneg = (nfuint)qt[p * 8 + 6], negr = (nfuint)qt[p * 8 + 7];
+    nfuint a[11];
     #pragma unroll
     for (int k = 0; k <= 9; k++) a[k] = coef_mod(c[10 - k], q, c1, c2, c3, w64);
-    a[10] = 1.0f;
-    if (chi_reject(a, qf, qi, e)) return 0;
+    a[10] = 1u;
+    if (chi_reject(a, (nfuint)q, qneg, (nfuint)c1, negr, e)) return 0;
   }
   return 1;
 }
