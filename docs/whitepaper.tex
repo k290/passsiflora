@@ -58,9 +58,9 @@ computed the symbols in floating point and was exact only under round-to-nearest
 version uses only integer arithmetic (signed Montgomery reduction on the CPU, unsigned Montgomery reduction on the GPU).  This paper states the algorithms,
 the theorems that make the decisions exact (the program text computes exactly the decisions of the exact algorithms, independently of the floating-point
 environment), the contract between the filter and the application, and the evidence: a test of the compiled filter on $25.5$ billion polynomials, complete
-sets at tiny primes, an exact oracle with deliberate faults, a differential test of upstream's exact test, the $31$ test work units in
-every build, and a shim of the GPU kernel.  Along the way it shows that upstream's exact test itself silently drops passing polynomials when its first
-\code{int64} steps overflow.  The proofs are in the full document \cite{P}; here every result is stated with its status and with what it still assumes.
+sets at tiny primes, an exact oracle with deliberate faults, a differential test of the exact test of the original GetDecics application, the $31$ test
+work units in every build, and a shim of the GPU kernel.  Along the way it shows that this exact test itself silently drops passing polynomials when its first
+\code{int64} steps overflow, a defect of GetDecics that Passiflora neither causes nor changes.  The proofs are in the full document \cite{P}; here every result is stated with its status and with what it still assumes.
 \end{abstract}
 
 \tableofcontents
@@ -68,8 +68,14 @@ every build, and a shim of the GPU kernel.  Along the way it shows that upstream
 %======================================================================
 \section{The problem}
 
-NumberFields@home searches for number fields of degree $10$ by enumerating monic polynomials $f=x^{10}+a_9x^9+\dots+a_0$ with integer coefficients.  The final
-test of the enumeration is the \emph{discriminant test} (upstream's \code{polDiscTest\_cpu}, built on GMP):
+NumberFields@home searches for number fields of degree $10$ by enumerating monic polynomials $f=x^{10}+a_9x^9+\dots+a_0$ with integer coefficients.
+
+\paragraph{GetDecics and Passiflora.}  The program that volunteers run for this is \emph{GetDecics}, the project's original application \cite{gd}.  Passiflora
+is not a new program: it is a patch on top of the original GetDecics application (source at commit \code{638ca4e}), plus new source files for the pre-filter and
+the GPU code.  The enumeration and the exact discriminant test are GetDecics' own code; Passiflora decides which polynomials reach that test, and its output must be
+exactly that of the original application.  In the full document \cite{P} and in the repository, the original GetDecics application is called ``upstream''.
+
+The final test of the enumeration is the \emph{discriminant test} (\code{polDiscTest\_cpu} of GetDecics, built on GMP):
 
 \begin{definition}[Passing]
 Let $S$ be a finite set of primes (read from the work unit; $S=\{2,5\}$ in every test work unit).  A monic $f\in\Z[x]$ \emph{passes} if $D=\disc(f)\neq0$ and
@@ -141,30 +147,45 @@ symbol $-1$, at the first such prime.
 The converse is what makes a test with an exact oracle possible (Section~\ref{sec:evidence}).
 
 %======================================================================
-\section{What upstream's exact test computes}\label{sec:poldisc}
+\section{What the exact test of GetDecics computes}\label{sec:poldisc}
 
-The filter is proved against the definition of passing; the application compares it with upstream's \code{polDiscTest\_cpu}.  That test follows Cohen's
-sub-resultant algorithm \cite[Algorithm~3.3.7]{cohen}, does its first two iterations in \code{int64} and the rest in GMP, removes the primes of $S$ from the result
-\code{polDisc} and asks whether the rest is a square.
+The filter is proved against the definition of passing, but in the application its rejections take the place of verdicts of the original GetDecics
+application's own exact test, \code{polDiscTest\_cpu}.  So it matters what that test computes.  It follows Cohen's sub-resultant algorithm
+\cite[Algorithm~3.3.7]{cohen}: starting from $f$ and $f'$ it computes a chain of pseudo-remainders whose last element gives the resultant $\Res(f,f')$, and so the
+discriminant, up to known factors.  The numbers in that chain grow to about a thousand bits, so the test uses GMP; but to save time it does the first two
+iterations, where the numbers are still small, in $64$-bit machine integers (\code{int64}), and only then switches to GMP.  At the end it removes every factor of the
+primes of $S$ from its result \code{polDisc} and asks whether what remains is a perfect square.
 
 \begin{proposition}[What the exact test computes]\label{prop:poldisc}\stproved
-Let $f$ be monic of degree $10$ with \code{int64} coefficients, and suppose (H): no \code{int64} expression of upstream's first two iterations leaves the \code{int64}
-range.  Then $|\disc f|=r^2\,|\code{polDisc}|$ for a nonzero rational $r$, and \code{polDiscTest\_cpu} sets the flag to $1$ exactly when $f$ passes.
+Let $f$ be monic of degree $10$ with \code{int64} coefficients, and suppose (H): no \code{int64} value computed in the first two iterations of
+\code{polDiscTest\_cpu} leaves the \code{int64} range.  Then $|\disc f|=r^2\,|\code{polDisc}|$ for a nonzero rational $r$, and \code{polDiscTest\_cpu} sets the flag to $1$
+exactly when $f$ passes.
 \end{proposition}
 
-The proof \cite[Proposition~3.19]{P} follows upstream's code step by step against Cohen's algorithm (whose exact divisions are quoted \stquoted): the content
+The proof \cite[Proposition~3.19]{P} follows the code of GetDecics step by step against Cohen's algorithm (whose exact divisions are quoted \stquoted): the content
 of $f'$ divides $10$ and is found exactly, every pseudo-remainder is the unique one by uniqueness of division in $\Q[x]$, the last step's shortcut replaces the
-resultant by an even power of a rational, and the removal of $S$ is complete.  Hypothesis (H) is real.  A signed overflow is undefined behaviour in C, and the
-differential test of Table~\ref{tab:poldisc}, which replays the \code{int64} steps in $128$ bits, shows its effect:
+resultant by an even power of a rational, and the removal of $S$ is complete.
+
+\paragraph{The overflow.}  Hypothesis (H) is not a formality.  The two \code{int64} iterations multiply coefficients of $f$ by coefficients of $f'$, and then by
+coefficients of the first remainder, and nothing checks that these products fit into $63$ bits.  The source of GetDecics notes the danger for one branch of its
+second iteration (``the result would exceed a long'') and sends that branch to GMP, but the two branches it keeps in \code{int64} are not bounded either.  A signed
+overflow is undefined behaviour in C; in practice the value wraps around modulo $2^{64}$, the GMP steps that follow work on a wrong number, the result is almost
+never a perfect square, and the test answers ``does not pass''.  A polynomial that passes is then lost silently: no error, no message, and the work unit's output
+simply lacks it.
+
+\paragraph{How it was measured.}  The program \code{test\_poldisc.cpp} links the compiled \code{polDiscTest\_cpu} of GetDecics and compares its flag with the
+definition computed independently by PARI (the discriminant, the primes of $S$ removed, the square test).  It also replays the \code{int64} steps of GetDecics in
+$128$-bit integers, which shows whether one of them overflows.  It runs eight families of polynomials, among them the real candidates of the application and
+polynomials built to pass:
 
 \begin{table}[ht]
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
-\caption{Upstream's compiled \code{polDiscTest\_cpu} against the definition (PARI), and the filter, on $10{,}735{,}681$ polynomials ($S=\{2,5\}$).  ``ovf'': an \code{int64}
-step of upstream overflows; ``differ'': upstream's flag is not the definition's.}\label{tab:poldisc}
+\caption{The compiled \code{polDiscTest\_cpu} of GetDecics against the definition (PARI), and the Passiflora filter, on $10{,}735{,}681$ polynomials ($S=\{2,5\}$).
+``ovf'': an \code{int64} step of GetDecics overflows; ``differ'': the flag of GetDecics is not the definition's.}\label{tab:poldisc}
 \begin{tabular}{@{}lrrrrrrrr@{}}
 \toprule
 & & \multicolumn{2}{c}{pass} & & \multicolumn{2}{c}{differ} & \multicolumn{2}{c}{filter} \\ \cmidrule(lr){3-4} \cmidrule(lr){6-7} \cmidrule(l){8-9}
-family & polynomials & upstream & definition & ovf & no ovf & ovf & rejects & rejects passing \\ \midrule
+family & polynomials & GetDecics & definition & ovf & no ovf & ovf & rejects & rejects passing \\ \midrule
 random, $|a_i|\le3$ & 3,000,000 & 458 & 458 & 0 & 0 & 0 & 2,930,945 & 0 \\
 random, $|a_i|\le100$ & 2,000,000 & 0 & 0 & 0 & 0 & 0 & 1,999,948 & 0 \\
 random, $|a_i|\le10^6$ & 1,000,000 & 0 & 0 & 999,961 & 0 & 0 & 1,000,000 & 0 \\
@@ -178,11 +199,37 @@ all & 10,735,681 & 2,157,958 & 3,002,223 & 1,844,238 & 0 & 844,265 & 6,664,748 &
 \end{tabular}
 \end{table}
 
-Without overflow upstream agrees with the definition on all $8{,}891{,}443$ polynomials.  With overflow, of a million passing polynomials with large
-coefficients ($G(x^2)$ shifted, $|G_k|\le10^6$) upstream loses $844{,}265$: an upstream defect, worth reporting, independent of Passiflora.  None of the
-$733{,}855$ real candidates (captured from seven work units, with shifts) overflows, so as far as these samples show the application's polynomials stay in range;
-(H) remains a named assumption.  Where (H) fails, the filter's rejection is still a proof that the polynomial does not pass, so the filter can then differ from
-upstream only by rejecting a polynomial that upstream wrongly passes; that did not happen.
+\paragraph{What it shows} \stnum.  Without overflow GetDecics agrees with the definition on all $8{,}891{,}443$ polynomials, as the proposition says.  With
+overflow it does not: of a million polynomials built to pass with large coefficients ($G(x^2)$ shifted, $|G_k|\le10^6$), $844{,}277$ overflow and GetDecics rejects
+$844{,}265$ of them although every one passes.  For random coefficients the overflow starts between sizes $1000$ and $3000$: in samples of $20{,}000$, no
+overflow with coefficients up to $1000$, $43\%$ of the polynomials at $3000$, $87\%$ at $10^4$, almost all from $10^5$.  Coefficient size alone is not the measure,
+though: the real candidates have coefficients up to $2.1\cdot10^9$ and never overflow, because their coefficients grow with the degree in the way that
+polynomials with roots of moderate size do.  What matters is the largest value the \code{int64} steps form.
+
+\paragraph{An example from a real result.}  One of the $83$ results in the truth files of the test work units is
+\[ f=x^{10}+600x^7+1350x^6-800x^5+115000x^4+405000x^3+265625x^2-540000x+185000 . \]
+Multiplying its roots by $3$ gives $g(x)=3^{10}f(x/3)$,
+\begin{multline*}
+g=x^{10}+16200x^7+109350x^6-194400x^5+83835000x^4+885735000x^3\\
++1742765625x^2-10628820000x+10924065000 .
+\end{multline*}
+It defines the same number field, and $\disc g=3^{90}\disc f$, so $g$ passes as $f$ does (PARI: \code{poldisc}, \code{issquare}, \code{nfisisom}).  GetDecics
+rejects $g$: one of its \code{int64} values would be about $2^{67}$.  With the roots multiplied by $2$ instead, the largest value is about $2^{56.5}$ and GetDecics accepts
+the polynomial.
+
+\paragraph{Does it affect the project?}  On the $146{,}771$ candidates captured from seven real work units the largest \code{int64} value is $2^{59.45}$ (none above
+$2^{60}$), a factor of about $12$ below the limit $2^{63}$; on the $83$ results it is $2^{48.5}$.  So no result of the sampled work units is lost, but the margin is
+three and a half bits, measured on samples, not proved, and the example shows that a passing polynomial whose roots are only three times those of a real result,
+defining the same field, is already lost.  Whether a work unit with larger coefficients loses results is not known; (H) remains a named assumption of this paper.
+
+\paragraph{Passiflora and the overflow.}  The defect is in GetDecics and is present in the stock application, with or without Passiflora.  Passiflora keeps the
+exact test as GetDecics has it (its patch changes only the test's conversions for a $32$-bit \code{long}), so that its output stays the stock program's.  The filter
+rejects only polynomials that provably do not pass, by the definition; a passing polynomial that the overflow makes GetDecics lose is kept by the filter and then
+lost by the exact test exactly as in the stock program.  The filter could differ from the stock program only by rejecting a polynomial that GetDecics wrongly
+\emph{accepts} because of an overflow, which would make the output more correct; it did not happen in the tests (last column of the table).  The fix belongs to
+GetDecics: do the two \code{int64} iterations with overflow-checked arithmetic (GCC's and Clang's \code{\_\_builtin\_mul\_overflow} and
+\code{\_\_builtin\_sub\_overflow}) or in $128$-bit integers, and compute those iterations with GMP when a value does not fit, at the cost of a few instructions per
+product.
 
 %======================================================================
 \section{Exact integer arithmetic}\label{sec:integer}
@@ -279,7 +326,7 @@ the kernel the CUDA fat binary and the MUSA library must be rebuilt with the aut
 What the application needs is stated as three properties.
 
 \begin{description}
-\item[(C1) Soundness.] A flag is $0$ only if upstream's \code{polDiscTest\_cpu} would reject the polynomial.
+\item[(C1) Soundness.] A flag is $0$ only if the \code{polDiscTest\_cpu} of GetDecics would reject the polynomial.
 \item[(C2) Safety.] No integer overflow, out-of-bounds access, read of an undefined value, other undefined behaviour, or illegal instruction.
 \item[(C3) Integration.] The flags reach the exact test as its \code{polyMask} argument expects, and the $31$ test work units give their \code{.truth} files.
 \end{description}
@@ -289,9 +336,9 @@ the $n$ rows of $11$ coefficients, writes every flag with $0$ or $1$, and writes
 $S=\{\code{pSet}\}$.  Before the first \code{pdf\_init}, and after a failed start-up check, every flag is $1$; and the module state left by earlier calls changes the
 routing, never a flag.  With Proposition~\ref{prop:poldisc} this gives (C1) under (H).
 
-\paragraph{The glue} \stproved.  The application calls the filter into its flag array and then \code{polDiscTest\_cpu} with the same array as \code{polyMask}.  Upstream reads
+\paragraph{The glue} \stproved.  The application calls the filter into its flag array and then \code{polDiscTest\_cpu} with the same array as \code{polyMask}.  \code{polDiscTest\_cpu} reads
 the mask at index $k$ before it writes the flag at index $k$, touches no other index in that iteration, and writes a flag on every path; so afterwards the flag is $0$
-where the filter wrote $0$ and upstream's own flag elsewhere, which under (C1) is upstream's flag everywhere: the output of the stock program.  Every polynomial of the
+where the filter wrote $0$ and the exact test's own flag elsewhere, which under (C1) is that flag everywhere: the output of the stock program.  Every polynomial of the
 enumeration is monic (the enumeration sets the leading coefficient to $1$ once), and the filter and the exact test get the same $S$.
 
 \paragraph{Safety} \stproved.  Overflow: the range proofs; the call counter is kept modulo $64$.  Bounds: every index is at most $n$ or the lane count, and the chains'
@@ -299,14 +346,14 @@ indices stay in $0..11$ (the masked-loop lemma).  Undefined values: padding lane
 Illegal instructions: the AVX2 object runs only when the CPU reports AVX2 and FMA, and contains nothing beyond AVX2.  Language-level undefined behaviour: none apart from
 the conversions and shifts of (S2), (S3), which the start-up check tests.
 
-\paragraph{Named assumptions of the interface.}  (A1) At most three primes in $S$: upstream's own \code{int pSet[3]}, and the patch's copy of it, are filled without a bound
+\paragraph{Named assumptions of the interface.}  (A1) At most three primes in $S$: GetDecics' own \code{int pSet[3]}, and the patch's copy of it, are filled without a bound
 check (all $31$ work units have $|S|=2$).  (A2) One thread: the filter keeps module state, and the application calls it only from the thread that runs the enumeration.
 (A3) Hypothesis (H) of Proposition~\ref{prop:poldisc}.
 
 %======================================================================
 \section{The evidence}\label{sec:evidence}
 
-The theorems are about the program text and the mathematics; the compiler, the device and upstream's code are trusted only as far as the checks below show.
+The theorems are about the program text and the mathematics; the compiler, the device and the code of GetDecics are trusted only as far as the checks below show.
 All CPU runs on Linux (WSL2, GCC and gfortran 15.2) unless stated.
 
 \paragraph{The compiled filter on complete sets at tiny primes} \stnum.  The filter was built from the shipped source with its prime search moved to one tiny prime
@@ -355,7 +402,7 @@ $6{,}000{,}000$ polynomials at the $14$ table primes and $3{,}000{,}000$ at tiny
 missed rejection.  On an NVIDIA GTX~1650 (OpenCL, and CUDA with the kernel compiled by NVRTC), the application gave the truth files of $8$ work units through
 OpenCL and $4$ through CUDA, before and after the format check was added.
 
-\paragraph{The work units} \stnum.  The application, built on Linux from upstream at \code{638ca4e} with the patch and the repository's compile lines (BOINC replaced by
+\paragraph{The work units} \stnum.  The application, built on Linux from GetDecics at \code{638ca4e} with the patch and the repository's compile lines (BOINC replaced by
 stand-ins), gave the \code{.truth} files of all $31$ test work units with the AVX2 build and with the baseline build.  With \code{NF\_VERIFY=1} (the exact test also on
 every polynomial, stopping at the first difference), five units in both builds ran $20{,}008{,}960$ polynomials each without a difference.
 
@@ -381,7 +428,7 @@ claim & status & rests on \\ \midrule
 GPU filter & \stproved & Theorem E; assumes the device compiler and device correct, host and device code of one format (checked at start-up) \\ \midrule
 compiler correctness & \stassume & tiny-prime test, arithmetic checks with two GCC versions, oracle test, start-up check; docs/BUILDING.md names the checked compilers \\
 (S2), (S3) & \stassume & as above; the start-up check switches the filter off if either fails on the running machine \\
-(H) & \stassume & no overflow on $733{,}855$ real candidates; upstream loses $844{,}265$ of $10^6$ large passing polynomials where it fails \\
+(H) & \stassume & no overflow on $733{,}855$ real candidates; GetDecics loses $844{,}265$ of $10^6$ large passing polynomials where it fails; the largest value on real candidates is $2^{59.45}$ \\
 (A1), (A2) & \stassume & all work units have $|S|=2$; no thread of the program calls the filter \\
 \bottomrule
 \end{tabularx}
@@ -390,7 +437,7 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 \paragraph{Open items.}
 \begin{itemize}
 \item Whether the size limits $8385$ and $1{,}097{,}010{,}265$ are sharp (no shipped prime is near them).
-\item (H) for the application's polynomials is measured, not proved; upstream's overflow is an upstream defect to report.
+\item (H) for the application's polynomials is measured, not proved; the overflow is a defect of GetDecics, to be reported to its maintainer.
 \item The GPU filter is checked on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested, and no run-time
   check exercises the filter on the device.
 \item The start-up check covers its own copy of the coefficient split, not \code{pdf\_filter}'s.
@@ -413,6 +460,7 @@ GPU runs.
 \begin{thebibliography}{9}
 \bibitem{P} \emph{Two Euclidean chains for one Legendre symbol: proofs and a worked course for the polDisc pre-filter of Passiflora},
   \code{pdfilter\_Test/pdfilter\_chains.tex} in the Passiflora repository, 27 October 2026 (the source of every result here, with its proof).
+\bibitem{gd} GetDecics, the NumberFields@home application, \url{https://github.com/drivere/get-decics-numberfields} (commit \code{638ca4e}).
 \bibitem{cohen} H.~Cohen, \emph{A Course in Computational Algebraic Number Theory}, GTM 138, Springer, 1993.
 \end{thebibliography}}
 
