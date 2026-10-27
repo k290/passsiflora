@@ -1,0 +1,419 @@
+% whitepaper.tex -- the Passiflora polDisc pre-filter: what it computes, why it is correct, how that was checked, what it still assumes.
+% A summary of pdfilter_Test/pdfilter_chains.tex (cited as [P]), which has the proofs, the source-line citations and the reproduction commands.
+% Compile:  pdflatex --disable-installer -interaction=nonstopmode -halt-on-error whitepaper.tex  (twice)
+\documentclass[10pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs,tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{xspace}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+\newcommand{\F}{\mathbb{F}}
+\newcommand{\Fq}{\mathbb{F}_q}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Q}{\mathbb{Q}}
+\DeclareMathOperator{\Res}{Res}
+\DeclareMathOperator{\disc}{disc}
+\DeclareMathOperator{\lc}{lc}
+\newcommand{\leg}[2]{\left(\frac{#1}{#2}\right)}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\stproved}{\textsf{\small[proved]}\xspace}
+\newcommand{\stquoted}{\textsf{\small[standard result, quoted]}\xspace}
+\newcommand{\stnum}{\textsf{\small[checked numerically]}\xspace}
+\newcommand{\streport}{\textsf{\small[reported, not re-checked]}\xspace}
+\newcommand{\stassume}{\textsf{\small[named assumption]}\xspace}
+
+\theoremstyle{plain}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}[proposition]{Lemma}
+% the five main theorems keep the letters of the full document
+\newtheorem*{thmA}{Theorem A}
+\newtheorem*{thmB}{Theorem B}
+\newtheorem*{thmC}{Theorem C}
+\newtheorem*{thmD}{Theorem D}
+\newtheorem*{thmE}{Theorem E}
+\theoremstyle{definition}
+\newtheorem{definition}[proposition]{Definition}
+
+\setlist{itemsep=2pt,topsep=4pt}
+\setlength{\parskip}{3pt}
+\renewcommand{\arraystretch}{1.12}
+
+\begin{document}
+\begin{center}
+{\LARGE An exact integer pre-filter for the NumberFields@home discriminant test}\\[8pt]
+{\large The Passiflora polDisc pre-filter: what it computes, why it is correct, and how that was checked}\\[6pt]
+27 October 2026
+\end{center}
+
+\begin{abstract}
+NumberFields@home tests very many monic degree-$10$ integer polynomials with an exact discriminant test that dominates the running time of the CPU
+application.  Passiflora puts a pre-filter in front of it: a polynomial is dropped when, for one of a few primes $q$, the Legendre symbol of its discriminant
+modulo $q$ is $-1$, which proves that it cannot pass.  The pre-filter must never drop a polynomial that passes, or the project loses results.  The first version
+computed the symbols in floating point and was exact only under round-to-nearest without x87 code; it lost valid polynomials when either failed.  The present
+version uses only integer arithmetic (signed Montgomery reduction on the CPU, unsigned Montgomery reduction on the GPU).  This paper states the algorithms,
+the theorems that make the decisions exact (the program text computes exactly the decisions of the exact algorithms, independently of the floating-point
+environment), the contract between the filter and the application, and the evidence: a test of the compiled filter on $25.5$ billion polynomials, complete
+sets at tiny primes, an exact oracle with deliberate faults, a differential test of upstream's exact test, the $31$ test work units in
+every build, and a shim of the GPU kernel.  Along the way it shows that upstream's exact test itself silently drops passing polynomials when its first
+\code{int64} steps overflow.  The proofs are in the full document \cite{P}; here every result is stated with its status and with what it still assumes.
+\end{abstract}
+
+\tableofcontents
+
+%======================================================================
+\section{The problem}
+
+NumberFields@home searches for number fields of degree $10$ by enumerating monic polynomials $f=x^{10}+a_9x^9+\dots+a_0$ with integer coefficients.  The final
+test of the enumeration is the \emph{discriminant test} (upstream's \code{polDiscTest\_cpu}, built on GMP):
+
+\begin{definition}[Passing]
+Let $S$ be a finite set of primes (read from the work unit; $S=\{2,5\}$ in every test work unit).  A monic $f\in\Z[x]$ \emph{passes} if $D=\disc(f)\neq0$ and
+$|D|=\bigl(\prod_{p\in S}p^{\alpha_p}\bigr)m^2$ for some integers $\alpha_p\ge0$, $m\ge1$.
+\end{definition}
+
+Almost no polynomial passes, and the test is expensive (the repository reports that the stock CPU application spends $98\%$ of its time in it \streport).  The
+pre-filter rests on one observation.
+
+\begin{proposition}[The rejection rule]\stproved
+Let $f$ pass, and let $q$ be a prime with $q\equiv1\pmod4$ at which every $p\in S$ is a nonzero square.  Then $\leg{\disc f}{q}\in\{0,1\}$.
+\end{proposition}
+
+Indeed $\chi(D)=\chi(\pm1)\prod_p\chi(p)^{\alpha_p}\chi(m)^2$, $\chi(-1)=1$ because $q\equiv1\pmod4$, and $\chi(p)=1$ by the choice of $q$.  So a symbol $-1$ at
+one such prime is a proof that $f$ fails.  The CPU filter uses $30$ such primes: six \emph{small} ones below $2^{10}$ ($1009,929,881,809,769,761$ for $S=\{2,5\}$) and
+$24$ \emph{large} ones below $2^{25}$ ($33554249,\dots,33551849$).  Each rejects about half of the candidates; survivors of all $30$ go on to the exact test, which
+decides them as before.  The GPU kernel applies the same filter at up to $24$ primes in $(256,1024)$ ($14$ exist for $S=\{2,5\}$) before it hands the survivors to the CPU.
+
+\paragraph{Why integer arithmetic.}  The first version of the filter (commit \code{327b04f}) stored residues in floating point and reduced with the rounding trick
+$x-q\cdot((x\,q^{-1}+M)-M)$, which is exact only if every operation is rounded to nearest in the declared precision.  The fault guide of \cite[Section~14]{P}
+reproduces, with the real application, what happens otherwise \stnum: built for x87 arithmetic (as a 32-bit x86 build is), the application lost valid
+polynomials in four of the seven smallest test work units ($6$, $12$, $6$ and $5$), among them the only real result of one unit; a library that switches the
+rounding mode to ``up'' before the filter is initialised makes it reject valid polynomials; rounding down or toward zero makes it reject nothing.  A filter whose
+correctness depends on the floating-point environment of the volunteer's machine cannot be proved correct for the program that ships.  The integer version
+removes the dependence.
+
+%======================================================================
+\section{The two chains and their theorems}
+
+Everything here is over the field $\Fq$, $q$ an odd prime with $q\nmid10$; $\chi$ is the quadratic character.  For monic $f$ of degree $n$,
+$\disc f=(-1)^{n(n-1)/2}\Res(f,f')$, and the discriminant of $f$ modulo $q$ is the residue of $\disc f$ \stproved.  The filter computes the symbol of $\Res(f,f')$ by
+Euclid's algorithm on $f$ and $f'$, without inverses: instead of dividing by a leading coefficient it multiplies by it (pseudo-division), and accounts for the
+powers it introduces.  Only the parity of their exponents matters for a Legendre symbol \cite[Section~4]{P}.
+
+\paragraph{\code{chain\_block}, the fast chain.}  For a \emph{normal} remainder sequence of $(f,f')$ (degrees $n,n-1,\dots,1,0$) every step is two rounds with the
+same multiplier $\lambda=\lc(B)$: $R=\lambda A-\tau xB$ and $P=\lambda R-tB$, which equals $\lambda^2(A\bmod B)$ (Lemma L2).  The squares $\lambda^2$ never change the
+symbol, so the final constant has the symbol of the discriminant.  The chain runs $64$ polynomials in the same instructions (SIMD lanes) and checks, at each
+step, that the next leading coefficient is nonzero.
+
+\begin{thmA}[\code{chain\_block} and its check]\stproved
+Let $f$ be monic of degree $n\ge2$ over $\Fq$, $q\nmid n$.  The check passes at every step if and only if the remainder sequence of $(f,f')$ is normal, and the
+first failing check is at the first abnormal degree.  If it passes, the final constant \code{base} satisfies $\chi(\code{base})=\chi\bigl((-1)^{n(n-1)/2}\bigr)\chi(\disc f)$;
+for $q\equiv1\pmod4$ this is $\chi(\disc f)$, and a rejection means $\chi(\disc f)=-1$.
+\end{thmA}
+
+\paragraph{\code{chain\_general}, the general chain.}  Polynomials are stored left-aligned, so that one elementary step $W=l_vU-l_ux^{u-v}V$ is the same formula in every
+lane whatever the degrees; leading zeros of $W$ are shifted out, $U$ and $V$ are swapped when $\deg W<\deg V$, and an accumulator \code{mm} collects $l_v$ exactly at the
+steps whose exponent $e=\deg W-u+v$ is odd (by $\Res(V,W)=l_v^{\,e}\Res(V,U)$).  It follows any degree sequence.
+
+\begin{thmB}[\code{chain\_general}]\stproved
+Under the same hypotheses the algorithm stops within $2n-2$ iterations ($18$ for $n=10$; the code allows $40$).  Either a remainder is $0$, and then
+$\disc f\equiv0$ and the polynomial is kept; or it ends with a nonzero constant, and then $\chi(\code{mm})=\chi\bigl((-1)^{n(n-1)/2}\varepsilon\bigr)\chi(\disc f)$
+with a sign $\varepsilon$ from the swaps.  For $q\equiv1\pmod4$ this is $\chi(\disc f)$, and a rejection means $\chi(\disc f)=-1$.
+\end{thmB}
+
+The condition $q\equiv1\pmod4$ is not decoration: with $q\equiv3\pmod4$ the signs of the swaps make \code{chain\_general} wrong in about a quarter of the degree-$4$ and
+$70\%$ of the degree-$10$ cases tested \stnum.
+
+\paragraph{The filter.}  For each prime in turn, every surviving polynomial goes through \code{chain\_block}; the lanes whose check fails are re-run through
+\code{chain\_general} (pass 2).  A family of polynomials that keeps failing the check is sent to \code{chain\_general} directly (\code{prefgen}), re-probed every
+$64$ calls.  The routing changes the speed, never a decision:
+
+\begin{thmC}[soundness and exactness]\stproved
+In exact arithmetic over $\Fq$: for every input, block size and routing state, \code{pdf\_filter} gives a polynomial the flag $0$ only if it is monic and has
+$\leg{\disc f}{q}=-1$ at some filter prime; so it never rejects a polynomial that passes.  Conversely it rejects a monic polynomial exactly when some filter prime has
+symbol $-1$, at the first such prime.
+\end{thmC}
+
+The converse is what makes a test with an exact oracle possible (Section~\ref{sec:evidence}).
+
+%======================================================================
+\section{What upstream's exact test computes}\label{sec:poldisc}
+
+The filter is proved against the definition of passing; the application compares it with upstream's \code{polDiscTest\_cpu}.  That test follows Cohen's
+sub-resultant algorithm \cite[Algorithm~3.3.7]{cohen}, does its first two iterations in \code{int64} and the rest in GMP, removes the primes of $S$ from the result
+\code{polDisc} and asks whether the rest is a square.
+
+\begin{proposition}[What the exact test computes]\label{prop:poldisc}\stproved
+Let $f$ be monic of degree $10$ with \code{int64} coefficients, and suppose (H): no \code{int64} expression of upstream's first two iterations leaves the \code{int64}
+range.  Then $|\disc f|=r^2\,|\code{polDisc}|$ for a nonzero rational $r$, and \code{polDiscTest\_cpu} sets the flag to $1$ exactly when $f$ passes.
+\end{proposition}
+
+The proof \cite[Proposition~3.19]{P} follows upstream's code step by step against Cohen's algorithm (whose exact divisions are quoted \stquoted): the content
+of $f'$ divides $10$ and is found exactly, every pseudo-remainder is the unique one by uniqueness of division in $\Q[x]$, the last step's shortcut replaces the
+resultant by an even power of a rational, and the removal of $S$ is complete.  Hypothesis (H) is real.  A signed overflow is undefined behaviour in C, and the
+differential test of Table~\ref{tab:poldisc}, which replays the \code{int64} steps in $128$ bits, shows its effect:
+
+\begin{table}[ht]
+\centering\footnotesize\setlength{\tabcolsep}{4pt}
+\caption{Upstream's compiled \code{polDiscTest\_cpu} against the definition (PARI), and the filter, on $10{,}735{,}681$ polynomials ($S=\{2,5\}$).  ``ovf'': an \code{int64}
+step of upstream overflows; ``differ'': upstream's flag is not the definition's.}\label{tab:poldisc}
+\begin{tabular}{@{}lrrrrrrrr@{}}
+\toprule
+& & \multicolumn{2}{c}{pass} & & \multicolumn{2}{c}{differ} & \multicolumn{2}{c}{filter} \\ \cmidrule(lr){3-4} \cmidrule(lr){6-7} \cmidrule(l){8-9}
+family & polynomials & upstream & definition & ovf & no ovf & ovf & rejects & rejects passing \\ \midrule
+random, $|a_i|\le3$ & 3,000,000 & 458 & 458 & 0 & 0 & 0 & 2,930,945 & 0 \\
+random, $|a_i|\le100$ & 2,000,000 & 0 & 0 & 0 & 0 & 0 & 1,999,948 & 0 \\
+random, $|a_i|\le10^6$ & 1,000,000 & 0 & 0 & 999,961 & 0 & 0 & 1,000,000 & 0 \\
+built to pass, small & 2,000,000 & 1,999,939 & 1,999,939 & 0 & 0 & 0 & 0 & 0 \\
+built to pass, large & 1,000,000 & 155,735 & 1,000,000 & 844,277 & 0 & 844,265 & 0 & 0 \\
+square factor & 1,000,000 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+real candidates & 733,855 & 0 & 0 & 0 & 0 & 0 & 733,855 & 0 \\
+the $83$ results, transformed & 1,826 & 1,826 & 1,826 & 0 & 0 & 0 & 0 & 0 \\ \midrule
+all & 10,735,681 & 2,157,958 & 3,002,223 & 1,844,238 & 0 & 844,265 & 6,664,748 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Without overflow upstream agrees with the definition on all $8{,}891{,}443$ polynomials.  With overflow, of a million passing polynomials with large
+coefficients ($G(x^2)$ shifted, $|G_k|\le10^6$) upstream loses $844{,}265$: an upstream defect, worth reporting, independent of Passiflora.  None of the
+$733{,}855$ real candidates (captured from seven work units, with shifts) overflows, so as far as these samples show the application's polynomials stay in range;
+(H) remains a named assumption.  Where (H) fails, the filter's rejection is still a proof that the polynomial does not pass, so the filter can then differ from
+upstream only by rejecting a polynomial that upstream wrongly passes; that did not happen.
+
+%======================================================================
+\section{Exact integer arithmetic}\label{sec:integer}
+
+\paragraph{The representation.}  Elements of $\Fq$ are integers in a small range around $0$.  Products are reduced by signed Montgomery reduction: for
+$R=2^k$, $qq'\equiv1\pmod R$ and $m=s_k(xq')$ (the signed residue in $[-R/2,R/2)$), $u=(x-mq)/R$ is an integer, $u\equiv xR^{-1}\pmod q$ and $|u|\le|x|/R+q/2$
+\stproved.  The small primes use $R=2^{16}$ in $16$-bit lanes (\code{mont}, $16$ lanes per AVX2 register, compiled to \code{vpmulhw}/\code{vpmullw}), the large ones
+$R=2^{32}$ with $64$-bit products (\code{sredc}).  A $64$-bit coefficient is split once into three $21$-bit pieces and loaded at each prime by one reduction
+(\code{ldres}).
+
+\paragraph{What the language must do.}  The proofs use three rules: (S1) an operation whose exact result fits its kind gives that result; (S2) a conversion to a
+narrower kind reduces modulo $2^k$; (S3) \code{shifta} is an arithmetic shift and \code{iand} with $2^k-1$ keeps the low bits.  The Fortran standard leaves (S2) and
+the bit model to the processor; the GNU Fortran manual documents (S3) but says nothing about (S2), which GCC documents for C.  Standard-conforming replacements exist but made
+\code{pdf\_filter} $2$ to $6$ times slower in a micro-benchmark (AVX2: $105$--$126$\,ns per polynomial as written, $572$--$697$ with \code{modulo} and exact division,
+$225$--$262$ with offsets) \stnum, because the compiler then no longer uses the $16$-bit multiply-high instructions.  So the code keeps them, and they are checked
+in three ways: the compiled reductions against exact models on all inputs that matter (GCC~15.2 and~16.2), the whole filter on complete sets at tiny primes
+(Section~\ref{sec:evidence}), and at every start of the program (below).
+
+\begin{thmD}[the integer program is exact]\stproved
+Assume (S1)--(S3), and let the primes be those that \code{pdf\_init} chooses.  Then for every input buffer, block size and routing state, at every stage and in every
+lane, the code's decisions (the check of \code{chain\_block}, \code{keep}) are those of the exact algorithms over $\Fq$ on $f\bmod q$.  So Theorem~C holds for the program
+as written.  The filter executes no floating-point operation; its result depends neither on the rounding mode nor on x87 or SSE code nor on \code{-ffast-math}.
+\end{thmD}
+
+The proof \cite[Section~8]{P} has four parts.
+\begin{enumerate}
+\item \emph{Reductions and loading.}  \code{mont} returns a value in $(-q,q)$ for operands in $(-2q,2q)$ when $q\le2^{13}$, \code{sredc} for $|x|<2^{31}q$, and the
+  three-piece loading gives $c\bmod q$ in $(-q,q)$ for every \code{int64} coefficient $c$; no operation overflows.
+\item \emph{Ranges.}  Every value of the four chains stays where those lemmas apply: small-prime values in $(-2q,2q)$ (a value is $0\bmod q$ exactly when it is $0$
+  or $\pm q$), large-prime values in $(-q,q)$.
+\item \emph{Weights.}  Each polynomial the code holds is its exact counterpart times a power of $R^{-1}$, the same for all its coefficients, because both terms of
+  every difference carry the same power.  So every zero test, degree and swap agrees with the exact run, and as $R=2^{16}=(2^8)^2$ and $2^{32}=(2^{16})^2$ are
+  squares, no Legendre symbol changes.  Euler's criterion runs in the Montgomery domain from $R\bmod q$, and $-1$ is recognised as the residue of $-R$.
+\item \emph{The masked loop.}  \code{chain\_general} runs all $64$ lanes in one loop, masking the lanes that have finished and using a cheaper ``lockstep'' branch
+  when all active lanes have the same degrees.  A lemma \cite[Lemma~8.10]{P} proves, by induction over the iterations, that every lane computes the one-lane
+  algorithm: entries beyond a degree are zero, a masked lane is never changed, the lockstep branch runs only when every lane is active with the same degrees,
+  and copying the first $\max\deg+1$ entries copies whole polynomials.
+\end{enumerate}
+
+\paragraph{The size limits, and the guard.}  The single-reduction arguments stop at $q\le2^{13}$ (small) and $q\le2^{30}+1$ (large).  Following the bounds of the
+values through the chains instead gives larger limits for the whole filter, proved with a complete finite computation \stnum: small primes up to $8385$ and large
+primes up to $1{,}097{,}010{,}265$.  This holds although \code{mont} itself has counterexamples from $8241$ and \code{sredc} on a difference from $2^{30}+23279$,
+because the chains never form those operands.  The limits are not known to be sharp.  The shipped primes are far inside them, below $2^{10}$ and $2^{25}$.  \code{pdf\_init}
+enforces them: a usable prime outside $[11,8385]$ (small) or $[11,1{,}097{,}010{,}265]$ (large) is skipped with one line on standard error, so no future change of the
+search can leave the proved region silently.
+
+\paragraph{The start-up check.}  At the end of \code{pdf\_init} the function \code{arith\_ok} runs the compiled arithmetic on known inputs: \code{mont} and \code{sredc}
+on $64$ inputs per prime including the extremes, the inverse relations $qq'\equiv1$, the split of a coefficient into pieces, and the loading, all compared with values
+computed by \code{modulo} and exact division only, which do not depend on (S2) or (S3).  If it fails, \code{pdf\_init} writes one line on standard error and chooses
+no prime, so that every flag is $1$ and the exact test alone decides \stproved.  It guards against a compiler or flag set without the behaviour of (S2), (S3) on the
+machine where the program runs.  It does not show that the code inlined into the chains was compiled the same way, and it evaluates its own copy of the
+coefficient split rather than \code{pdf\_filter}'s lines; the deliberate fault ``top piece shifted logically'' in \code{pdf\_filter} passes it (the oracle test sees that
+fault).
+
+\paragraph{Instruction sets.}  The application contains an AVX2 build and a baseline (SSE2) build of the filter and picks the AVX2 one when the CPU reports AVX2 and
+FMA.  The AVX2 build was compiled with \code{-march=x86-64-v3}, which also lets the compiler use BMI1/2, LZCNT, MOVBE and F16C, none of which the run-time test checks; it
+is now compiled with \code{-march=x86-64 -mavx2 -mno-popcnt}.  The generated code is the same as before ($114$ distinct instructions, the same set as the
+\code{x86-64-v3} object, none outside AVX and AVX2 besides the base set) \stnum; the change only makes the guarantee hold on paper as well.
+
+%======================================================================
+\section{The GPU filter}\label{sec:gpu}
+
+The GPU kernel runs the enumeration's innermost loops and, for every polynomial it counts, the one-lane \code{chain\_general} at the small primes of its table.  A
+polynomial it rejects is never shown to the CPU, so the kernel's filter must be sound by itself; survivors go through the CPU filter and the exact test as before.
+The earlier kernel used the single-precision floating-point trick.  The present one uses unsigned $32$-bit Montgomery arithmetic with $R=2^{16}$, residues kept in
+$[0,2q)$ (zero modulo $q$ exactly when $0$ or $q$), which needs no multiply-high instruction and no comparison per reduction.
+
+\begin{lemma}[\code{redc}]\stproved
+Let $q<8192$ be odd, $q^-\equiv-q^{-1}\pmod{2^{32}}$, $0\le t<8q^2$, and $m=tq^-\bmod2^{16}$.  Then $t+mq<2^{30}$ is divisible by $2^{16}$, and
+$r=(t+mq)/2^{16}\equiv t\,2^{-16}\pmod q$ with $0\le r<2q$.
+\end{lemma}
+
+\begin{thmE}[the GPU filter is exact]\stproved
+For a prime $q\equiv1\pmod4$ with $11\le q<8192$, the table row of $q$, and any \code{int64} coefficients $c_1,\dots,c_{10}$, the kernel's \code{survives} rejects
+$f=x^{10}+c_1x^9+\dots+c_{10}$ at $q$ exactly when $\leg{\disc f}{q}=-1$.  The table's primes are usable for $S$, so a polynomial the kernel rejects does not pass.
+\end{thmE}
+
+The proof \cite[Section~8.10]{P} bounds every value passed to \code{redc} below $8q^2$, follows the weights as on the CPU, and runs Euler's criterion in the
+Montgomery domain.  It uses only the semantics of unsigned integers in OpenCL~C and CUDA, which wrap modulo $2^{32}$ by definition.  A first integer version, with
+$R=2^{32}$, canonical residues and \code{mul\_hi}, was also exact but made the kernel $47\%$ slower; the version above is about $10\%$ faster than the floating-point
+kernel (Section~\ref{sec:evidence}).
+
+\paragraph{Host and device code must match.}  The theorem needs the kernel to read the table the program builds.  For OpenCL this holds by construction (the kernel
+source is part of the program).  The CUDA kernel is a fat binary embedded at build time and the MUSA kernel a library loaded at run time; a left-over binary
+of the floating-point kernel would read the new table wrongly and could reject passing polynomials, and the GPU self-check (which compares polynomial counts
+taken before the filter) would not notice.  So the table layout has a number (format~$2$), the kernel's entry point carries it in its name
+(\code{nf\_enum\_t2}), and the MUSA library reports it and checks that every table row has the integer layout.  A CUDA program with an old fat binary stops at
+start-up with a message; a MUSA program refuses an old library and runs on the CPU; an old program with a new library stops \stnum.  After any change of
+the kernel the CUDA fat binary and the MUSA library must be rebuilt with the author's toolchain; this one requires that.
+
+%======================================================================
+\section{The contract with the application}\label{sec:contract}
+
+What the application needs is stated as three properties.
+
+\begin{description}
+\item[(C1) Soundness.] A flag is $0$ only if upstream's \code{polDiscTest\_cpu} would reject the polynomial.
+\item[(C2) Safety.] No integer overflow, out-of-bounds access, read of an undefined value, other undefined behaviour, or illegal instruction.
+\item[(C3) Integration.] The flags reach the exact test as its \code{polyMask} argument expects, and the $31$ test work units give their \code{.truth} files.
+\end{description}
+
+\paragraph{The interface} \stproved.  After \code{pdf\_init(numP, pSet)}, \code{pdf\_filter(pol, n, flag)} with $n\le0$ reads and writes nothing; with $n\ge1$ it reads only
+the $n$ rows of $11$ coefficients, writes every flag with $0$ or $1$, and writes $0$ only for a polynomial whose leading coefficient is $1$ and which does not pass for
+$S=\{\code{pSet}\}$.  Before the first \code{pdf\_init}, and after a failed start-up check, every flag is $1$; and the module state left by earlier calls changes the
+routing, never a flag.  With Proposition~\ref{prop:poldisc} this gives (C1) under (H).
+
+\paragraph{The glue} \stproved.  The application calls the filter into its flag array and then \code{polDiscTest\_cpu} with the same array as \code{polyMask}.  Upstream reads
+the mask at index $k$ before it writes the flag at index $k$, touches no other index in that iteration, and writes a flag on every path; so afterwards the flag is $0$
+where the filter wrote $0$ and upstream's own flag elsewhere, which under (C1) is upstream's flag everywhere: the output of the stock program.  Every polynomial of the
+enumeration is monic (the enumeration sets the leading coefficient to $1$ once), and the filter and the exact test get the same $S$.
+
+\paragraph{Safety} \stproved.  Overflow: the range proofs; the call counter is kept modulo $64$.  Bounds: every index is at most $n$ or the lane count, and the chains'
+indices stay in $0..11$ (the masked-loop lemma).  Undefined values: padding lanes hold $x^{10}$, a flag that \code{chain\_general} does not set is set before it is read.
+Illegal instructions: the AVX2 object runs only when the CPU reports AVX2 and FMA, and contains nothing beyond AVX2.  Language-level undefined behaviour: none apart from
+the conversions and shifts of (S2), (S3), which the start-up check tests.
+
+\paragraph{Named assumptions of the interface.}  (A1) At most three primes in $S$: upstream's own \code{int pSet[3]}, and the patch's copy of it, are filled without a bound
+check (all $31$ work units have $|S|=2$).  (A2) One thread: the filter keeps module state, and the application calls it only from the thread that runs the enumeration.
+(A3) Hypothesis (H) of Proposition~\ref{prop:poldisc}.
+
+%======================================================================
+\section{The evidence}\label{sec:evidence}
+
+The theorems are about the program text and the mathematics; the compiler, the device and upstream's code are trusted only as far as the checks below show.
+All CPU runs on Linux (WSL2, GCC and gfortran 15.2) unless stated.
+
+\paragraph{The compiled filter on complete sets at tiny primes} \stnum.  The filter was built from the shipped source with its prime search moved to one tiny prime
+$q\in\{13,17,29,37,41\}$ (only four constants changed), once in the $16$-bit and once in the $32$-bit stage, and every polynomial of a set was sent through the AVX2 and
+the baseline build, each with the normal routing and with every lane forced through \code{chain\_general}: eight runs per polynomial.  Every flag and every rejection
+stage was compared with an exact oracle (Euclid with inverses).  The sets: all $13^9$ depressed monic polynomials modulo $13$ (every monic polynomial mod $13$ is a
+shift of one of them); at $17$ all with $a_9=a_8=0$, at $29,37,41$ all with $a_9=\dots=a_6=0$ (which send every chain into \code{chain\_general} and its lockstep
+branch); and at each prime $200{,}000$ random polynomials with all their shifts and coefficients lifted by large multiples of $q$.  Altogether
+$25{,}518{,}310{,}785$ polynomials and $204{,}146{,}486{,}280$ verdicts: none wrong.  Both branches of the masked loop ran billions of times.
+
+\paragraph{The arithmetic alone} \stnum.  The reductions, cut out of the source (not retyped) and compiled with the filter's flags and at \code{-O0}, against exact
+models: \code{mont} on every pair of operands for every odd prime below $2^{13}$ ($333{,}937{,}622{,}331$ pairs) and every odd $q$ in $[8193,8303]$; \code{sredc} on windows
+around its limits and random inputs; the loading on $42{,}352{,}640$ coefficients for $2{,}585$ moduli; the bound propagation of the size limits for every odd $q$ up to
+$32{,}767$ (small) and $1{,}100{,}000{,}001$ (large).  With GCC~15.2 (Linux) and 16.2 (MSYS2): no error.
+
+\paragraph{An exact oracle, and deliberate faults} \stnum.  A test that only feeds polynomials that must pass cannot see a filter that rejects too little
+\stproved.  The oracle test computes the symbol at every filter prime independently and builds its inputs to reach every stage and path of the filter, with
+metamorphic checks and a test hook that reports the stage of every rejection.  Seven deliberate faults of the integer arithmetic, each one changed line, against
+$1{,}000{,}000$ polynomials (oracle test total failures, AVX2 build / the old ``must pass'' test):
+
+\begin{center}\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+fault & oracle test & ``must pass'' test \\ \midrule
+none & 0 & 0 \\
+zero test $\pm q$ in \code{chain\_block\_s} & 156 & 0 \\
+zero test $\pm q$ in \code{chain\_general\_s} & 3,461 & 3 \\
+Euler: $-R$ recognised only as one representative & 186,381 & 0 \\
+top piece of a coefficient shifted logically & 1,012,353 & 412,963 \\
+wrong loading constants (now caught by the start-up check: filter off) & 717,978 missed & 0 \\
+parity of \code{chain\_general} & 236,578 & 174,075 \\
+last stage skipped & 7,983 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The oracle test sees all seven; the floating-point faults (x87, rounding up) give $0$ on the integer filter, as Theorem~D says, while on the floating-point filter
+of \code{327b04f} the oracle test saw $61$ false and $304$ missed rejections under x87 and $37{,}329$ false under rounding up.  Primes moved across the size limits
+behave as the proofs predict: no wrong verdict inside them; beyond them wrong verdicts appear, at some primes only for directed inputs found by a search.  The
+$146{,}771$ candidates captured from seven real work units pass through the filter with the oracle's verdicts.
+
+\paragraph{The exact test} \stnum.  Table~\ref{tab:poldisc}.
+
+\paragraph{The GPU filter} \stnum.  The kernel's \code{survives}, compiled for the CPU from the kernel source itself, against the exact oracle prime by prime:
+$6{,}000{,}000$ polynomials at the $14$ table primes and $3{,}000{,}000$ at tiny primes and just below the limit $8192$, $168{,}000{,}000$ checks, no false and no
+missed rejection.  On an NVIDIA GTX~1650 (OpenCL, and CUDA with the kernel compiled by NVRTC), the application gave the truth files of $8$ work units through
+OpenCL and $4$ through CUDA, before and after the format check was added.
+
+\paragraph{The work units} \stnum.  The application, built on Linux from upstream at \code{638ca4e} with the patch and the repository's compile lines (BOINC replaced by
+stand-ins), gave the \code{.truth} files of all $31$ test work units with the AVX2 build and with the baseline build.  With \code{NF\_VERIFY=1} (the exact test also on
+every polynomial, stopping at the first difference), five units in both builds ran $20{,}008{,}960$ polynomials each without a difference.
+
+\paragraph{Speed} \stnum.  On the GPU, the device time of all kernel launches, old (floating-point filter) against new kernel, five alternating runs each: median
+$1217$ against $1091$\,ms and $3715$ against $3324$\,ms on two work units, about $10\%$ less.  On the CPU, the application's own timing split over $60$ million
+polynomials, seven alternating runs on a quiet machine: the guard, the start-up check and the other changes of the last revision cost nothing measurable
+(filter plus exact test, medians: $6.07\to6.16$\,s and $6.89\to6.86$\,s with AVX2, $7.42\to7.53$\,s and $8.26\to8.16$\,s baseline, against a spread of up to a third
+between runs).  \textbf{Not yet measured}: the CPU integer filter against the floating-point filter of \code{327b04f} in the application.
+
+%======================================================================
+\section{What it all rests on}\label{sec:ledger}
+
+The full document ends with a ledger of every claim, how it was checked and what it still assumes; \code{checks.py} checks its form and every source-line
+citation of the document.  Its contract rows and its named assumptions:
+
+\begin{center}\footnotesize
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}p{0.12\textwidth}X@{}}
+\toprule
+claim & status & rests on \\ \midrule
+(C1) soundness & \stproved & Theorems A--D, Proposition~\ref{prop:poldisc}, the interface; assumes (H), compiler correctness, (S2), (S3) \\
+(C2) safety & \stproved & range proofs, size limits, the masked-loop lemma; assumes (S2), (S3) (start-up check), the CPU's report of AVX2/FMA, (A1) \\
+(C3) integration & \stproved{} \stnum & the glue proposition; $31$ units in both builds, $12$ on the GPU; assumes (A1), (A2) \\
+GPU filter & \stproved & Theorem E; assumes the device compiler and device correct, host and device code of one format (checked at start-up) \\ \midrule
+compiler correctness & \stassume & tiny-prime test, arithmetic checks with two GCC versions, oracle test, start-up check; docs/BUILDING.md names the checked compilers \\
+(S2), (S3) & \stassume & as above; the start-up check switches the filter off if either fails on the running machine \\
+(H) & \stassume & no overflow on $733{,}855$ real candidates; upstream loses $844{,}265$ of $10^6$ large passing polynomials where it fails \\
+(A1), (A2) & \stassume & all work units have $|S|=2$; no thread of the program calls the filter \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\paragraph{Open items.}
+\begin{itemize}
+\item Whether the size limits $8385$ and $1{,}097{,}010{,}265$ are sharp (no shipped prime is near them).
+\item (H) for the application's polynomials is measured, not proved; upstream's overflow is an upstream defect to report.
+\item The GPU filter is checked on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested, and no run-time
+  check exercises the filter on the device.
+\item The start-up check covers its own copy of the coefficient split, not \code{pdf\_filter}'s.
+\item Only $S=\{2,5\}$ is exercised by the tests; other sets are covered by the proofs.
+\item The CPU speed of the integer filter against the floating-point one.
+\end{itemize}
+
+\paragraph{Reproducing.}  The checks above are scripts of the repository, in \code{pdfilter\_Test} unless stated; \cite[Appendix~B]{P} gives the commands.
+\begin{itemize}
+\item tiny primes: \code{tiny\_checks.sh};  the arithmetic and the size limits: \code{arith\_checks.sh};
+\item the oracle test and the faults: \code{fault\_checks.sh} with \code{test\_pdfilter\_oracle.cpp};
+\item the exact test: \code{poldisc\_checks.sh};
+\item the GPU filter: \code{test\_gpu\_filter.cpp};  the mathematics, the citations and the ledger: \code{checks.py};
+\item the work units: \code{build/test-suite-unix.sh}.
+\end{itemize}
+Kept outside the repository: the captured candidates, the Linux build recipe used for the application with BOINC replaced, and the Windows harness of the
+GPU runs.
+
+{\small
+\begin{thebibliography}{9}
+\bibitem{P} \emph{Two Euclidean chains for one Legendre symbol: proofs and a worked course for the polDisc pre-filter of Passiflora},
+  \code{pdfilter\_Test/pdfilter\_chains.tex} in the Passiflora repository, 27 October 2026 (the source of every result here, with its proof).
+\bibitem{cohen} H.~Cohen, \emph{A Course in Computational Algebraic Number Theory}, GTM 138, Springer, 1993.
+\end{thebibliography}}
+
+\end{document}

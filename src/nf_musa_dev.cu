@@ -42,9 +42,22 @@ extern "C" int nfm_device_count()
   return n;
 }
 
+// The prime-table format this library's kernel reads (nf_kernel.h); the program refuses a library that reports another one.
+extern "C" int nfm_table_format() { return NF_TABLE_FORMAT; }
+
 extern "C" int nfm_init(int device, const int *primes, int nints, char *name, int namelen, int *major, int *minor,
                         unsigned long long *memBytes, int *mps)
 {
+  // A program older than this library passes a table of another format: every row must be primeRow's
+  // (q odd, q * qneg = -1 mod 2^32, negr = q - (2^16 mod q)), or the kernel would compute wrong residues.
+  if (nints <= 0 || nints % 8 != 0) return -2;
+  for (int k = 0; k < nints; k += 8) {
+    unsigned q = (unsigned)primes[k], r16 = (unsigned)primes[k + 1], qneg = (unsigned)primes[k + 6], negr = (unsigned)primes[k + 7];
+    if (!(q & 1u) || r16 == 0u || r16 >= q || q * qneg != 0xFFFFFFFFu || negr != q - r16) {
+      fprintf(stderr, "GPU library: the prime table is not of format %d; the program and libnf_musa.so do not match.\n", NF_TABLE_FORMAT);
+      return -2;
+    }
+  }
   NFM_CHECK(cudaSetDevice(device));
   cudaDeviceProp p;
   NFM_CHECK(cudaGetDeviceProperties(&p, device));
@@ -86,7 +99,7 @@ extern "C" int nfm_run(unsigned nnodes, unsigned nodebase, const unsigned long l
 
   const unsigned block = 128;
   unsigned long long blocks = (total + block - 1) / block;
-  nf_enum<<<(unsigned)blocks, block>>>(dNodeD, dNodeI, dCum, nnodes, nodebase, total, dPrimes, npr,
+  nf_enum_t2<<<(unsigned)blocks, block>>>(dNodeD, dNodeI, dCum, nnodes, nodebase, total, dPrimes, npr,
                                        dOut, dOutCnt, NFM_OUTCAP, dCnt);
   NFM_CHECK(cudaGetLastError());
   NFM_CHECK(cudaDeviceSynchronize());

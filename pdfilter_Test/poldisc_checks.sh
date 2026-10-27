@@ -3,7 +3,8 @@
 # test_poldisc.cpp in parallel chunks.  Linux.
 #   UPSTREAM=<GetDecicsSrc> CAND=<candidates> HITS=<hits> bash poldisc_checks.sh      about 10.7 million polynomials
 #   QUICK=1 ...                                                                       about 0.3 million
-# UPSTREAM is upstream's source directory (with the filter patch applied or not: polDiscTest_cpu.cpp is the same), CAND a file of
+# UPSTREAM is upstream's source directory, with the patch applied (the patch changes only polDiscTest_cpu.cpp's conversions for a
+# 32-bit long, which do not matter on 64-bit Linux, but the document's line numbers are those of the patched file), CAND a file of
 # captured candidates and HITS a file of results, one polynomial per line, leading coefficient first (Appendix "Reproducing the
 # tables").  Environment: OUT (default poldisc_build), JOBS (default: the number of CPUs), PARI as for build-linux.sh.
 # Exit status 1 if upstream and the definition disagree on a polynomial where upstream's int64 steps do not overflow, or the filter

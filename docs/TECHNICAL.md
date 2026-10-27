@@ -101,6 +101,10 @@ back end maps the few differences (address spaces, atomics, `as_float`, 64-bit t
 | MUSA (Moore Threads) | `nf_port_cuda.h` | `nf_gpu_musa.cpp` + `nf_musa_dev.cu` | the device part (kernel + CUDA-runtime-style wrapper) is converted with `musify-text` and built with `mcc` into `libnf_musa.so`; the program `dlopen`s it, so a computer without the vendor runtime or card just runs on the CPU. BOINC cannot see these GPUs: the task is a CPU task that uses the card by itself |
 | CUDA | `nf_port_cuda.h` | `nf_gpu_cuda.cpp` | kernel compiled once with `nvcc --fmad=false` into a fat binary (cubin for sm_50 … sm_120 + PTX) that is embedded in the program and loaded through the CUDA *driver* API, which is itself loaded at run time (`nvcuda.dll` / `libcuda.so.1`): nothing CUDA is linked, so the program starts without a CUDA driver and falls back to the CPU |
 
+The CUDA fat binary and the MUSA library are built apart from the program, so the program checks at start-up that they read
+the prime table it builds: the table layout has a number (`NF_TABLE_FORMAT`), the kernel entry point carries it (`nf_enum_t2`),
+and the MUSA library reports it and checks the table.  Device code built for another layout is never run.
+
 The queueing, batch sizing, filter-prime table and the sorting of the survivors are shared (`nf_gpu_common.cpp`);
 a back end implements the five functions of `nf_gpu_backend.h`. `nf_gpu_cuda.cpp` also builds against other
 CUDA-driver-API-compatible runtimes (`-DNF_DRV_PREFIX`, `-DNF_DRV_LIB`; HIP, MUSA) given the code object of that

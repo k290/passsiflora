@@ -1,5 +1,5 @@
 /* limit_probe.c -- what happens in the chains of the pre-filter when a prime is larger than the proved limits
-   (pdfilter_chains.tex, Section 8.7).  A one-lane model of load_block_s + chain_block_s + chain_general_s (small primes:
+   (pdfilter_chains.tex, Section 8.8).  A one-lane model of load_block_s + chain_block_s + chain_general_s (small primes:
    16-bit values, mont with R = 2^16) and of load_block + chain_block + chain_general (large primes: 32-bit values, 64-bit
    products, sredc with R = 2^32), written from src/pdfilter.f90 and chain_general.inc with the same integer semantics
    (conversions to a narrower kind and the 16-bit subtraction wrap modulo 2^k, as gfortran does).  It is a model, not the

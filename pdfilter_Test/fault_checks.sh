@@ -13,7 +13,7 @@
 # Floating-point faults (the integer filter does not use floating point, so they must give 0 there):
 #   x87             the filter compiled with x87 arithmetic (-mfpmath=387), as a 32-bit x86 build would be
 #   up              the floating point rounding mode set to "up" while the filter runs (rmshim.c)
-# Prime ranges (pdfilter_chains.tex, Section 8.7 "Where the size limits come from", has the limits; the expected result of each
+# Prime ranges (pdfilter_chains.tex, Section 8.8 "Where the size limits come from", has the limits; the expected result of each
 # row was written down before the row ran; "directed" = a polynomial found by limit_probe.c that must make the row fail):
 #   name  primes                                   proof (Section 8)                              expected
 #   S8    small primes below 2^8 (241, 89, 41)       the lower bounds of pdf_init only choose     0

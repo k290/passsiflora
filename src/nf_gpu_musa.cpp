@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 static int (*p_count)();
+static int (*p_format)();
 static int (*p_init)(int, const int *, int, char *, int, int *, int *, unsigned long long *, int *);
 static int (*p_set_nodes)(const double *, const long long *, size_t);
 static int (*p_run)(unsigned, unsigned, const unsigned long long *, unsigned long long, long long *, unsigned *,
@@ -45,6 +46,13 @@ static bool loadLibrary()
   if (!h) h = dlopen("libnf_musa.so", RTLD_NOW);
   if (!h) return false;
   p_count = (int (*)())dlsym(h, "nfm_device_count");
+  // A library built for another prime-table format (an older libnf_musa.so, which has no nfm_table_format) must not run.
+  p_format = (int (*)())dlsym(h, "nfm_table_format");
+  if (!p_format || p_format() != NF_TABLE_FORMAT) {
+    fprintf(stderr, "GPU mode: libnf_musa.so was built for another prime-table format (%d, this program %d); rebuild it\n"
+                    "with build/build-musa.sh.  Using the CPU.\n", p_format ? p_format() : 1, NF_TABLE_FORMAT);
+    return false;
+  }
   p_init = (int (*)(int, const int *, int, char *, int, int *, int *, unsigned long long *, int *))dlsym(h, "nfm_init");
   p_set_nodes = (int (*)(const double *, const long long *, size_t))dlsym(h, "nfm_set_nodes");
   p_run = (int (*)(unsigned, unsigned, const unsigned long long *, unsigned long long, long long *, unsigned *,

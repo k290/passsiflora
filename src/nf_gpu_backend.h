@@ -10,6 +10,11 @@
 
 struct NfSurv { long long node, m2, m1, b[9]; };
 
+// The prime-table format this program builds, and the kernel entry point for it (nf_kernel.h).  Device code built for
+// another format has no entry point of this name (CUDA, OpenCL) or reports another format (MUSA): the back end refuses it.
+#define NF_TABLE_FORMAT 2
+#define NF_KERNEL_NAME "nf_enum_t2"
+
 static const size_t NF_MAX_NODES = 1u << 17;   // nodes per batch
 static const unsigned NF_OUT_CAP = 1u << 18;   // survivor records per launch
 

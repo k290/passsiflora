@@ -191,7 +191,12 @@ bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
     fprintf(stderr, "Error: the " NF_DRV_NAME " kernel could not be loaded for this device (compute capability %d.%d).\n", major, minor);
     drvFail("ModuleLoadData", r, __FILE__, __LINE__);
   }
-  DCHK(D.ModuleGetFunction(&g_func, mod, "nf_enum"));
+  r = D.ModuleGetFunction(&g_func, mod, NF_KERNEL_NAME);
+  if (r != 0) {
+    fprintf(stderr, "Error: the embedded " NF_DRV_NAME " kernel has no entry point " NF_KERNEL_NAME ": it was built for another prime-table\n"
+                    "format.  Rebuild nf_cuda_fatbin.h from this source (build/build-cuda-kernel.sh).\n");
+    drvFail("ModuleGetFunction", r, __FILE__, __LINE__);
+  }
 
   DCHK(D.MemAlloc(&g_dNodeD, NF_MAX_NODES * NF_ND * sizeof(double)));
   DCHK(D.MemAlloc(&g_dNodeI, NF_MAX_NODES * NF_NI * sizeof(long long)));

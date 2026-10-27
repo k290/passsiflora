@@ -9,7 +9,7 @@
 #define NF_ND 18
 #define NF_NI 35
 
-// Everything the m2/m1 loops need from the outer loops (layout shared with nf_enum.cl).
+// Everything the m2/m1 loops need from the outer loops (layout shared with the kernel, nf_kernel.h).
 struct NfNode {
   double d[NF_ND];
   long long i[NF_NI];

@@ -92,7 +92,7 @@ bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
     fprintf(stderr, "OpenCL build failed (%d):\n%s\n", (int)st, log.data());
     exit(1);
   }
-  g_kern = clCreateKernel(g_prog, "nf_enum", &st);  CLCHK(st);
+  g_kern = clCreateKernel(g_prog, NF_KERNEL_NAME, &st);  CLCHK(st);
 
   g_bNodeD = clCreateBuffer(g_ctx, CL_MEM_READ_ONLY, NF_MAX_NODES * NF_ND * sizeof(double), NULL, &st);  CLCHK(st);
   g_bNodeI = clCreateBuffer(g_ctx, CL_MEM_READ_ONLY, NF_MAX_NODES * NF_NI * sizeof(long long), NULL, &st);  CLCHK(st);

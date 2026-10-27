@@ -27,7 +27,7 @@ itself: there is no copy of the filter in this directory, so a test always tests
 | Eric's original | not in the tree; `git show ccb629f:pdfilter_Test/test_pdfilter_eric.cpp` (it is the file he sent). |
 | `test_pdfilter_full.cpp` | an earlier, larger harness (several generators, a corpus of real polynomials, rounding-mode options). |
 | `build-linux.sh`, `build-windows.sh`, `pari-config.sh` | build the filter (AVX2, `-mavx2`, and baseline, with the test hook) and the test; `FILTER=dir` builds another filter (e.g. the floating-point one of commit 327b04f), `REF=dir` links a second filter for the oracle test's differential check. |
-| `arith_checks.sh`, `arith_checks.f90`, `limit_probe.c` | the compiled reductions against exact models, and a model of the chains beyond the size limits (`pdfilter_chains.tex`, Section 8.7). |
+| `arith_checks.sh`, `arith_checks.f90`, `limit_probe.c` | the compiled reductions against exact models, and a model of the chains beyond the size limits (`pdfilter_chains.tex`, Section 8.8). |
 | `tiny_checks.sh`, `test_tiny.cpp` | the compiled filter on **every** polynomial of complete sets at tiny primes (13: all depressed monic degree-10 polynomials; 17-41: structured sets; shifts), both builds, normal routing and every lane through `chain_general`, against an exact Euclid oracle. |
 | `poldisc_checks.sh`, `test_poldisc.cpp` | upstream's compiled `polDiscTest_cpu` against the definition (PARI), with a 128-bit replay of its int64 steps, and the filter against both (`UPSTREAM=<GetDecicsSrc>`). |
 | `test_gpu_filter.cpp` | the GPU kernel's integer filter (`src/nf_kernel.h`, included, not copied) compiled for the CPU, prime by prime against an exact oracle. |
@@ -114,7 +114,7 @@ the run (the "must pass" tests report 0 there).  Details in Section 13 of `pdfil
 
 ### How large may the primes be?
 
-Section 8.7 of `pdfilter_chains.tex` ("Where the size limits come from").  Proved: `mont` (R = 2^16) is exact on operands in (-2q, 2q) for q <= 2^13,
+Section 8.8 of `pdfilter_chains.tex` ("Where the size limits come from").  Proved: `mont` (R = 2^16) is exact on operands in (-2q, 2q) for q <= 2^13,
 `sredc` (R = 2^32) on differences of products for q <= 2^30 + 23171; for the whole filter, by following the bounds of the values through the chains,
 small primes up to 8385 and large primes up to 1,097,010,265.  Computed exactly (complete searches, on the compiled code by `arith_checks.sh` and in
 Python by `checks.py` C10): `mont` first fails at q = 8241 (first prime 8263, first prime = 1 mod 4 8269, first prime `pdf_init` could choose for

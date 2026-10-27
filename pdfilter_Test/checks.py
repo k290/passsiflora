@@ -11,7 +11,7 @@
 #              gp -q FILE < /dev/null   prints "gp: disc samples checked" and nothing else if all agree
 # Exit status 1 if any check fails.  Section C8 prints the numbers of the worked example (q = 41);
 # section C9 checks Section 10 of the document (zeroing the x^8 coefficient) with its own random generator;
-# section C10 checks Section 8.7 (the size limits of the integer arithmetic) with another one; C11 checks the source-line citations
+# section C10 checks Section 8.8 (the size limits of the integer arithmetic) with another one; C11 checks the source-line citations
 # and C12 the form of the ledger (python3 checks.py --cites / --ledger run one of them alone; see below).
 import random, sys
 from math import comb
@@ -813,10 +813,10 @@ for b0 in (8, -14, 5):
 print("squares mod 41:", sorted({x * x % 41 for x in range(1, 41)}))
 print("-disc(f2) = 27*2^4 - 256*8^3 =", 27 * 2 ** 4 - 256 * 8 ** 3)
 
-# ---------- C9: Section 9, zeroing the x^8 coefficient
+# ---------- C9: Section 10, zeroing the x^8 coefficient
 # Its own random generator, so the counts of C0-C8 do not change; the same cases in quick and full runs.
-# The draws follow the order used for the numbers quoted in Section 9 of pdfilter_chains.tex.
-print("\n===== C9: zeroing the x^8 coefficient (Section 9) =====")
+# The draws follow the order used for the numbers quoted in Section 10 of pdfilter_chains.tex.
+print("\n===== C9: zeroing the x^8 coefficient (Section 10) =====")
 RNG = random.Random(8)        # rand_poly() and rand_pair() use this name
 def x8_deriv(f, q): return red([k * f[k] for k in range(1, len(f))], q)
 def x8_defect(f):              # n f - x f' = sum (n-k) a_k x^k  (Lemma "the Euler defect")
@@ -887,7 +887,7 @@ print("C9.2 parity of the remainders and of the elementary steps:", cnt, "even p
 
 # C9.3 degree sequences of the generator's polynomials, and accidental failures of later checks (observations, not theorems)
 for q in (761, 41):
-    RNG.random()               # one draw, kept so that the counts quoted in Section 9 stay reproducible
+    RNG.random()               # one draw, kept so that the counts quoted in Section 10 stay reproducible
     for label, c4z, shiftit in (("c4=0 unshifted", True, False), ("c4=0 shifted", True, True), ("c4 random, shifted", None, True)):
         rows = []; later = 0; firstok = 0
         for _ in range(3000):
@@ -1022,8 +1022,8 @@ for _ in range(2000):
 print(f"C9.8 Tschirnhaus: seed power sums, the 192 substitutions and x^3+x^2+1 checked; {zero} random (h = H(x^r), 2d < r) with pi = 0, "
       f"and pi != 0 in {nonzero} of {2000 - zero} cases with 2d >= r")
 
-# ---------- C10: Section 8.7, the size limits of the integer arithmetic (own random generator; C0-C9 output unchanged)
-print("\n===== C10: size limits of the integer arithmetic (Section 8.7) =====")
+# ---------- C10: Section 8.8, the size limits of the integer arithmetic (own random generator; C0-C9 output unchanged)
+print("\n===== C10: size limits of the integer arithmetic (Section 8.8) =====")
 RNG10 = random.Random(20261026)
 
 def s_k(v, k):
@@ -1102,7 +1102,7 @@ check(clean == list(range(8193, 8240, 2)) + [8243, 8247, 8251, 8253, 8255, 8257,
 check(min(q for q in range(8193, 8301, 2) if q not in clean) == 8241, "C10.2 first failing odd q = 8241")
 print(f"C10.2 mont: counterexample at q = 8241 replayed; odd q in [8193, 8300] without a counterexample: {len(clean)} (8193..8239, 8243, 8247, 8251..8259)")
 
-# C10.3 sredc on differences (Lemma "Where sredc can fail on a difference", Section 8.7): the reduction, the bound 2(delta-1)^2 >= 2^30, and the complete search of the remaining range
+# C10.3 sredc on differences (Lemma "Where sredc can fail on a difference", Section 8.8): the reduction, the bound 2(delta-1)^2 >= 2^30, and the complete search of the remaining range
 def sredc_fail_search(delta, neg=False):
     """all solutions of U + V + 2 + 4 t delta = L q, mu = 2 delta - 4 - U + L - 4t >= (1 if neg else 0), V = ij + i'j', i+j+i'+j' = U"""
     q = (1 << 30) + delta
@@ -1159,7 +1159,7 @@ print(f"C10.3 sredc: no failure for odd q = 2^30 + delta, delta <= 23171 (bound)
       f"first at delta = 23279: a,b,c,d = {a}, {b}, {c}, {dd}, sredc = q + {u - q}; first prime delta = 23293 (= 1 mod 4), "
       f"first usable 23377; {len(failing)} of the {len(range(23279, 23379, 2))} odd delta in [23279, 23377] fail; 4 counterexamples replayed")
 
-# C10.4 the bound propagation of Section 8.7 (Theorem "The limits of the whole filter"): small stage for every odd q <= 9001, large stage at its limit
+# C10.4 the bound propagation of Section 8.8 (Theorem "The limits of the whole filter"): small stage for every odd q <= 9001, large stage at its limit
 def red_bound(X, q, R): return (X + q * (R // 2)) // R
 def load_bound(q): return red_bound(2 * ((1 << 21) - 1) * (q - 1) + (1 << 21) * (q - 1), q, 1 << 32)
 def bounds_ok(q, small):

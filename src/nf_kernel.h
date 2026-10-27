@@ -127,7 +127,13 @@ NF_INLINE int survives(const i64 *c, NF_C int *qt, nfuint np)
 
 // ---- kernel ---------------------------------------------------------------
 
-NF_KERNEL void nf_enum(NF_G const double *nd, NF_G const i64 *ni,
+// The layout of the prime table qt (primeRow in nf_gpu_common.cpp).  Format 2: the integer filter above; format 1 was the
+// floating-point filter (row[6] the bits of 1.0f/q).  The entry point carries the format in its name, so that a program never
+// runs device code built for another layout (a CUDA fat binary or MUSA library left over from an older build): the host looks
+// up NF_KERNEL_NAME (nf_gpu_backend.h), and the MUSA library reports NF_TABLE_FORMAT.  Change all of them together.
+#define NF_TABLE_FORMAT 2
+
+NF_KERNEL void nf_enum_t2(NF_G const double *nd, NF_G const i64 *ni,
                       NF_G const u64 *cum, nfuint nnodes, nfuint nodebase, u64 total,
                       NF_C int *qt, nfuint nprime,
                       NF_G i64 *out, NF_G nfuint *outcnt, nfuint outcap,
