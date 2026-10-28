@@ -404,10 +404,37 @@ stand-ins), gave the \code{.truth} files of all $31$ test work units with the AV
 every polynomial, stopping at the first difference), five units in both builds ran $20{,}008{,}960$ polynomials each without a difference.
 
 \paragraph{Speed} \stnum.  On the GPU, the device time of all kernel launches, old (floating-point filter) against new kernel, five alternating runs each: median
-$1217$ against $1091$\,ms and $3715$ against $3324$\,ms on two work units, about $10\%$ less.  On the CPU, the application's own timing split over $60$ million
-polynomials, seven alternating runs on a quiet machine: the guard, the start-up check and the other changes of the last revision cost nothing measurable
-(filter plus exact test, medians: $6.07\to6.16$\,s and $6.89\to6.86$\,s with AVX2, $7.42\to7.53$\,s and $8.26\to8.16$\,s baseline, against a spread of up to a third
-between runs).  \textbf{Not yet measured}: the CPU integer filter against the floating-point filter of \code{327b04f} in the application.
+$1217$ against $1091$\,ms and $3715$ against $3324$\,ms on two work units, about $10\%$ less.
+
+On the CPU (a measurement of 28 October 2026, not in \cite{P}), Table~\ref{tab:speed} gives the application's own timing split (\code{NF\_PROFILE}) over the first $60{,}006{,}400$ polynomials of three work units,
+seven runs per filter, the filters alternating, one run at a time on an otherwise idle Linux machine (load $1.0$).  The three applications differ only in the
+filter object: the floating-point filter of \code{327b04f}, compiled as it shipped (\code{-march=x86-64-v3}); the present filter; and an earlier integer version
+with Barrett reduction ($32$-bit lanes for the small primes, $64$-bit products for the large ones), which was never committed.  The Barrett version gave the truth files
+of all $31$ work units in both builds before it was timed.  On \code{sf5} and \code{sf3} almost every polynomial takes \code{chain\_block}; on \code{sf4} every
+polynomial takes \code{chain\_general} at every prime (the stage counts of \code{NF\_PDFDEBUG} on the first batch of $10{,}240$ polynomials, the same for all
+three filters).  With AVX2 the floating-point
+filter is still about $20\%$ faster on \code{chain\_block}, $13\%$ on the whole run with the enumeration; with the baseline build, and on \code{chain\_general} with
+either build, the present filter is as fast or faster.  The Barrett version is the slowest throughout: AVX2 has no $64$-bit vector multiplication, and a $32$-bit lane
+holds half as many residues per register as the $16$-bit lanes of the Montgomery stage.  The runs of one filter spread by up to $28\%$ (minimum to maximum).  The guard,
+the start-up check and the other changes of the last revision cost nothing measurable (filter plus exact test, medians against the previous revision: $6.07\to6.16$\,s
+and $6.89\to6.86$\,s with AVX2, $7.42\to7.53$\,s and $8.26\to8.16$\,s baseline).
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{CPU filter plus exact test (the application's polDisc time) in seconds for the first $60{,}006{,}400$ polynomials, median of seven runs; in brackets the
+change against the floating-point filter.  Work units \code{sf5\_DS-14x11\_Grp33043of705883}, \code{sf3\_DS-16x270\_Grp74of3932160},
+\code{sf4\_DS-13x271-25\_Grp98of200000}.}\label{tab:speed}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+work unit & build & floating point & Barrett & Montgomery (present) \\ \midrule
+\code{sf5} & AVX2     & $5.47$  & $12.06$ ($+120\%$) & $6.62$ ($+21\%$) \\
+           & baseline & $8.58$  & $22.77$ ($+165\%$) & $7.92$ ($-8\%$) \\
+\code{sf3} & AVX2     & $5.36$  & $11.37$ ($+112\%$) & $6.43$ ($+20\%$) \\
+           & baseline & $7.90$  & $21.82$ ($+176\%$) & $7.61$ ($-4\%$) \\
+\code{sf4} & AVX2     & $12.96$ & $14.88$ ($+15\%$)  & $8.46$ ($-35\%$) \\
+           & baseline & $20.70$ & $31.62$ ($+53\%$)  & $10.63$ ($-49\%$) \\ \bottomrule
+\end{tabular}
+\end{table}
 
 %======================================================================
 \section{What it all rests on}\label{sec:ledger}
@@ -439,7 +466,7 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
   check exercises the filter on the device.
 \item The start-up check covers its own copy of the coefficient split, not \code{pdf\_filter}'s.
 \item Only $S=\{2,5\}$ is exercised by the tests; other sets are covered by the proofs.
-\item The CPU speed of the integer filter against the floating-point one.
+\item With AVX2 the floating-point filter is still about $20\%$ faster on \code{chain\_block} (Table~\ref{tab:speed}); where the time goes was not isolated.
 \end{itemize}
 
 \paragraph{Reproducing.}  The checks above are scripts of the repository, in \code{pdfilter\_Test} unless stated; \cite[Appendix~B]{P} gives the commands.
@@ -450,8 +477,8 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 \item the GPU filter: \code{test\_gpu\_filter.cpp};  the mathematics, the citations and the ledger: \code{checks.py};
 \item the work units: \code{build/test-suite-unix.sh}.
 \end{itemize}
-Kept outside the repository: the captured candidates, the Linux build recipe used for the application with BOINC replaced, and the Windows harness of the
-GPU runs.
+Kept outside the repository: the captured candidates, the Linux build recipe used for the application with BOINC replaced, the Windows harness of the
+GPU runs, and the Barrett version and the scripts of the CPU timing.
 
 {\small
 \begin{thebibliography}{9}
