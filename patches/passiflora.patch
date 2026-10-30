@@ -223,11 +223,16 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +            nfNow()-nfProfStart, nfProfPd, nfNow()-nfProfStart-nfProfPd);
 +  }
 +
-@@ -129,0 +338,11 @@
+@@ -129,0 +338,16 @@
 +  {
 +    int np = (int)(lg(Sg)-1);
++    // S is kept in arrays of 3 (here, for the pre-filter, and upstream's pSet[3]): a work unit with more primes is refused.
++    if(np > 3) {
++      fprintf(stderr, "S has %d primes; this program handles at most 3.  Aborting.\n", np);
++      exit(1);
++      }
 +    int ps[3] = {0,0,0};
-+    for(int k=0; k<np && k<3; k++)  ps[k] = (int)itos((GEN)Sg[k+1]);
++    for(int k=0; k<np; k++)  ps[k] = (int)itos((GEN)Sg[k+1]);
 +    nfUseGpu = nfGpuInit(nfArgc, nfArgv, np, ps);
 +    const char *gc = getenv("NF_GPUCHECK");
 +    nfGpuCheck = nfUseGpu && gc && *gc=='1';
@@ -235,22 +240,22 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +    nfCheckBudget = nfUseGpu ? (sc ? atoll(sc) : 5000000LL) : 0;
 +  }
 +
-@@ -335 +554 @@
+@@ -335 +559 @@
 -  double s1a2_mag,s2a2_mag,s1a3_mag,s2a3_mag,s1a4_mag,s2a4_mag;
 +  double s1a2_mag,s2a2_mag,s1a3_sq,s2a3_sq,s1a4_sq,s2a4_sq;
-@@ -752,0 +972,6 @@
+@@ -752,0 +977,6 @@
 +              // sqrt(X)<=B is replaced by 0<=X<=T with T = sqrtLeLimit(B); see there.
 +              const double T_a3  = sqrtLeLimit(2*tq[3]);
 +              const double T_a3c = sqrtLeLimit(2*tqc[3]);
 +              const double T_a4  = sqrtLeLimit(B_a4);
 +              const double T_a4c = sqrtLeLimit(B_a4c);
 +
-@@ -891,2 +1116,2 @@
+@@ -891,2 +1121,2 @@
 -                          s1a3_mag = sqrt(a31sq + lambda1*a31a32  + lambda2*a32sq);
 -                          s2a3_mag = sqrt(a31sq + lambda1c*a31a32 + lambda2c*a32sq);
 +                          s1a3_sq = a31sq + lambda1*a31a32  + lambda2*a32sq;
 +                          s2a3_sq = a31sq + lambda1c*a31a32 + lambda2c*a32sq;
-@@ -894 +1119,11 @@
+@@ -894 +1124,11 @@
 -                          if( (s1a3_mag<=2*tq[3]) && (s2a3_mag<=2*tqc[3]) )
 +                          // Same as: sqrt(s1a3_sq)<=2*tq[3] && sqrt(s2a3_sq)<=2*tqc[3]
 +#ifdef NF_COUNT
@@ -263,7 +268,7 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +                            fprintf(stderr, "NF_CHECK_SQRT mismatch (a3)\n");  exit(4); }
 +#endif
 +                          if( s1a3_sq>=0.0 && s1a3_sq<=T_a3 && s2a3_sq>=0.0 && s2a3_sq<=T_a3c )
-@@ -937,0 +1173,34 @@
+@@ -937,0 +1178,34 @@
 +                              if(nfUseGpu)
 +                                {
 +                                // The m2/m1 loops run on the GPU: queue this node.
@@ -298,11 +303,11 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +                                  }
 +                                }
 +                              if(!nfUseGpu || nfBatchChecked)
-@@ -941,0 +1211,3 @@
+@@ -941,0 +1216,3 @@
 +#ifdef NF_COUNT
 +                                nfCnt[5]++;
 +#endif
-@@ -960 +1232,12 @@
+@@ -960 +1237,12 @@
 -                                for(m1=m1_L;m1<=m1_U;++m1)
 +                                // Skip the m1 values that provably fail the a4 test below.
 +                                pari_long m1_lo = m1_L, m1_hi = m1_U;
@@ -316,12 +321,12 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +#endif
 +
 +                                for(m1=m1_lo;m1<=m1_hi;++m1)
-@@ -970,2 +1253,2 @@
+@@ -970,2 +1258,2 @@
 -                                  s1a4_mag = sqrt(a41sq + lambda1*a41a42  + lambda2*a42sq);
 -                                  s2a4_mag = sqrt(a41sq + lambda1c*a41a42 + lambda2c*a42sq);
 +                                  s1a4_sq = a41sq + lambda1*a41a42  + lambda2*a42sq;
 +                                  s2a4_sq = a41sq + lambda1c*a41a42 + lambda2c*a42sq;
-@@ -973 +1256,18 @@
+@@ -973 +1261,18 @@
 -                                  if( (s1a4_mag<=B_a4) && (s2a4_mag<=B_a4c) )
 +                                  // Same as: sqrt(s1a4_sq)<=B_a4 && sqrt(s2a4_sq)<=B_a4c
 +#ifdef NF_COUNT
@@ -341,20 +346,20 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +                                    fprintf(stderr, "NF_CHECK_SQRT mismatch (a4)\n");  exit(4); }
 +#endif
 +                                  if( s1a4_sq>=0.0 && s1a4_sq<=T_a4 && s2a4_sq>=0.0 && s2a4_sq<=T_a4c )
-@@ -1026,0 +1327,2 @@
+@@ -1026,0 +1332,2 @@
 +                                                    if(nfUseGpu)  { ++nfRefCount; }
 +                                                    else {
-@@ -1056,0 +1359 @@
+@@ -1056,0 +1364 @@
 +                                                      }  // end of CPU-only buffering
-@@ -1067,0 +1371,2 @@
+@@ -1067,0 +1376,2 @@
 +                                // Leave m1 where the unpruned loop would have (used by the final checkpoint).
 +                                m1 = (m1_L > m1_U) ? m1_L : m1_U + 1;
-@@ -1093,0 +1399,2 @@
+@@ -1093,0 +1404,2 @@
 +  if(nfUseGpu)  nfGpuFlushBatch(0,0,0,0,0,0,0, StatVec, outfile, true);
 +
-@@ -1142,0 +1450 @@
+@@ -1142,0 +1455 @@
 +
-@@ -1241 +1549,63 @@
+@@ -1241 +1554,63 @@
 -  int status = polDiscTest_cpu(polBufNow, numPolysNow, polGoodFlag, NULL, numPrimes, pSet);
 +  // Exact modular pre-filter (pdfilter.f90): clears the flag only for polynomials
 +  // that provably fail; the original GMP test then runs on the survivors.

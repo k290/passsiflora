@@ -343,8 +343,9 @@ indices stay in $0..11$ (the masked-loop lemma).  Undefined values: padding lane
 Illegal instructions: the AVX2 object runs only when the CPU reports AVX2 and FMA, and contains nothing beyond AVX2.  Language-level undefined behaviour: none apart from
 the conversions and shifts of (S2), (S3), which the start-up check tests.
 
-\paragraph{Named assumptions of the interface.}  (A1) At most three primes in $S$: GetDecics' own \code{int pSet[3]}, and the patch's copy of it, are filled without a bound
-check (all $31$ work units have $|S|=2$).  (A2) One thread: the filter keeps module state, and the application calls it only from the thread that runs the enumeration.
+\paragraph{The interface.}  (A1) At most three primes in $S$ \stproved: GetDecics keeps $S$ in \code{int pSet[3]}, and so do the patch's copies, each filled without a
+bound check; the program refuses a work unit with more primes right after it reads $S$, before any of them is filled (tested with four and five primes; all $31$
+work units have $|S|=2$).  Named assumptions: (A2) One thread: the filter keeps module state, and the application calls it only from the thread that runs the enumeration.
 (A3) Hypothesis (H) of Proposition~\ref{prop:poldisc}.
 
 %======================================================================
@@ -468,13 +469,13 @@ citation of the document.  Its contract rows and its named assumptions:
 \toprule
 claim & status & rests on \\ \midrule
 (C1) soundness & \stproved & Theorems A--D, Proposition~\ref{prop:poldisc}, the interface; assumes (H), compiler correctness, (S2), (S3) \\
-(C2) safety & \stproved & range proofs, size limits, the masked-loop lemma; assumes (S2), (S3) (start-up check), the CPU's report of AVX2/FMA, (A1) \\
-(C3) integration & \stproved{} \stnum & the glue proposition; $31$ units in both builds, $12$ on the GPU; assumes (A1), (A2) \\
+(C2) safety & \stproved & range proofs, size limits, the masked-loop lemma; assumes (S2), (S3) (start-up check), the CPU's report of AVX2/FMA \\
+(C3) integration & \stproved{} \stnum & the glue proposition; $31$ units in both builds, $12$ on the GPU; assumes (A2) \\
 GPU filter & \stproved & Theorem E; assumes the device compiler and device correct, host and device code of one format (checked at start-up) \\ \midrule
 compiler correctness & \stassume & tiny-prime test, arithmetic checks with two GCC versions, oracle test, start-up check; docs/BUILDING.md names the checked compilers \\
 (S2), (S3) & \stassume & as above; the start-up check switches the filter off if either fails on the running machine \\
 (H) & \stassume & the enumeration's search region (the author's statement); no overflow on $733{,}855$ real candidates and shifts, largest value $2^{59.45}$ against $2^{63}$ \\
-(A1), (A2) & \stassume & all work units have $|S|=2$; no thread of the program calls the filter \\
+(A2) & \stassume & no thread of the program calls the filter \\
 \bottomrule
 \end{tabularx}
 \end{center}
