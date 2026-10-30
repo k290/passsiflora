@@ -270,7 +270,11 @@ The proof \cite[Section~8]{P} has four parts.
 \paragraph{The size limits, and the guard.}  The single-reduction arguments stop at $q\le2^{13}$ (small) and $q\le2^{30}+1$ (large).  Following the bounds of the
 values through the chains instead gives larger limits for the whole filter, proved with a complete finite computation \stnum: small primes up to $8385$ and large
 primes up to $1{,}097{,}010{,}265$.  This holds although \code{mont} itself has counterexamples from $8241$ and \code{sredc} on a difference from $2^{30}+23279$,
-because the chains never form those operands.  The limits are not known to be sharp.  The shipped primes are inside them, below $2^{13}$ and $2^{25}$.  \code{pdf\_init}
+because the chains never form those operands.  The limits are not known to be sharp.  A directed search on a model of the chains \stnum, at every prime $\equiv1\pmod4$
+from $8389$ to $19961$ and at $64$ large primes, then deeper below its first finds, gives the first results outside $(-q,q)$ at $15901$ (small) and
+$1{,}749{,}999{,}961$ (large), lower the longer it searches; the first wrong verdicts are at $18457$ and $2{,}032{,}588{,}133$, and those it found at primes \code{pdf\_init}
+could choose make the real filter fail as well.  So the proved limits are at least $0.53$ and $0.63$ of the true thresholds for such failures, and probably not sharp; a
+search cannot show where in between the thresholds lie.  The shipped primes are inside them, below $2^{13}$ and $2^{25}$.  \code{pdf\_init}
 enforces them: a usable prime outside $[11,8385]$ (small) or $[11,1{,}097{,}010{,}265]$ (large) is skipped with one line on standard error, so no future change of the
 search can leave the proved region silently.
 
@@ -491,7 +495,8 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 
 \paragraph{Open items.}
 \begin{itemize}
-\item Whether the size limits $8385$ and $1{,}097{,}010{,}265$ are sharp (no shipped prime is near them).
+\item Whether the size limits $8385$ and $1{,}097{,}010{,}265$ are sharp (no shipped prime is near them).  The directed search narrows the first failure to
+  $(8385,15901]$ and $(1{,}097{,}010{,}265,\ 1{,}749{,}999{,}961]$ for primes $\equiv1\pmod4$; closing the gap needs a sharper proof, not more search.
 \item (H) for the application's polynomials is measured on real candidates (about $12$ times headroom), not proved from the search bounds.
 \item The GPU filter is checked on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested; the program checks the filter on
   every device at start-up.

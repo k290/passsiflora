@@ -129,7 +129,9 @@ Section 8.8 of `pdfilter_chains.tex` ("Where the size limits come from").  Prove
 small primes up to 8385 and large primes up to 1,097,010,265.  Computed exactly (complete searches, on the compiled code by `arith_checks.sh` and in
 Python by `checks.py` C10): `mont` first fails at q = 8241 (first prime 8263, first prime = 1 mod 4 8269, first prime `pdf_init` could choose for
 S = {2,5} 8329), `sredc` on a difference at q = 2^30 + 23279 (first prime 2^30 + 23293, first usable 2^30 + 23377).  Not known: whether the whole-filter
-limits are sharp.  `pdf_init` enforces them: a usable prime outside [11, 8385] (small) or [11, 1,097,010,265] (large) is skipped with one
+limits are sharp.  A directed search with `limit_probe.c` at every prime = 1 mod 4 from 8389 to 19961 and at 64 large primes, then 20 times deeper below
+its first finds, gives results outside (-q, q) from 15901 and 1,749,999,961 on (lower the longer it searches), the first wrong verdicts at 18457 (19009 the
+first usable for S = {2,5}) and 2,032,588,133 (2,114,656,361 usable); the inputs at 18457, 19009 and 2,114,656,361 also make the real filter fail (moved-prime builds, Section 8.8).  `pdf_init` enforces the proved limits: a usable prime outside [11, 8385] (small) or [11, 1,097,010,265] (large) is skipped with one
 line on stderr (function `chosen`; the shipped search, below 2^13 and 2^25, never meets that case).  Test builds may switch the guard off with
 `-DPDF_NO_LIMITS`; `fault_checks.sh` does so for the rows beyond the limits, and its row SG checks that the guard skips the primes above 8385.
 
