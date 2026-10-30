@@ -3,6 +3,8 @@
 # test_poldisc.cpp in parallel chunks.  Linux.
 #   UPSTREAM=<GetDecicsSrc> CAND=<candidates> HITS=<hits> bash poldisc_checks.sh      about 10.7 million polynomials
 #   QUICK=1 ...                                                                       about 0.3 million
+#   S=2,11 ...                                                                        another set S (one to three primes; the cand and
+#                                                                                     hits files, polynomials of S = {2,5}, are not used)
 # UPSTREAM is upstream's source directory, with the patch applied (the patch changes only polDiscTest_cpu.cpp's conversions for a
 # 32-bit long, which do not matter on 64-bit Linux, but the document's line numbers are those of the patched file), CAND a file of
 # captured candidates and HITS a file of results, one polynomial per line, leading coefficient first (Appendix "Reproducing the
@@ -18,7 +20,7 @@ OUT="$OUT" EXTRA_CXX="$UPSTREAM/polDiscTest_cpu.cpp" LIBS_EXTRA=-lgmp TEST=test_
 # jobs: "family count seed [file options]"
 JOBLIST="$OUT/jobs.txt"; : > "$JOBLIST"
 chunks() {   # family total nchunks
-  local c; for c in $(seq 1 $3); do echo "$1 $(( $2 * c / $3 - $2 * (c - 1) / $3 )) $c" >> "$JOBLIST"; done
+  local c; for c in $(seq 1 $3); do echo "$1 $(( $2 * c / $3 - $2 * (c - 1) / $3 )) $c${S:+ -S $S}" >> "$JOBLIST"; done
 }
 if [ -n "$QUICK" ]; then
   for f in rand3 rand100 rand1e6 pass passbig zero; do chunks $f 50000 2; done
@@ -27,8 +29,8 @@ else
   for f in rand100 pass; do chunks $f 2000000 8; done
   for f in rand1e6 passbig zero; do chunks $f 1000000 8; done
 fi
-[ -n "$CAND" ] && for c in $(seq 1 16); do echo "cand 0 $c -cand $CAND -part $c/16" >> "$JOBLIST"; done
-[ -n "$HITS" ] && echo "hits 5 1 -hits $HITS" >> "$JOBLIST"
+[ -z "$S" ] && [ -n "$CAND" ] && for c in $(seq 1 16); do echo "cand 0 $c -cand $CAND -part $c/16" >> "$JOBLIST"; done
+[ -z "$S" ] && [ -n "$HITS" ] && echo "hits 5 1 -hits $HITS" >> "$JOBLIST"
 run_job() {
   local f="$OUT/res_$(echo "$1_$2_$3" | tr ' /' '__').txt"
   if "$OUT/test_poldisc" "$@" > "$f" 2>&1; then echo ok > "$f.status"; else echo FAIL > "$f.status"; fi
@@ -46,5 +48,5 @@ cat "$OUT"/res_*.txt | awk '
     printf "%-8s", "all"; for (i = 3; i <= 12; i++) printf " %*.0f", (i == 3 ? 11 : i == 9 ? 11 : i == 6 ? 10 : i == 12 ? 6 : 9), T[i]; printf "\n"
   }'
 grep -h "DISAGREE\|leaves the int64" "$OUT"/res_*.txt | head -5
-echo "poldisc_checks: $(wc -l < "$JOBLIST") jobs, $nfail failed, $((SECONDS - start)) s"
+echo "poldisc_checks${S:+ (S = $S)}: $(wc -l < "$JOBLIST") jobs, $nfail failed, $((SECONDS - start)) s"
 [ "$nfail" = 0 ]

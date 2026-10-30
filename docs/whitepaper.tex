@@ -495,7 +495,8 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 \item (H) for the application's polynomials is measured on real candidates (about $12$ times headroom), not proved from the search bounds.
 \item The GPU filter is checked on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested; the program checks the filter on
   every device at start-up.
-\item Only $S=\{2,5\}$ is exercised by the tests; other sets are covered by the proofs.
+\item The searches use $S=\{2,5\}$; the proofs hold for every $S$, and the tests were also run for five other sets ($\{2,11\}$, $\{5,11\}$,
+  $\{2,5,11\}$, $\{2,3,5\}$, $\{3,7\}$) without a failure \stnum, but on fewer polynomials than for $\{2,5\}$.
 \end{itemize}
 
 \paragraph{Reproducing.}  The checks above are scripts of the repository, in \code{pdfilter\_Test} unless stated; \cite[Appendix~B]{P} gives the commands.

@@ -2,12 +2,13 @@
 // computes"): upstream's compiled polDiscTest_cpu against Definition "Passing" computed with PARI (poldisc, the primes of S
 // removed, issquare), on families of polynomials; and the filter against both.
 //   EXTRA_CXX=<GetDecicsSrc>/polDiscTest_cpu.cpp LIBS_EXTRA=-lgmp TEST=test_poldisc.cpp bash build-linux.sh
-//   build/test_poldisc FAMILY COUNT SEED [-cand FILE] [-hits FILE] [-part i/N]
+//   build/test_poldisc FAMILY COUNT SEED [-cand FILE] [-hits FILE] [-part i/N] [-S 2,5]
 // FAMILY: rand3, rand100, rand1e6 (random monic, coefficients uniform in [-B, B]); pass (G(x^2) with G(0) = +-(1, 2, 5, 10)*m^2, and
 // shifts x+t, |t| <= 3: polynomials built to pass); passbig (the same with |G_k| <= 10^6, m <= 10^5, |t| <= 2, so that upstream's int64 steps
 // overflow on polynomials that pass); zero (disc = 0: a square factor); cand (the captured candidates of the
 // application, -cand FILE, with the shifts x+t, |t| <= 2); hits (the 83 real results, -hits FILE, with x -> -x and the shifts
-// |t| <= COUNT).  S = {2, 5}.  -part i/N runs every N-th polynomial of cand or hits, starting with the i-th.
+// |t| <= COUNT).  -S gives the set S (one to three primes, default 2,5; for pass and passbig G(0) is then +-(a product of primes of S)
+// times m^2).  -part i/N runs every N-th polynomial of cand or hits, starting with the i-th.
 // For every polynomial: upstream's flag, the definition, whether one of upstream's int64 steps (the first two sub-resultant
 // iterations, done in int64 before GMP takes over) would overflow (replayed in 128 bits), and the filter's flags (AVX2 and
 // baseline builds, which must agree).
@@ -72,7 +73,9 @@ static bool upstream_overflows(const i64 *c)
   return ov;
 }
 
-// Definition "Passing" for S = {2, 5}: disc f != 0 and |disc f| with the factors 2, 5 removed a square
+static std::vector<int> Sset = {2, 5};
+
+// Definition "Passing": disc f != 0 and |disc f| with the factors of the primes of S removed a square
 static int passes(const i64 *c)
 {
   pari_sp av = avma;
@@ -84,8 +87,7 @@ static int passes(const i64 *c)
   int r = 0;
   if (signe(D) != 0) {
     D = absi(D);
-    (void)Z_lvalrem(D, 2, &D);
-    (void)Z_lvalrem(D, 5, &D);
+    for (int p : Sset) (void)Z_lvalrem(D, p, &D);
     r = Z_issquare(D) ? 1 : 0;
   }
   set_avma(av);
@@ -124,7 +126,7 @@ static std::vector<std::vector<i64>> readPolys(const char *file)
 
 int main(int argc, char **argv)
 {
-  if (argc < 4) { fprintf(stderr, "usage: test_poldisc FAMILY COUNT SEED [-cand FILE] [-hits FILE]\n"); return 2; }
+  if (argc < 4) { fprintf(stderr, "usage: test_poldisc FAMILY COUNT SEED [-cand FILE] [-hits FILE] [-part i/N] [-S 2,5]\n"); return 2; }
   std::string fam = argv[1]; i64 count = atoll(argv[2]); rs = strtoull(argv[3], 0, 10) * 0x9E3779B97F4A7C15ull + 7;
   const char *candf = 0, *hitsf = 0;
   i64 part_i = 1, part_n = 1;           // -part i/N: of the cand and hits polynomials only those with index = i-1 mod N
@@ -132,10 +134,23 @@ int main(int argc, char **argv)
     if (!strcmp(argv[i], "-cand")) candf = argv[i + 1];
     if (!strcmp(argv[i], "-hits")) hitsf = argv[i + 1];
     if (!strcmp(argv[i], "-part") && sscanf(argv[i + 1], "%lld/%lld", &part_i, &part_n) != 2) { fprintf(stderr, "-part i/N\n"); return 2; }
+    if (!strcmp(argv[i], "-S")) {
+      Sset.clear();
+      for (const char *s = argv[i + 1]; *s; ) { Sset.push_back(atoi(s)); while (*s && *s != ',') s++; if (*s) s++; }
+      if (Sset.empty() || Sset.size() > 3) { fprintf(stderr, "-S: one to three primes\n"); return 2; }
+    }
   }
   pari_init(64000000, 0);
-  int pSet[2] = {2, 5};
-  pdf_init_v3(2, pSet); pdf_init_base(2, pSet);
+  int nS = (int)Sset.size(), pSet[3] = {0, 0, 0};
+  for (int k = 0; k < nS; k++) pSet[k] = Sset[k];
+  pdf_init_v3(nS, pSet); pdf_init_base(nS, pSet);
+  std::vector<i64> units;                  // +- the products of subsets of S: the S-units used by pass and passbig
+  for (int mask = 0; mask < (1 << nS); mask++) {
+    i64 u = 1;
+    for (int k = 0; k < nS; k++) if (mask >> k & 1) u *= Sset[k];
+    units.push_back(u); units.push_back(-u);
+  }
+  if (nS != 2 || Sset[0] != 2 || Sset[1] != 5) { printf("S"); for (int p : Sset) printf(" %d", p); printf("\n"); }
   std::vector<std::vector<i64>> base;
   if (fam == "cand") { if (!candf) { fprintf(stderr, "cand needs -cand FILE\n"); return 2; } base = readPolys(candf); }
   if (fam == "hits") { if (!hitsf) { fprintf(stderr, "hits needs -hits FILE\n"); return 2; } base = readPolys(hitsf); }
@@ -158,9 +173,8 @@ int main(int argc, char **argv)
         bool big = fam == "passbig";
         i64 G[6]; G[5] = 1;
         for (int k = 1; k <= 4; k++) G[k] = urand(big ? 1000000 : 20);
-        static const i64 mult[8] = {1, -1, 2, -2, 5, -5, 10, -10};
         i64 m = 1 + (i64)(rnd() % (big ? 100000 : 30));
-        G[0] = mult[rnd() % 8] * m * m;
+        G[0] = units[rnd() % units.size()] * m * m;
         i64 f[11]; for (int k = 0; k <= 10; k++) f[k] = 0;
         for (int k = 0; k <= 5; k++) f[10 - 2 * k] = G[k];             // f[col] is the coefficient of x^(10-col), G[k] of x^k
         shift(f, urand(big ? 2 : 3), c);               // |coefficients| <= 10^11 * 3^10 < 2^63 for passbig
@@ -183,7 +197,7 @@ int main(int argc, char **argv)
       } else { fprintf(stderr, "unknown family %s\n", fam.c_str()); return 2; }
     }
     up.assign(n, 0); fl.assign(n, 0); fb.assign(n, 0);
-    polDiscTest_cpu(buf.data(), n, up.data(), NULL, 2, pSet);
+    polDiscTest_cpu(buf.data(), n, up.data(), NULL, nS, pSet);
     pdf_filter_v3(buf.data(), n, fl.data());
     pdf_filter_base(buf.data(), n, fb.data());
     for (int i = 0; i < n; i++) {

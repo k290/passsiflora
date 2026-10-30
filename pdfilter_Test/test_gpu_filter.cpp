@@ -2,8 +2,9 @@
 // table of src/nf_gpu_common.cpp) compiled for the CPU and compared with an exact oracle (pdfilter_chains.tex, Theorem E): for every
 // polynomial and every prime the kernel must reject at q exactly when chi(disc f mod q) = -1.
 //   TEST=test_gpu_filter.cpp bash build-linux.sh
-//   build/test_gpu_filter COUNT SEED [THREADS] [tiny [TOP]]
-// The table is the kernel's for S = {2, 5}: the 24 smallest primes q = 1 mod 4 in (256, 8192) at which 2 and 5 are squares.  "tiny" uses
+//   build/test_gpu_filter COUNT SEED [THREADS] [tiny [TOP]] [-S 2,5]
+// The table is the kernel's for S (default {2, 5}): the 24 smallest primes q = 1 mod 4 in (256, 8192) at which every prime of S is a
+// square.  "tiny" uses
 // instead primeRow for every prime q = 1 mod 4 in [13, 199] and the 8 largest such primes up to TOP (default 8191, the limit of
 // Theorem E, set by redc; a larger TOP shows what happens beyond it).  The kernel's sources are included,
 // not copied; src/nf_port_cpu.h is the CPU port, in the manner of nf_port_opencl.h and nf_port_cuda.h.  First, for a table below
@@ -71,7 +72,16 @@ static int chi_oracle(const i64 *c, i64 q)
 
 int main(int argc, char **argv)
 {
-  if (argc < 3) { fprintf(stderr, "usage: test_gpu_filter COUNT SEED [THREADS] [tiny]\n"); return 2; }
+  std::vector<int> S = {2, 5};              // -S p1,p2,...: the set S of the kernel's table (default 2,5)
+  for (int i = 1; i + 1 < argc; i++)
+    if (!strcmp(argv[i], "-S")) {
+      S.clear();
+      for (const char *s = argv[i + 1]; *s; ) { S.push_back(atoi(s)); while (*s && *s != ',') s++; if (*s) s++; }
+      for (int k = i; k + 2 < argc; k++) argv[k] = argv[k + 2];
+      argc -= 2;
+      break;
+    }
+  if (argc < 3) { fprintf(stderr, "usage: test_gpu_filter COUNT SEED [THREADS] [tiny [TOP]] [-S 2,5]\n"); return 2; }
   i64 count = atoll(argv[1]); u64 seed = strtoull(argv[2], 0, 10);
   int threads = argc > 3 ? atoi(argv[3]) : 1;
   bool tiny = argc > 4 && !strcmp(argv[4], "tiny");
@@ -83,8 +93,7 @@ int main(int argc, char **argv)
     int big = 0; for (long long q = top - (top - 1) % 4; big < 8; q -= 4) if (isPrime(q)) { qs.push_back(q); big++; }
     for (long long q : qs) { int row[8]; primeRow(q, row); table.insert(table.end(), row, row + 8); }
   } else {
-    int pSet[2] = {2, 5};
-    table = buildPrimeTable(2, pSet);
+    table = buildPrimeTable((int)S.size(), S.data());
   }
   int np = (int)table.size() / 8;
   printf("primes %d:", np); for (int p = 0; p < np; p++) printf(" %d", table[8 * p]); printf("\n");
