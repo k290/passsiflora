@@ -6,7 +6,9 @@
 // The table is the kernel's for S = {2, 5}: the 24 smallest primes q = 1 mod 4 in (256, 8192) at which 2 and 5 are squares.  "tiny" uses
 // instead primeRow for every prime q = 1 mod 4 in [13, 199] and the 8 largest such primes up to TOP (default 8191, the limit of
 // Theorem E, set by redc; a larger TOP shows what happens beyond it).  The kernel's sources are included,
-// not copied; the macros below are a CPU port in the manner of nf_port_opencl.h and nf_port_cuda.h.
+// not copied; src/nf_port_cpu.h is the CPU port, in the manner of nf_port_opencl.h and nf_port_cuda.h.  First, for a table below
+// 8192, the start-up self-test of the GPU mode (nf_selftest_t2 and nfSelfTestBuild / nfSelfTestVerify) runs on the CPU: its
+// expected values, computed without the kernel's code, must agree with the kernel compiled here.
 // Families (round robin): 0 random coefficients in [-10^6, 10^6]; 1 any int64; 2 depressed with |a_i| <= 3 (abnormal chains);
 // 3 x^10 + b x^7 + c x^4 + d x (b, c, d in [-10^6, 10^6]); 4 coefficients that are multiples of one table prime with probability 1/2;
 // 5 (x - r)^2 g(x) + q h(x) for one table prime q (disc = 0 mod q).  Exit status 1 on any mismatch.
@@ -20,19 +22,7 @@
 #include <thread>
 #include <mutex>
 
-typedef int64_t i64;
-typedef uint64_t u64;
-typedef unsigned int nfuint;
-#define NF_INLINE static inline
-#define NF_G
-#define NF_C const
-#define NF_KERNEL static
-#define NF_I64_MIN INT64_MIN
-static u64 nf_gid_unused;
-#define NF_GID() nf_gid_unused
-#define NF_ATOMIC_INC(p) ((*(p))++)
-#include "../src/nf_kernel.h"
-#include "../src/nf_gpu_common.cpp"
+#include "../src/nf_gpu_common.cpp"      // with the kernel, compiled for the CPU through src/nf_port_cpu.h
 // the back end is not used: buildPrimeTable and primeRow are called directly
 bool nfBackendInit(int, char **, const std::vector<int> &) { return false; }
 void nfBackendShutdown() {}
@@ -98,6 +88,21 @@ int main(int argc, char **argv)
   }
   int np = (int)table.size() / 8;
   printf("primes %d:", np); for (int p = 0; p < np; p++) printf(" %d", table[8 * p]); printf("\n");
+  bool small = true;
+  for (int p = 0; p < np; p++) small = small && table[8 * p] < 8192;
+  if (small) {                                   // the start-up self-test, with the kernel compiled for the CPU as the device
+    NfSelfTest st;
+    nfSelfTestBuild(table, st);
+    std::vector<unsigned> out(st.expect.size());
+    for (size_t g = 0; g < out.size(); g++) {
+      nf_cpu_gid = g;
+      nf_selftest_t2(st.ts.data(), st.nt, (const i64 *)st.xs.data(), st.nx, (const i64 *)st.polys.data(), st.npoly, table.data(),
+                     (nfuint)np, out.data(), (nfuint)out.size());
+    }
+    bool ok = nfSelfTestVerify(st, out);
+    printf("SELFTEST %s: %u values\n", ok ? "passed" : "FAILED", (unsigned)out.size());
+    if (!ok) return 1;
+  }
   const int NF = 6;
   i64 polys[NF] = {0}, checks[NF] = {0}, rej[NF] = {0}, minus[NF] = {0}, zero[NF] = {0}, falsr[NF] = {0}, missed[NF] = {0}, incons[NF] = {0};
   std::mutex mx;

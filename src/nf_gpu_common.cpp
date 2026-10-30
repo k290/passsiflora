@@ -72,6 +72,164 @@ static std::vector<int> buildPrimeTable(int numP, const int *pSet)
   return t;
 }
 
+// ---- the kernel's filter on the host, and the start-up self-test ---------------------------
+// The kernel's source compiled for the CPU (nf_port_cpu.h): the checked window at the start of a task compares the device's
+// survivors with its survives(); the self-test compares the device with arithmetic that does not use the kernel's code.
+
+#include <climits>
+#include "nf_port_cpu.h"
+#include "nf_kernel.h"
+
+static std::vector<int> g_table;            // the table the device runs with
+
+bool nfGpuRefSurvives(const long long *bb)
+{
+  i64 c[11];
+  for (int k = 0; k <= 10; k++) c[k] = bb[k];
+  return survives(c, g_table.data(), (nfuint)(g_table.size() / 8)) != 0;
+}
+
+// chi(Res(f, f')) for f = x^10 + c[1] x^9 + ... + c[10] over F_q: 1, -1, or 0 when the resultant vanishes; by Euclid with
+// inverses (the recursion Res(A, B) = (-1)^(ab) lc(B)^(a - deg R) Res(B, R), R = A mod B), not by the kernel's chain.  As
+// q = 1 (mod 4), it is chi(disc f), and the kernel must reject at q exactly when it is -1 (pdfilter_chains.tex, Theorem E).
+static int exactChi(const long long *c, long long q)
+{
+  long long A[11], B[11], R[11];
+  for (int k = 0; k <= 10; k++) A[k] = k == 10 ? 1 : ((c[10 - k] % q) + q) % q;
+  for (int k = 1; k <= 10; k++) B[k - 1] = k * A[k] % q;
+  int a = 10, b = 9;
+  while (b >= 0 && B[b] == 0) b--;
+  long long r = 1;
+  for (;;) {
+    if (b < 0) return 0;
+    if (b == 0) { r = r * powmod(B[0], a, q) % q; break; }
+    for (int k = 0; k <= a; k++) R[k] = A[k];
+    long long inv = powmod(B[b], q - 2, q);
+    for (int k = a; k >= b; k--) {
+      long long f = R[k] * inv % q;
+      if (f) for (int j = 0; j <= b; j++) R[k - b + j] = ((R[k - b + j] - f * B[j]) % q + q) % q;
+    }
+    int rd = b - 1;
+    while (rd >= 0 && R[rd] == 0) rd--;
+    if (rd < 0) return 0;
+    if ((a * b) & 1) r = (q - r) % q;
+    r = r * powmod(B[b], a - rd, q) % q;
+    for (int k = 0; k <= b; k++) A[k] = B[k];
+    for (int k = 0; k <= rd; k++) B[k] = R[k];
+    a = b;  b = rd;
+  }
+  if (r == 0) return 0;
+  return powmod(r, (q - 1) / 2, q) == 1 ? 1 : -1;
+}
+
+namespace {
+struct NfRng {                              // splitmix64 with a fixed seed: the same test on every device
+  unsigned long long s;
+  unsigned long long next() {
+    unsigned long long z = (s += 0x9E3779B97F4A7C15ull);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    return z ^ (z >> 31);
+  }
+  long long range(long long b) { return (long long)(next() % (unsigned long long)(2 * b + 1)) - b; }
+};
+}
+
+void nfSelfTestBuild(const std::vector<int> &primes, NfSelfTest &t)
+{
+  NfRng rng{20261030ull};
+  t.np = (unsigned)(primes.size() / 8);
+  t.nt = 32;  t.nx = 48;  t.npoly = 240;
+
+  // redc: the extremes of [0, 8q^2) and of the 16-bit halves, then pseudo-random inputs
+  t.ts.clear();
+  for (unsigned p = 0; p < t.np; p++) {
+    unsigned long long q = (unsigned)primes[p * 8], lim = 8 * q * q;
+    const unsigned long long fixed[] = { 0, 1, 2, q - 1, q, q + 1, 2 * q - 1, 2 * q, (q - 1) * (q - 1), 4 * q * q, 65535, 65536,
+                                         lim - 2, lim - 1 };
+    for (unsigned long long v : fixed) if (v < lim) t.ts.push_back((unsigned)v);
+    while (t.ts.size() < (size_t)(p + 1) * t.nt) t.ts.push_back((unsigned)(rng.next() % lim));
+  }
+
+  // coef_mod: the extremes of int64 and of its 16-bit limbs, then pseudo-random inputs (any int64, and small ones)
+  t.xs = { 0, 1, -1, 2, -2, 65535, 65536, -65535, -65536, 4294967295LL, 4294967296LL, -4294967296LL, -4294967297LL,
+           281474976710655LL, 281474976710656LL, -281474976710656LL, -281474976710657LL, LLONG_MAX, LLONG_MIN, LLONG_MAX - 1,
+           LLONG_MIN + 1, 1000000, -1000000 };
+  while (t.xs.size() < t.nx) t.xs.push_back(t.xs.size() & 1 ? (long long)rng.next() : rng.range(1000000));
+
+  // polynomials, six families in turn: random coefficients up to 10^6; any int64; depressed with |c| <= 3 (abnormal chains);
+  // x^10 + b x^7 + c x^4 + d x; coefficients that are multiples of a table prime; (x - r)^2 g + q h, so that disc = 0 mod q
+  t.polys.clear();
+  for (unsigned j = 0; j < t.npoly; j++) {
+    long long c[11] = { 1 };
+    long long qs = primes[8 * (rng.next() % t.np)];
+    switch (j % 6) {
+      case 0: for (int k = 1; k <= 10; k++) c[k] = rng.range(1000000); break;
+      case 1: for (int k = 1; k <= 10; k++) c[k] = (long long)rng.next(); break;
+      case 2: c[1] = 0; for (int k = 2; k <= 10; k++) c[k] = rng.range(3); break;
+      case 3: for (int k = 1; k <= 10; k++) c[k] = (k == 3 || k == 6 || k == 9) ? rng.range(1000000) : 0; break;
+      case 4: for (int k = 1; k <= 10; k++) c[k] = (rng.next() & 1) ? qs * rng.range(1000000) : rng.range(1000000); break;
+      default: {
+        long long r = rng.range(1000), g[9], f[11] = { 0 };
+        g[0] = 1;  for (int k = 1; k <= 8; k++) g[k] = rng.range(1000);          // g monic of degree 8, leading coefficient first
+        const long long s[3] = { 1, -2 * r, r * r };
+        for (int u = 0; u < 3; u++) for (int v = 0; v <= 8; v++) f[u + v] += s[u] * g[v];
+        for (int k = 1; k <= 10; k++) c[k] = f[k] + qs * rng.range(1000);
+      }
+    }
+    t.polys.insert(t.polys.end(), c + 1, c + 11);
+  }
+
+  // the expected output
+  t.expect.clear();
+  for (unsigned p = 0; p < t.np; p++) {            // redc(t) = (t + m q) / 2^16 with m = -t / q mod 2^16, in 64 bits
+    unsigned long long q = (unsigned)primes[p * 8], inv = q;
+    for (int k = 0; k < 5; k++) inv *= 2 - q * inv; // Newton: q * inv = 1 mod 2^k, k doubling from 3
+    for (unsigned i = 0; i < t.nt; i++) {
+      unsigned long long tv = t.ts[(size_t)p * t.nt + i], m = (0x10000 - (tv * inv & 0xFFFF)) & 0xFFFF;
+      t.expect.push_back((unsigned)((tv + m * q) >> 16));
+    }
+  }
+  for (unsigned p = 0; p < t.np; p++) {            // coef_mod(x) = x mod q in [0, q)
+    long long q = primes[p * 8];
+    for (unsigned i = 0; i < t.nx; i++) t.expect.push_back((unsigned)(((t.xs[i] % q) + q) % q));
+  }
+  std::vector<char> keep(t.npoly, 1);
+  for (unsigned p = 0; p < t.np; p++)              // chi_reject: 1 exactly when chi(disc f) = -1
+    for (unsigned j = 0; j < t.npoly; j++) {
+      long long c[11];
+      c[0] = 1;
+      for (int k = 1; k <= 10; k++) c[k] = t.polys[(size_t)j * 10 + k - 1];
+      bool rej = exactChi(c, primes[p * 8]) == -1;
+      t.expect.push_back(rej ? 1u : 0u);
+      if (rej) keep[j] = 0;
+    }
+  for (unsigned j = 0; j < t.npoly; j++) t.expect.push_back(keep[j] ? 1u : 0u);   // survives: no prime rejects
+}
+
+bool nfSelfTestVerify(const NfSelfTest &t, std::vector<unsigned> &out)
+{
+  const char *fault = getenv("NF_SELFTEST_FAULT");
+  if (fault && *fault == '1' && !out.empty()) out[out.size() / 2] ^= 1u;
+  static const char *const part[4] = { "redc", "coef_mod", "chi_reject", "survives" };
+  size_t n1 = (size_t)t.np * t.nt, n2 = (size_t)t.np * t.nx, n3 = (size_t)t.np * t.npoly, bad = 0;
+  for (size_t g = 0; g < t.expect.size(); g++) {
+    unsigned v = g < out.size() ? out[g] : 0u;
+    if (v == t.expect[g]) continue;
+    if (bad++ < 5)
+      fprintf(stderr, "GPU self-test: %s, work item %u: device %u, exact %u\n",
+              part[g < n1 ? 0 : g < n1 + n2 ? 1 : g < n1 + n2 + n3 ? 2 : 3], (unsigned)g, v, t.expect[g]);
+  }
+  if (bad) {
+    fprintf(stderr, "GPU self-test FAILED: %u of %u values differ, the device does not compute the filter exactly; using the CPU.\n",
+            (unsigned)bad, (unsigned)t.expect.size());
+    return false;
+  }
+  fprintf(stderr, "GPU self-test passed (%u values: redc, coef_mod and the symbol at each of the %u filter primes, %u polynomials).\n",
+          (unsigned)t.expect.size(), t.np, t.npoly);
+  return true;
+}
+
 // ---- init -------------------------------------------------------------------------
 
 bool nfGpuActive() { return g_active; }
@@ -87,6 +245,7 @@ bool nfGpuInit(int argc, char **argv, int numP, const int *pSet)
     fprintf(stderr, "GPU mode: only %u usable filter primes for this work unit; using the CPU.\n", (unsigned)np);
     return false;
   }
+  g_table = primes;
   if (!nfBackendInit(argc, argv, primes)) return false;
 
   const char *tg = getenv("NF_GPU_ITEMS");

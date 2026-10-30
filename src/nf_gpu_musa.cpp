@@ -29,6 +29,8 @@ static int (*p_init)(int, const int *, int, char *, int, int *, int *, unsigned 
 static int (*p_set_nodes)(const double *, const long long *, size_t);
 static int (*p_run)(unsigned, unsigned, const unsigned long long *, unsigned long long, long long *, unsigned *,
                     unsigned long long *);
+static int (*p_selftest)(const unsigned *, unsigned, const long long *, unsigned, const long long *, unsigned, unsigned *,
+                         unsigned);
 
 static bool loadLibrary()
 {
@@ -57,7 +59,27 @@ static bool loadLibrary()
   p_set_nodes = (int (*)(const double *, const long long *, size_t))dlsym(h, "nfm_set_nodes");
   p_run = (int (*)(unsigned, unsigned, const unsigned long long *, unsigned long long, long long *, unsigned *,
                    unsigned long long *))dlsym(h, "nfm_run");
+  p_selftest = (int (*)(const unsigned *, unsigned, const long long *, unsigned, const long long *, unsigned, unsigned *,
+                        unsigned))dlsym(h, "nfm_selftest");
   return p_count && p_init && p_set_nodes && p_run;
+}
+
+// The start-up self-test of the filter on the device (nfm_selftest, with the table of nfm_init): false = the library has none,
+// or the device does not reproduce the exact values, and the application runs on the CPU.
+static bool selfTest(const std::vector<int> &primes)
+{
+  if (!p_selftest) {
+    fprintf(stderr, "GPU mode: libnf_musa.so has no self-test; rebuild it with build/build-musa.sh.  Using the CPU.\n");
+    return false;
+  }
+  NfSelfTest t;
+  nfSelfTestBuild(primes, t);
+  std::vector<unsigned> out(t.expect.size(), 0u);
+  boinc_begin_critical_section();
+  int rc = p_selftest(t.ts.data(), t.nt, t.xs.data(), t.nx, t.polys.data(), t.npoly, out.data(), (unsigned)out.size());
+  boinc_end_critical_section();
+  if (rc != 0) exit(1);
+  return nfSelfTestVerify(t, out);
 }
 
 bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
@@ -85,7 +107,7 @@ bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
   }
   fprintf(stderr, "GPU mode: MUSA device %d \"%s\", %d multiprocessors, compute capability %d.%d, %llu MB, %u filter primes.\n",
           dev, name, mps, major, minor, (unsigned long long)(mem >> 20), (unsigned)(primes.size() / 8));
-  return true;
+  return selfTest(primes);
 }
 
 void nfBackendShutdown() {}

@@ -125,6 +125,48 @@ NF_INLINE int survives(const i64 *c, NF_C int *qt, nfuint np)
   return 1;
 }
 
+// ---- start-up self-test --------------------------------------------------
+
+// The filter's functions on inputs the host chose, with the device's compiler and arithmetic; the host compares the output with
+// values it computes independently (nfSelfTestVerify, nf_gpu_common.cpp).  Same functions as nf_enum_t2, only the surrounding
+// loop differs.  Work items, in this order:
+//   np * nt       redc(ts[p * nt + i]) for prime p (0 <= t < 8q^2)
+//   np * nx       coef_mod(xs[i]) for prime p
+//   np * npoly    chi_reject of polynomial j at prime p (1 = reject), loaded as in survives
+//   npoly         survives() of polynomial j over the whole table
+// polys holds c1..c10 of each polynomial (leading coefficient 1 implied).
+NF_KERNEL void nf_selftest_t2(NF_G const nfuint *ts, nfuint nt, NF_G const i64 *xs, nfuint nx, NF_G const i64 *polys, nfuint npoly,
+                              NF_C int *qt, nfuint np, NF_G nfuint *out, nfuint total)
+{
+  nfuint g = (nfuint)NF_GID();
+  if (g >= total) return;
+  nfuint n1 = np * nt, n2 = np * nx, n3 = np * npoly;
+  if (g < n1) {
+    nfuint p = g / nt;
+    out[g] = redc(ts[g], (nfuint)qt[p * 8 + 0], (nfuint)qt[p * 8 + 6]);
+    return;
+  }
+  if (g < n1 + n2) {
+    nfuint h = g - n1, p = h / nx, i = h % nx;
+    out[g] = coef_mod(xs[i], qt[p * 8 + 0], qt[p * 8 + 1], qt[p * 8 + 2], qt[p * 8 + 3], qt[p * 8 + 4]);
+    return;
+  }
+  if (g < n1 + n2 + n3) {
+    nfuint h = g - n1 - n2, p = h / npoly, j = h % npoly;
+    int q = qt[p * 8 + 0], c1 = qt[p * 8 + 1], c2 = qt[p * 8 + 2], c3 = qt[p * 8 + 3], w64 = qt[p * 8 + 4], e = qt[p * 8 + 5];
+    nfuint a[11];
+    for (int k = 0; k <= 9; k++) a[k] = coef_mod(polys[j * 10 + 9 - k], q, c1, c2, c3, w64);
+    a[10] = 1u;
+    out[g] = (nfuint)chi_reject(a, (nfuint)q, (nfuint)qt[p * 8 + 6], (nfuint)c1, (nfuint)qt[p * 8 + 7], e);
+    return;
+  }
+  nfuint j = g - n1 - n2 - n3;
+  i64 c[11];
+  c[0] = 1;
+  for (int k = 1; k <= 10; k++) c[k] = polys[j * 10 + k - 1];
+  out[g] = (nfuint)survives(c, qt, np);
+}
+
 // ---- kernel ---------------------------------------------------------------
 
 // The layout of the prime table qt (primeRow in nf_gpu_common.cpp).  Format 2: the integer filter above; format 1 was the

@@ -9,4 +9,5 @@ bool nfGpuWantFlush() { return false; }
 bool nfGpuEmpty() { return true; }
 void nfGpuAdd(const NfNode &) {}
 long long nfGpuRun(std::vector<long long> &) { return 0; }
+bool nfGpuRefSurvives(const long long *) { return true; }
 void nfGpuShutdown() {}

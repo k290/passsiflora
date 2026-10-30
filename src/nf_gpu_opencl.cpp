@@ -32,6 +32,44 @@ static unsigned g_np = 0;
 #define CLCHK(x) do { cl_int e_ = (x); if (e_ != CL_SUCCESS) { \
     fprintf(stderr, "OpenCL error %d at %s:%d (%s)\n", (int)e_, __FILE__, __LINE__, #x); exit(1); } } while (0)
 
+// The start-up self-test of the filter on this device (nf_selftest_t2 with the table of g_bPrimes): false = the device does not
+// reproduce the exact values, and the application runs on the CPU.
+static bool selfTest(const std::vector<int> &primes)
+{
+  cl_int st;
+  cl_kernel kern = clCreateKernel(g_prog, NF_SELFTEST_NAME, &st);
+  if (st != CL_SUCCESS) {
+    fprintf(stderr, "GPU mode: the kernel has no self-test (%d); using the CPU.\n", (int)st);
+    return false;
+  }
+  NfSelfTest t;
+  nfSelfTestBuild(primes, t);
+  cl_uint nt = t.nt, nx = t.nx, npoly = t.npoly, np = t.np, total = (cl_uint)t.expect.size();
+  cl_mem bTs = clCreateBuffer(g_ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, t.ts.size() * sizeof(cl_uint), (void *)t.ts.data(), &st);  CLCHK(st);
+  cl_mem bXs = clCreateBuffer(g_ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, t.xs.size() * sizeof(cl_long), (void *)t.xs.data(), &st);  CLCHK(st);
+  cl_mem bPol = clCreateBuffer(g_ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, t.polys.size() * sizeof(cl_long), (void *)t.polys.data(), &st);  CLCHK(st);
+  cl_mem bOut = clCreateBuffer(g_ctx, CL_MEM_WRITE_ONLY, (size_t)total * sizeof(cl_uint), NULL, &st);  CLCHK(st);
+  int ai = 0;
+  CLCHK(clSetKernelArg(kern, ai++, sizeof(cl_mem), &bTs));
+  CLCHK(clSetKernelArg(kern, ai++, sizeof(cl_uint), &nt));
+  CLCHK(clSetKernelArg(kern, ai++, sizeof(cl_mem), &bXs));
+  CLCHK(clSetKernelArg(kern, ai++, sizeof(cl_uint), &nx));
+  CLCHK(clSetKernelArg(kern, ai++, sizeof(cl_mem), &bPol));
+  CLCHK(clSetKernelArg(kern, ai++, sizeof(cl_uint), &npoly));
+  CLCHK(clSetKernelArg(kern, ai++, sizeof(cl_mem), &g_bPrimes));
+  CLCHK(clSetKernelArg(kern, ai++, sizeof(cl_uint), &np));
+  CLCHK(clSetKernelArg(kern, ai++, sizeof(cl_mem), &bOut));
+  CLCHK(clSetKernelArg(kern, ai++, sizeof(cl_uint), &total));
+  size_t local = 64, global = ((size_t)total + local - 1) / local * local;
+  std::vector<unsigned> out(total, 0u);
+  boinc_begin_critical_section();
+  CLCHK(clEnqueueNDRangeKernel(g_queue, kern, 1, NULL, &global, &local, 0, NULL, NULL));
+  CLCHK(clEnqueueReadBuffer(g_queue, bOut, CL_TRUE, 0, (size_t)total * sizeof(cl_uint), out.data(), 0, NULL, NULL));
+  boinc_end_critical_section();
+  clReleaseMemObject(bTs);  clReleaseMemObject(bXs);  clReleaseMemObject(bPol);  clReleaseMemObject(bOut);
+  return nfSelfTestVerify(t, out);           // kern is kept, like g_kern (build-windows-gpu.sh imports no clReleaseKernel)
+}
+
 bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
 {
   const char *any = getenv("NF_OCL_ANY");
@@ -102,7 +140,7 @@ bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
   g_bOut = clCreateBuffer(g_ctx, CL_MEM_WRITE_ONLY, (size_t)NF_OUT_CAP * 12 * sizeof(long long), NULL, &st);  CLCHK(st);
   g_bOutCnt = clCreateBuffer(g_ctx, CL_MEM_READ_WRITE, sizeof(unsigned), NULL, &st);  CLCHK(st);
   g_bCnt = NULL;  g_cntCap = 0;
-  return true;
+  return selfTest(primes);
 }
 
 void nfBackendShutdown()

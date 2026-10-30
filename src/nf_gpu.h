@@ -32,6 +32,10 @@ void nfGpuAdd(const NfNode &node);
 // order: 1, bb1..bb10).
 long long nfGpuRun(std::vector<long long> &polys);
 
+// bb[0..10] (bb[0] = 1): does the GPU's filter keep this polynomial?  The kernel's own filter compiled for the CPU, with the
+// table the device runs with; the checked window at the start of a task compares the device's survivors with it.
+bool nfGpuRefSurvives(const long long *bb);
+
 void nfGpuShutdown();
 
 #endif

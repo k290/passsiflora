@@ -112,11 +112,23 @@ toolchain.
 
 ## GPU self-check
 
-At the start of every GPU task the CPU loops run next to the GPU for the first 5 million polynomials and the
-two counts are compared batch by batch; a mismatch stops the task with an error (`GPU self-check FAILED`)
-instead of sending results from a GPU or driver that miscomputes. `NF_SELFCHECK=<n>` changes the number of
-polynomials (0 = off), `NF_GPUCHECK=1` checks the whole run, `NF_SELFCHECK_FAULT=1` injects a miscount to test
-the failure path.
+At start-up every back end runs the self-test kernel `nf_selftest_t2` once on the device: `redc`, `coef_mod`,
+the symbol at each filter prime and `survives` on fixed inputs (the extremes and pseudo-random values; 240
+polynomials, among them abnormal chains and discriminants divisible by a table prime), 7,920 values for S = {2,5}.
+The host computes what they must be without the kernel's code (exact arithmetic modulo q; the symbol from the
+resultant by Euclid with inverses). On any difference, or with device code that has no self-test (an older CUDA
+fat binary, OpenCL kernel or `libnf_musa.so`), the task runs on the CPU.
+
+Then, at the start of every GPU task, the CPU loops run next to the GPU for the first 5 million polynomials and
+the two counts are compared batch by batch. With `NF_GPUCHECK=1` (the whole task) the CPU also runs the kernel's own
+filter, compiled for the CPU, on every polynomial it counts; the polynomials it keeps must be exactly those the GPU
+returns, in the same order. A mismatch stops the task with an error (`GPU self-check FAILED`, exit status 6) instead
+of sending results from a GPU or driver that miscomputes. The default window compares only the counts: the filter
+comparison costs about a microsecond per polynomial on the CPU, and with 24 filter primes few polynomials survive in
+the first 5 million (0 to 10 in the test units), so it is the self-test that checks the filter's values.
+`NF_SELFCHECK=<n>` changes the number of polynomials (0 = off), `NF_GPUCHECK=1` checks the whole run;
+`NF_SELFCHECK_FAULT=1` injects a miscount, `NF_SELFCHECK_FAULT=2` a lost survivor (with `NF_GPUCHECK=1`) and
+`NF_SELFTEST_FAULT=1` a wrong self-test value, to test the failure paths.
 
 ## Other platforms
 
@@ -131,7 +143,7 @@ the failure path.
   (polynomials and every counter): CPU on Linux, CPU on Windows (subset), GPU on Windows.
 * `NF_VERIFY=1` also runs the exact GMP test on every polynomial and aborts if the filter
   ever disagrees; `NF_GPUCHECK=1` runs the CPU loops next to the GPU ones and aborts if
-  the polynomial counts differ.
+  the polynomial counts or the filter's survivors differ.
 * Debug builds with `-DNF_CHECK_SQRT -DNF_CHECK_PRUNE` evaluate the original enumeration
   conditions next to the shortcuts.
 * Kill/resume tests for the CPU and the GPU app.
@@ -145,7 +157,10 @@ the failure path.
 | `NF_FORCE_BASE=1` | use the baseline (SSE2) filter build |
 | `NF_GENERAL_ALL=1` | send every lane through the general chain |
 | `NF_GPU=0` | never use the GPU |
-| `NF_GPUCHECK=1` | GPU mode plus the CPU loops; abort if the counts differ |
+| `NF_GPUCHECK=1` | GPU mode plus the CPU loops; abort if the counts or the filter's survivors differ |
+| `NF_SELFCHECK=N` | CPU loops next to the GPU for the first N polynomials of a task (default 5000000; 0 = off) |
+| `NF_SELFCHECK_FAULT=1`, `=2` | test hooks: pretend the GPU miscounted (1) or, with `NF_GPUCHECK=1`, lost a filter survivor (2) |
+| `NF_SELFTEST_FAULT=1` | test hook: pretend the device got one value of the start-up self-test wrong |
 | `NF_OCL_ANY=1` | GPU mode on the first OpenCL device without BOINC (`NF_OCL_PLATFORM`, `NF_OCL_DEVICE` pick another) |
 | `NF_GPU_ITEMS=N` | fixed work items per launch instead of the adaptive size |
 | `NF_MAXPOLYS=N` | stop after N polynomials and print a timing split (CPU mode) |

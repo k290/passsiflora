@@ -13,12 +13,14 @@ diff -U0 -r a/GetDecicsSrc/GetDecics.cpp b/GetDecicsSrc/GetDecics.cpp
 diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 --- a/GetDecicsSrc/TgtMartinet.cpp	2026-10-15 02:53:57.710362600 +0300
 +++ b/GetDecicsSrc/TgtMartinet.cpp	2026-10-15 02:53:57.739393600 +0300
-@@ -20,0 +21,4 @@
+@@ -20,0 +21,6 @@
 +#include "nf_gpu.h"
 +#include <vector>
 +#include <climits>
 +#include <cfloat>
-@@ -44,0 +49,204 @@
++#include <array>
++#include <set>
+@@ -44,0 +51,273 @@
 +// ---- shared pieces of the polynomial discriminant stage -------------------------------
 +
 +static void (*nfPdfFilter)(const long long*, int, signed char*) = 0;
@@ -96,15 +98,74 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +static long long nfCheckBudget = 0;  // self-check: polynomials still to cross-check at the start of a GPU run
 +static long long nfRefCount = 0;     // polynomials the CPU loops saw for the nodes of the current batch
 +
++// With NF_GPUCHECK=1 the check compares the filter too: the CPU loops run the kernel's own filter, compiled for the CPU
++// (nfGpuRefSurvives), on every polynomial they count, and the polynomials it keeps must be exactly those the GPU returns,
++// in the same order.  That costs about a microsecond per polynomial, so the window at the start of a task compares only
++// the counts; the start-up self-test of the back end has compared the filter itself with exact values.
++static long long nfCheckedPolys = 0;                // polynomials of the checked batches so far
++static long long nfCheckedSurv = 0;                 // filter survivors compared so far
++static long long nfRefSurvN = 0;                    // polynomials the CPU's copy of the filter keeps in the current batch
++static unsigned long long nfRefSurvHash = 0;        // an order-dependent hash of their coefficients bb1..bb10
++static std::vector<long long> nfRefSurvList;        // the first of them, 10 values each (for the diagnosis)
++static const size_t NF_SURV_KEEP = 65536;
++
++static unsigned long long nfSurvHash(unsigned long long h, const long long *c)   // c[0..9] = bb1..bb10
++{
++  for(int j=0;j<10;++j) { h ^= (unsigned long long)c[j];  h *= 1099511628211ULL;  h ^= h >> 29; }
++  return h;
++}
++
++static inline void nfRefFilter(const pari_long *bb)    // bb[0..10], bb[0] = 1
++{
++  long long c[11];
++  for(int j=0;j<=10;++j)  c[j] = bb[j];
++  if(!nfGpuRefSurvives(c))  return;
++  ++nfRefSurvN;
++  nfRefSurvHash = nfSurvHash(nfRefSurvHash, c+1);
++  if(nfRefSurvList.size() < NF_SURV_KEEP*10)  nfRefSurvList.insert(nfRefSurvList.end(), c+1, c+11);
++}
++
++// The GPU's survivors (11 values each: 1, bb1..bb10) differ from the CPU's: say how, and stop.
++static void nfSurvMismatch(const std::vector<long long> &polys)
++{
++  size_t gn = polys.size()/11;
++  fprintf(stderr, "GPU self-check FAILED: the GPU's filter kept %llu polynomials, the same filter on the CPU %lld.\n",
++          (unsigned long long)gn, nfRefSurvN);
++  if((long long)(nfRefSurvList.size()/10) == nfRefSurvN && gn <= (1u<<20)) {
++    typedef std::array<long long,10> Poly;
++    std::set<Poly> gpu, ref;
++    for(size_t k=0;k<gn;++k)  { Poly p;  for(int j=0;j<10;++j) p[j] = polys[k*11+1+j];  gpu.insert(p); }
++    for(size_t k=0;k<nfRefSurvList.size()/10;++k)  { Poly p;  for(int j=0;j<10;++j) p[j] = nfRefSurvList[k*10+j];  ref.insert(p); }
++    size_t lost = 0, extra = 0;
++    for(std::set<Poly>::const_iterator it=ref.begin(); it!=ref.end(); ++it)  if(!gpu.count(*it)) ++lost;
++    for(std::set<Poly>::const_iterator it=gpu.begin(); it!=gpu.end(); ++it)  if(!ref.count(*it)) ++extra;
++    fprintf(stderr, "  %llu polynomials the CPU keeps were rejected by the GPU (a valid result could be lost), "
++                    "%llu were kept by the GPU only.\n", (unsigned long long)lost, (unsigned long long)extra);
++    }
++  fprintf(stderr, "This GPU or driver does not reproduce the CPU's filter; the task is stopped.\n");
++  exit(6);
++}
++
 +// Run the pending batch on the GPU, finish the survivors on the CPU exactly like the
 +// stock code does, and checkpoint.  (i,N1,..,L2) is the first node NOT in the batch.
 +static void nfGpuFlushBatch(pari_long i, pari_long N1, pari_long N2, pari_long k1, pari_long k2,
 +                            pari_long L1, pari_long L2, pari_long *StatVec, ofstream& outfile, bool final=false)
 +{
-+  if(nfGpuEmpty()) return;
++  if(nfGpuEmpty()) {
++    if(final && nfGpuCheck)
++      fprintf(stderr, "GPU check passed: %lld polynomials counted and %lld filter survivors compared.\n", nfCheckedPolys, nfCheckedSurv);
++    return;
++    }
 +  std::vector<long long> polys;
 +  long long inspected = nfGpuRun(polys);
-+  if(getenv("NF_SELFCHECK_FAULT"))  inspected++;   // test hook: pretend the GPU miscounted
++  const char *fault = getenv("NF_SELFCHECK_FAULT");
++  if(fault && *fault=='2') {   // test hook: pretend the GPU's filter lost its first survivor (or kept one too many)
++    if(nfBatchChecked) {
++      if(polys.size() >= 11)  polys.erase(polys.begin(), polys.begin()+11);
++      else  { polys.push_back(1);  for(int j=1;j<=10;++j) polys.push_back(j); }
++      }
++    }
++  else if(fault)  inspected++;   // test hook: pretend the GPU miscounted
 +  if(nfBatchChecked) {
 +    if(inspected != nfRefCount) {
 +      fprintf(stderr, "GPU self-check FAILED: the GPU counted %lld polynomials, the CPU %lld.\n"
@@ -112,10 +173,20 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +      exit(6);
 +      }
 +    nfRefCount = 0;
-+    if(!nfGpuCheck) {
++    nfCheckedPolys += inspected;
++    if(nfGpuCheck) {
++      unsigned long long gh = 0;
++      for(size_t k=0;k<polys.size()/11;++k)  gh = nfSurvHash(gh, &polys[k*11+1]);
++      if((long long)(polys.size()/11) != nfRefSurvN || gh != nfRefSurvHash)  nfSurvMismatch(polys);
++      nfCheckedSurv += nfRefSurvN;
++      nfRefSurvN = 0;  nfRefSurvHash = 0;  nfRefSurvList.clear();
++      if(final)
++        fprintf(stderr, "GPU check passed: %lld polynomials counted and %lld filter survivors compared.\n", nfCheckedPolys, nfCheckedSurv);
++      }
++    else {
 +      nfCheckBudget -= inspected;
 +      if(nfCheckBudget <= 0) {
-+        fprintf(stderr, "GPU self-check passed.\n");
++        fprintf(stderr, "GPU self-check passed (%lld polynomials counted).\n", nfCheckedPolys);
 +        nfCheckBudget = 0;
 +        }
 +      }
@@ -223,7 +294,7 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +            nfNow()-nfProfStart, nfProfPd, nfNow()-nfProfStart-nfProfPd);
 +  }
 +
-@@ -129,0 +338,16 @@
+@@ -129,0 +409,16 @@
 +  {
 +    int np = (int)(lg(Sg)-1);
 +    // S is kept in arrays of 3 (here, for the pre-filter, and upstream's pSet[3]): a work unit with more primes is refused.
@@ -240,22 +311,22 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +    nfCheckBudget = nfUseGpu ? (sc ? atoll(sc) : 5000000LL) : 0;
 +  }
 +
-@@ -335 +559 @@
+@@ -335 +630 @@
 -  double s1a2_mag,s2a2_mag,s1a3_mag,s2a3_mag,s1a4_mag,s2a4_mag;
 +  double s1a2_mag,s2a2_mag,s1a3_sq,s2a3_sq,s1a4_sq,s2a4_sq;
-@@ -752,0 +977,6 @@
+@@ -752,0 +1048,6 @@
 +              // sqrt(X)<=B is replaced by 0<=X<=T with T = sqrtLeLimit(B); see there.
 +              const double T_a3  = sqrtLeLimit(2*tq[3]);
 +              const double T_a3c = sqrtLeLimit(2*tqc[3]);
 +              const double T_a4  = sqrtLeLimit(B_a4);
 +              const double T_a4c = sqrtLeLimit(B_a4c);
 +
-@@ -891,2 +1121,2 @@
+@@ -891,2 +1192,2 @@
 -                          s1a3_mag = sqrt(a31sq + lambda1*a31a32  + lambda2*a32sq);
 -                          s2a3_mag = sqrt(a31sq + lambda1c*a31a32 + lambda2c*a32sq);
 +                          s1a3_sq = a31sq + lambda1*a31a32  + lambda2*a32sq;
 +                          s2a3_sq = a31sq + lambda1c*a31a32 + lambda2c*a32sq;
-@@ -894 +1124,11 @@
+@@ -894 +1195,11 @@
 -                          if( (s1a3_mag<=2*tq[3]) && (s2a3_mag<=2*tqc[3]) )
 +                          // Same as: sqrt(s1a3_sq)<=2*tq[3] && sqrt(s2a3_sq)<=2*tqc[3]
 +#ifdef NF_COUNT
@@ -268,7 +339,7 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +                            fprintf(stderr, "NF_CHECK_SQRT mismatch (a3)\n");  exit(4); }
 +#endif
 +                          if( s1a3_sq>=0.0 && s1a3_sq<=T_a3 && s2a3_sq>=0.0 && s2a3_sq<=T_a3c )
-@@ -937,0 +1178,34 @@
+@@ -937,0 +1249,34 @@
 +                              if(nfUseGpu)
 +                                {
 +                                // The m2/m1 loops run on the GPU: queue this node.
@@ -303,11 +374,11 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +                                  }
 +                                }
 +                              if(!nfUseGpu || nfBatchChecked)
-@@ -941,0 +1216,3 @@
+@@ -941,0 +1287,3 @@
 +#ifdef NF_COUNT
 +                                nfCnt[5]++;
 +#endif
-@@ -960 +1237,12 @@
+@@ -960 +1308,12 @@
 -                                for(m1=m1_L;m1<=m1_U;++m1)
 +                                // Skip the m1 values that provably fail the a4 test below.
 +                                pari_long m1_lo = m1_L, m1_hi = m1_U;
@@ -321,12 +392,12 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +#endif
 +
 +                                for(m1=m1_lo;m1<=m1_hi;++m1)
-@@ -970,2 +1258,2 @@
+@@ -970,2 +1329,2 @@
 -                                  s1a4_mag = sqrt(a41sq + lambda1*a41a42  + lambda2*a42sq);
 -                                  s2a4_mag = sqrt(a41sq + lambda1c*a41a42 + lambda2c*a42sq);
 +                                  s1a4_sq = a41sq + lambda1*a41a42  + lambda2*a42sq;
 +                                  s2a4_sq = a41sq + lambda1c*a41a42 + lambda2c*a42sq;
-@@ -973 +1261,18 @@
+@@ -973 +1332,18 @@
 -                                  if( (s1a4_mag<=B_a4) && (s2a4_mag<=B_a4c) )
 +                                  // Same as: sqrt(s1a4_sq)<=B_a4 && sqrt(s2a4_sq)<=B_a4c
 +#ifdef NF_COUNT
@@ -346,20 +417,20 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +                                    fprintf(stderr, "NF_CHECK_SQRT mismatch (a4)\n");  exit(4); }
 +#endif
 +                                  if( s1a4_sq>=0.0 && s1a4_sq<=T_a4 && s2a4_sq>=0.0 && s2a4_sq<=T_a4c )
-@@ -1026,0 +1332,2 @@
-+                                                    if(nfUseGpu)  { ++nfRefCount; }
+@@ -1026,0 +1403,2 @@
++                                                    if(nfUseGpu)  { ++nfRefCount;  if(nfGpuCheck) nfRefFilter(bb); }
 +                                                    else {
-@@ -1056,0 +1364 @@
+@@ -1056,0 +1435 @@
 +                                                      }  // end of CPU-only buffering
-@@ -1067,0 +1376,2 @@
+@@ -1067,0 +1447,2 @@
 +                                // Leave m1 where the unpruned loop would have (used by the final checkpoint).
 +                                m1 = (m1_L > m1_U) ? m1_L : m1_U + 1;
-@@ -1093,0 +1404,2 @@
+@@ -1093,0 +1475,2 @@
 +  if(nfUseGpu)  nfGpuFlushBatch(0,0,0,0,0,0,0, StatVec, outfile, true);
 +
-@@ -1142,0 +1455 @@
+@@ -1142,0 +1526 @@
 +
-@@ -1241 +1554,63 @@
+@@ -1241 +1625,63 @@
 -  int status = polDiscTest_cpu(polBufNow, numPolysNow, polGoodFlag, NULL, numPrimes, pSet);
 +  // Exact modular pre-filter (pdfilter.f90): clears the flag only for polynomials
 +  // that provably fail; the original GMP test then runs on the survivors.

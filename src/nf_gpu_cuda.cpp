@@ -142,6 +142,38 @@ static bool loadDriver()
   return ok;
 }
 
+// The start-up self-test of the filter on this device (nf_selftest_t2 of the loaded module, with the table of g_dPrimes): false =
+// the device does not reproduce the exact values, or the module has no self-test, and the application runs on the CPU.
+static bool selfTest(CUmodule mod, const std::vector<int> &primes)
+{
+  CUfunction fn;
+  CUresult r = D.ModuleGetFunction(&fn, mod, NF_SELFTEST_NAME);
+  if (r != 0) {
+    fprintf(stderr, "GPU mode: the embedded " NF_DRV_NAME " kernel has no self-test (%d); using the CPU.\n", r);
+    return false;
+  }
+  NfSelfTest t;
+  nfSelfTestBuild(primes, t);
+  unsigned nt = t.nt, nx = t.nx, npoly = t.npoly, np = t.np, total = (unsigned)t.expect.size();
+  CUdeviceptr dTs, dXs, dPol, dOut;
+  DCHK(D.MemAlloc(&dTs, t.ts.size() * sizeof(unsigned)));
+  DCHK(D.MemAlloc(&dXs, t.xs.size() * sizeof(long long)));
+  DCHK(D.MemAlloc(&dPol, t.polys.size() * sizeof(long long)));
+  DCHK(D.MemAlloc(&dOut, (size_t)total * sizeof(unsigned)));
+  DCHK(D.MemcpyHtoD(dTs, t.ts.data(), t.ts.size() * sizeof(unsigned)));
+  DCHK(D.MemcpyHtoD(dXs, t.xs.data(), t.xs.size() * sizeof(long long)));
+  DCHK(D.MemcpyHtoD(dPol, t.polys.data(), t.polys.size() * sizeof(long long)));
+  void *args[] = { &dTs, &nt, &dXs, &nx, &dPol, &npoly, &g_dPrimes, &np, &dOut, &total };
+  const unsigned block = 128;
+  std::vector<unsigned> out(total, 0u);
+  boinc_begin_critical_section();
+  DCHK(D.LaunchKernel(fn, (total + block - 1) / block, 1, 1, block, 1, 1, 0, 0, args, 0));
+  DCHK(D.MemcpyDtoH(out.data(), dOut, (size_t)total * sizeof(unsigned)));
+  boinc_end_critical_section();
+  DCHK(D.MemFree(dTs));  DCHK(D.MemFree(dXs));  DCHK(D.MemFree(dPol));  DCHK(D.MemFree(dOut));
+  return nfSelfTestVerify(t, out);
+}
+
 bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
 {
   (void)argc; (void)argv;
@@ -206,7 +238,7 @@ bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
   DCHK(D.MemAlloc(&g_dOut, (size_t)NF_OUT_CAP * 12 * sizeof(long long)));
   DCHK(D.MemAlloc(&g_dOutCnt, sizeof(unsigned)));
   g_dCnt = 0;  g_cntCap = 0;
-  return true;
+  return selfTest(mod, primes);
 }
 
 void nfBackendShutdown()

@@ -30,7 +30,7 @@ itself: there is no copy of the filter in this directory, so a test always tests
 | `arith_checks.sh`, `arith_checks.f90`, `limit_probe.c` | the compiled reductions against exact models, and a model of the chains beyond the size limits (`pdfilter_chains.tex`, Section 8.8). |
 | `tiny_checks.sh`, `test_tiny.cpp` | the compiled filter on **every** polynomial of complete sets at tiny primes (13: all depressed monic degree-10 polynomials; 17-41: structured sets; shifts), both builds, normal routing and every lane through `chain_general`, against an exact Euclid oracle. |
 | `poldisc_checks.sh`, `test_poldisc.cpp` | upstream's compiled `polDiscTest_cpu` against the definition (PARI), with a 128-bit replay of its int64 steps, and the filter against both (`UPSTREAM=<GetDecicsSrc>`). |
-| `test_gpu_filter.cpp` | the GPU kernel's integer filter (`src/nf_kernel.h`, included, not copied) compiled for the CPU, prime by prime against an exact oracle. |
+| `test_gpu_filter.cpp` | the GPU kernel's integer filter (`src/nf_kernel.h`, included, not copied) compiled for the CPU, prime by prime against an exact oracle; first it runs the GPU mode's start-up self-test with the kernel compiled for the CPU in the role of the device. |
 | `checks.py` | exact checks of the mathematics (C0-C10), the source-line citations of the document (C11, `--cites`, `--fix-cites`) and its ledger (C12, `--ledger`). |
 | `fault_checks.sh`, `rmshim.c` | break the filter on purpose (floating-point faults, prime ranges, seven faults of the integer arithmetic) and count what each test reports. |
 | `repro/` | the fault guide of `pdfilter_chains.tex` (floating-point filter of commit 327b04f; `repro.sh` builds that filter). |

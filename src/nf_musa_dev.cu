@@ -77,6 +77,29 @@ extern "C" int nfm_init(int device, const int *primes, int nints, char *name, in
   return 0;
 }
 
+// The start-up self-test (nf_selftest_t2, nf_kernel.h) with the table of nfm_init: out receives its total values, which the
+// program compares with exact ones (nfSelfTestVerify).  A program that finds no nfm_selftest in this library runs on the CPU.
+extern "C" int nfm_selftest(const unsigned *ts, unsigned nt, const long long *xs, unsigned nx, const long long *polys,
+                            unsigned npoly, unsigned *out, unsigned total)
+{
+  unsigned *dTs = 0, *dRes = 0;
+  long long *dXs = 0, *dPol = 0;
+  NFM_CHECK(cudaMalloc((void **)&dTs, (size_t)npr * nt * sizeof(unsigned)));
+  NFM_CHECK(cudaMalloc((void **)&dXs, (size_t)nx * sizeof(long long)));
+  NFM_CHECK(cudaMalloc((void **)&dPol, (size_t)npoly * 10 * sizeof(long long)));
+  NFM_CHECK(cudaMalloc((void **)&dRes, (size_t)total * sizeof(unsigned)));
+  NFM_CHECK(cudaMemcpy(dTs, ts, (size_t)npr * nt * sizeof(unsigned), cudaMemcpyHostToDevice));
+  NFM_CHECK(cudaMemcpy(dXs, xs, (size_t)nx * sizeof(long long), cudaMemcpyHostToDevice));
+  NFM_CHECK(cudaMemcpy(dPol, polys, (size_t)npoly * 10 * sizeof(long long), cudaMemcpyHostToDevice));
+  const unsigned block = 128, blocks = (total + block - 1) / block;
+  nf_selftest_t2<<<blocks, block>>>(dTs, nt, dXs, nx, dPol, npoly, dPrimes, npr, dRes, total);
+  NFM_CHECK(cudaGetLastError());
+  NFM_CHECK(cudaDeviceSynchronize());
+  NFM_CHECK(cudaMemcpy(out, dRes, (size_t)total * sizeof(unsigned), cudaMemcpyDeviceToHost));
+  cudaFree(dTs);  cudaFree(dXs);  cudaFree(dPol);  cudaFree(dRes);
+  return 0;
+}
+
 extern "C" int nfm_set_nodes(const double *nd, const long long *ni, size_t n)
 {
   NFM_CHECK(cudaMemcpy(dNodeD, nd, n * ND * sizeof(double), cudaMemcpyHostToDevice));

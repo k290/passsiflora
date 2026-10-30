@@ -14,6 +14,7 @@ struct NfSurv { long long node, m2, m1, b[9]; };
 // another format has no entry point of this name (CUDA, OpenCL) or reports another format (MUSA): the back end refuses it.
 #define NF_TABLE_FORMAT 2
 #define NF_KERNEL_NAME "nf_enum_t2"
+#define NF_SELFTEST_NAME "nf_selftest_t2"
 
 static const size_t NF_MAX_NODES = 1u << 17;   // nodes per batch
 static const unsigned NF_OUT_CAP = 1u << 18;   // survivor records per launch
@@ -33,5 +34,21 @@ long long nfBackendRun(size_t a, size_t b, const unsigned long long *cum,
                        std::vector<NfSurv> &out, bool *overflow);
 
 void nfBackendShutdown();
+
+// Start-up self-test of the filter on the device, run by every back end at the end of nfBackendInit: the kernel
+// nf_selftest_t2 (layout of its output: nf_kernel.h) evaluates redc, coef_mod, chi_reject and survives on the inputs below,
+// and the host compares the output with values computed independently of the kernel's code (exact arithmetic modulo q;
+// the symbol of the discriminant from the resultant by Euclid with inverses).
+struct NfSelfTest {
+  unsigned np, nt, nx, npoly;
+  std::vector<unsigned> ts;        // np * nt inputs of redc, grouped by prime
+  std::vector<long long> xs;       // nx inputs of coef_mod (the same for every prime)
+  std::vector<long long> polys;    // npoly * 10 coefficients c1..c10 (leading coefficient 1)
+  std::vector<unsigned> expect;    // the kernel's output, work item by work item
+};
+void nfSelfTestBuild(const std::vector<int> &primes, NfSelfTest &t);
+// true if out equals t.expect; otherwise prints the first differences and returns false: the back end then refuses GPU mode
+// and the application runs on the CPU.  NF_SELFTEST_FAULT=1 changes one value of out first (test hook).
+bool nfSelfTestVerify(const NfSelfTest &t, std::vector<unsigned> &out);
 
 #endif

@@ -317,6 +317,15 @@ taken before the filter) would not notice.  So the table layout has a number (fo
 start-up with a message; a MUSA program refuses an old library and runs on the CPU; an old program with a new library stops \stnum.  After any change of
 the kernel the CUDA fat binary and the MUSA library must be rebuilt with the author's toolchain; this one requires that.
 
+\paragraph{The filter on the device, at run time.}  At start-up every back end runs a self-test kernel of the same source once: \code{redc}, \code{coef\_mod}, the
+verdict at every table prime for $240$ polynomials and \code{survives}, $7{,}920$ values for $S=\{2,5\}$, which the host computes without the kernel's code (exact
+arithmetic modulo $q$, the symbol from the resultant); on a difference, or with device code that has no self-test, the task runs on the CPU.  The window at
+the start of a task, where the CPU loops run next to the GPU, compares the counts; with \code{NF\_GPUCHECK=1} (the whole task) the CPU also applies the
+kernel's own filter, compiled for the CPU, and the GPU's survivors must be the same, in the same order, or the task stops.  That costs about a microsecond per
+polynomial and the first $5{,}000{,}000$ polynomials have few survivors ($0$ to $10$ in the test units), so the self-test is what checks the filter's values \stnum:
+on the GTX~1650 it passed in the $12$ GPU units at no measurable cost, a full comparison of one unit ($3{,}759$ survivors) found no difference, and injected
+faults and a kernel without the self-test were caught; the MUSA path was run with a stand-in runtime.
+
 %======================================================================
 \section{The contract with the application}\label{sec:contract}
 
@@ -471,7 +480,7 @@ claim & status & rests on \\ \midrule
 (C1) soundness & \stproved & Theorems A--D, Proposition~\ref{prop:poldisc}, the interface; assumes (H), compiler correctness, (S2), (S3) \\
 (C2) safety & \stproved & range proofs, size limits, the masked-loop lemma; assumes (S2), (S3) (start-up check), the CPU's report of AVX2/FMA \\
 (C3) integration & \stproved{} \stnum & the glue proposition; $31$ units in both builds, $12$ on the GPU; assumes (A2) \\
-GPU filter & \stproved & Theorem E; assumes the device compiler and device correct, host and device code of one format (checked at start-up) \\ \midrule
+GPU filter & \stproved & Theorem E; assumes the device compiler and device correct (tested on the device at start-up), host and device code of one format (checked at start-up) \\ \midrule
 compiler correctness & \stassume & tiny-prime test, arithmetic checks with two GCC versions, oracle test, start-up check; docs/BUILDING.md names the checked compilers \\
 (S2), (S3) & \stassume & as above; the start-up check switches the filter off if either fails on the running machine \\
 (H) & \stassume & the enumeration's search region (the author's statement); no overflow on $733{,}855$ real candidates and shifts, largest value $2^{59.45}$ against $2^{63}$ \\
@@ -484,8 +493,8 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 \begin{itemize}
 \item Whether the size limits $8385$ and $1{,}097{,}010{,}265$ are sharp (no shipped prime is near them).
 \item (H) for the application's polynomials is measured on real candidates (about $12$ times headroom), not proved from the search bounds.
-\item The GPU filter is checked on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested, and no run-time
-  check exercises the filter on the device.
+\item The GPU filter is checked on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested; the program checks the filter on
+  every device at start-up.
 \item Only $S=\{2,5\}$ is exercised by the tests; other sets are covered by the proofs.
 \end{itemize}
 
