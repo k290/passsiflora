@@ -428,6 +428,13 @@ vectorised loads with six small primes it is $7$--$15\%$ faster.  Timings of dif
 The Barrett version is the slowest throughout: AVX2 has no $64$-bit vector multiplication, and a $32$-bit lane holds half as many residues per register as the $16$-bit
 lanes of the Montgomery stage.
 
+Why $24+6$ \stnum: a model of the cost, measured stage by stage with cycle counters in the application (five work units, two of them from the two searches that are
+running; ten splits; both builds; five runs each), explains the split.  Each stage keeps half of the polynomials whatever the size of its prime ($0.5001$ at the small primes,
+$0.4993$--$0.5007$ at the large ones), a call stops as soon as it has no polynomial left, a large stage costs $3.1$--$4.2$ times a small one per block, and the exact test costs
+$6.7$--$8.0\,\mu$s per kept polynomial.  The model predicts the filter time of every split to within $1\%$.  An exchange argument shows that small primes belong first \stproved; of the
+splits of $30$ stages $30+0$ is the cheapest and $24+6$ is within $0.14\%$ of it, and $30$ stages are within $0.10\%$ of the best number.  All three prime sets of the project's
+searches ($\{2,5\}$ now, $\{2,11\}$ and $\{5,11\}$ before) have more than $100$ usable primes below $2^{13}$, and the first stage alone takes almost half of the filter's time.
+
 \begin{table}[ht]
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
 \caption{CPU filter plus exact test (the application's polDisc time) in seconds for the first $60{,}006{,}400$ polynomials, median of seven runs; in brackets the

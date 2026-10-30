@@ -694,6 +694,14 @@ while len(large) < 6 and q > 2 ** 24:
     q -= 2
 FP = small + large
 print("filter primes: small", small, "large", large[:3], "...", large[-1], "count", len(FP), "all 1 or 9 mod 40:", all(p % 40 in (1, 9) for p in FP))
+# The sets S of the project's searches (decic fields with S = {2,5}; finished ones with {2,11} and {5,11}; batch status pages
+# of NumberFields@home, read 2026-10-30): the small range has at least the 24 primes the filter takes (Section "The prime split").
+for S in ((2, 5), (2, 11), (5, 11)):
+    use = lambda q: q % 4 == 1 and is_prime(q) and all(pow(p, (q - 1) // 2, q) == 1 for p in S)
+    u13 = [q for q in range(2 ** 13 - 1, 256, -2) if use(q)]
+    u10 = [q for q in range(2 ** 10 - 1, 256, -2) if use(q)]
+    check(len(u13) >= 24, f"C7 S={S}: only {len(u13)} usable small primes")
+    print(f"C7 S = {S}: {len(u13)} usable primes in (256, 2^13) ({u13[0]} ... the 24th {u13[23]}, the 30th {u13[29]}), {len(u10)} in (256, 2^10)")
 
 def filter_stage(f, q, usegen):
     if usegen:
