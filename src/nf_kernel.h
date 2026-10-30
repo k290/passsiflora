@@ -32,7 +32,7 @@ NF_INLINE i64 d2l(double x)
 }
 
 // The filter is integer-only (pdfilter_chains.tex, Theorem E): unsigned 32-bit arithmetic, which wraps modulo 2^32 by the definition
-// of OpenCL C and CUDA, for an odd prime q < 8192 (the table's primes are below 1024).  Residues are kept in [0, 2q): a value is 0 mod q
+// of OpenCL C and CUDA, for an odd prime q < 8192 (the table's primes are below 8192).  Residues are kept in [0, 2q): a value is 0 mod q
 // exactly when it is 0 or q.  Montgomery reduction with R = 2^16: for 0 <= t < 8q^2, m = t*qneg mod 2^16 (qneg = -1/q mod 2^32, whose
 // low 16 bits are -1/q mod 2^16) makes t + m*q (< 2^30, no wrap) divisible by 2^16, and (t + m*q) / 2^16 < t/2^16 + q < 2q is
 // congruent to t/R mod q.
@@ -43,7 +43,7 @@ NF_INLINE nfuint redc(nfuint t, nfuint q, nfuint qneg)
 }
 
 // x mod q in [0, q).  Limbs of 16 bits, weights c1 = 2^16, c2 = 2^32, c3 = 2^48 mod q (all < q): the sum is at most
-// (2^16 - 1)(1 + 3(q - 1)) < 2^31 for q < 8192 (below 2^28 for the table's q < 1024).
+// (2^16 - 1)(1 + 3(q - 1)) < 2^31 for q < 8192 (it holds up to q = 10923).
 NF_INLINE nfuint coef_mod(i64 x, int q, int c1, int c2, int c3, int w64)
 {
   u64 u = (u64)x;

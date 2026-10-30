@@ -702,6 +702,23 @@ for S in ((2, 5), (2, 11), (5, 11)):
     u10 = [q for q in range(2 ** 10 - 1, 256, -2) if use(q)]
     check(len(u13) >= 24, f"C7 S={S}: only {len(u13)} usable small primes")
     print(f"C7 S = {S}: {len(u13)} usable primes in (256, 2^13) ({u13[0]} ... the 24th {u13[23]}, the 30th {u13[29]}), {len(u10)} in (256, 2^10)")
+# The GPU table (buildPrimeTable of src/nf_gpu_common.cpp): the 24 smallest usable primes in (256, 8192); GPU mode needs at least 8.
+# For every S of one to three primes below 60: how many sets leave fewer than 8, or fewer than 24, in (256, 1024) (the earlier range)
+# and in (256, 8192).
+import itertools
+Q4 = [q for q in range(257, 8192, 4) if is_prime(q)]
+gpu_short = {1024: [0, 0], 8192: [0, 0]}
+small_p = [p for p in range(2, 60) if is_prime(p)]
+for k in (1, 2, 3):
+    for S in itertools.combinations(small_p, k):
+        u = [q for q in Q4 if all(p % q and pow(p, (q - 1) // 2, q) == 1 for p in S)]
+        for hi in (1024, 8192):
+            n = sum(1 for q in u if q < hi)
+            gpu_short[hi][0] += n < 8; gpu_short[hi][1] += n < 24
+check(gpu_short[8192] == [0, 0], f"C7 GPU table: sets with fewer than 8 / 24 usable primes below 8192: {gpu_short[8192]}")
+gpu25 = [q for q in Q4 if pow(2, (q - 1) // 2, q) == 1 and pow(5, (q - 1) // 2, q) == 1][:24]
+print(f"C7 GPU table for S = (2, 5): {gpu25[0]} ... {gpu25[-1]} (24 primes, none of the CPU's small ones: {not set(gpu25) & set(small)});"
+      f" sets of 1-3 primes below 60 with fewer than 8 / 24 usable primes: {gpu_short[1024]} below 1024, {gpu_short[8192]} below 8192")
 
 def filter_stage(f, q, usegen):
     if usegen:

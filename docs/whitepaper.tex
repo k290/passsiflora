@@ -92,7 +92,8 @@ Let $f$ pass, and let $q$ be a prime with $q\equiv1\pmod4$ at which every $p\in 
 Indeed $\chi(D)=\chi(\pm1)\prod_p\chi(p)^{\alpha_p}\chi(m)^2$, $\chi(-1)=1$ because $q\equiv1\pmod4$, and $\chi(p)=1$ by the choice of $q$.  So a symbol $-1$ at
 one such prime is a proof that $f$ fails.  The CPU filter uses $30$ such primes: $24$ \emph{small} ones below $2^{13}$ ($8161,8089,\dots,6481$ for $S=\{2,5\}$) and
 six \emph{large} ones below $2^{25}$ ($33554249,\dots,33553649$).  Each rejects about half of the candidates; survivors of all $30$ go on to the exact test, which
-decides them as before.  The GPU kernel applies the same filter at up to $24$ primes in $(256,1024)$ ($14$ exist for $S=\{2,5\}$) before it hands the survivors to the CPU.
+decides them as before.  The GPU kernel applies the same filter at the $24$ smallest such primes in $(256,8192)$ ($281,\dots,1489$ for $S=\{2,5\}$, none of them the CPU's) before it hands the
+survivors to the CPU.
 
 \paragraph{Why integer arithmetic.}  The first version of the filter (commit \code{327b04f}) stored residues in floating point and reduced with the rounding trick
 $x-q\cdot((x\,q^{-1}+M)-M)$, which is exact only if every operation is rounded to nearest in the declared precision.  The fault guide of \cite[Section~14]{P}
@@ -396,9 +397,12 @@ polynomials reaching the large stages and no failure.  The $146{,}771$ candidate
 \paragraph{The exact test} \stnum.  Table~\ref{tab:poldisc}.
 
 \paragraph{The GPU filter} \stnum.  The kernel's \code{survives}, compiled for the CPU from the kernel source itself, against the exact oracle prime by prime:
-$6{,}000{,}000$ polynomials at the $14$ table primes and $3{,}000{,}000$ at tiny primes and just below the limit $8192$, $168{,}000{,}000$ checks, no false and no
+$6{,}000{,}000$ polynomials at the $24$ table primes and $3{,}000{,}000$ at tiny primes and just below the limit $8192$, $228{,}000{,}000$ checks, no false and no
 missed rejection.  On an NVIDIA GTX~1650 (OpenCL, and CUDA with the kernel compiled by NVRTC), the application gave the truth files of $8$ work units through
-OpenCL and $4$ through CUDA, before and after the format check was added.
+OpenCL and $4$ through CUDA, before and after the format check was added and again with the present table.  The table used to take its primes below $1024$ only, a
+bound of the floating-point kernel: $14$ for $S=\{2,5\}$, enough, but of the $833$ sets of one to three primes below $60$, $592$ leave fewer than the $8$ that GPU mode needs
+(it then runs on the CPU), and below $8192$ none does.  Smallest first, because Euler's criterion takes one step per bit of $(q-1)/2$: with the $24$ largest primes the
+kernel took $1.0$--$1.3\%$ longer, with the $24$ smallest $0.0$--$0.3\%$, within the scatter of the runs.
 
 \paragraph{The work units} \stnum.  The application, built on Linux from GetDecics at \code{638ca4e} with the patch and the repository's compile lines (BOINC replaced by
 stand-ins), gave the \code{.truth} files of all $31$ test work units with the AVX2 build and with the baseline build.  With \code{NF\_VERIFY=1} (the exact test also on

@@ -3,7 +3,7 @@
 // polynomial and every prime the kernel must reject at q exactly when chi(disc f mod q) = -1.
 //   TEST=test_gpu_filter.cpp bash build-linux.sh
 //   build/test_gpu_filter COUNT SEED [THREADS] [tiny [TOP]]
-// The table is the kernel's for S = {2, 5}: the 14 primes q = 1 mod 4 in (256, 1024) at which 2 and 5 are squares.  "tiny" uses
+// The table is the kernel's for S = {2, 5}: the 24 smallest primes q = 1 mod 4 in (256, 8192) at which 2 and 5 are squares.  "tiny" uses
 // instead primeRow for every prime q = 1 mod 4 in [13, 199] and the 8 largest such primes up to TOP (default 8191, the limit of
 // Theorem E, set by redc; a larger TOP shows what happens beyond it).  The kernel's sources are included,
 // not copied; the macros below are a CPU port in the manner of nf_port_opencl.h and nf_port_cuda.h.

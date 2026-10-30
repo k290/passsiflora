@@ -53,11 +53,11 @@ static void primeRow(long long q, int row[8])
   memcpy(row, v, sizeof v);
 }
 
-// q = 1 (mod 4) prime in (256, 1024) such that every p in S is a nonzero square mod q.
+// q = 1 (mod 4) prime in (256, 8192), every p in S a nonzero square mod q; smallest first (Euler: one step per bit of (q-1)/2).
 static std::vector<int> buildPrimeTable(int numP, const int *pSet)
 {
   std::vector<int> t;
-  for (long long q = 1023; q > 256 && t.size() / 8 < MAX_PRIMES; q--) {
+  for (long long q = 257; q < 8192 && t.size() / 8 < MAX_PRIMES; q++) {
     if (q % 4 != 1 || !isPrime(q)) continue;
     bool ok = true;
     for (int k = 0; k < numP; k++) {
