@@ -429,8 +429,9 @@ On the CPU, Table~\ref{tab:speed} gives the application's own timing split (\cod
 seven runs per filter, the filters alternating, one run at a time on an otherwise idle Linux machine (one-minute load $0.19$ before the first run, $1.04$ after the
 last).  The applications differ only in the filter object: the floating-point filter of \code{327b04f}, compiled as it shipped (\code{-march=x86-64-v3}); an earlier
 integer version with Barrett reduction ($32$-bit lanes for the small primes, $64$-bit products for the large ones; never committed, it gave the truth files of all $31$ work
-units in both builds before it was timed); the Montgomery filter as committed in \code{27d917f}, with six small primes below $2^{10}$ and $24$ large ones; the same with
-vectorised loads; and the present filter, which has these loads and $24$ small primes below $2^{13}$ with six large ones.  On \code{sf5} and \code{sf3} almost every
+units in both builds before it was timed); and the Montgomery filter in three steps, each with one change more than the step before: as committed in \code{27d917f},
+with six small primes below $2^{10}$ and $24$ large ones ($6+24$) and scalar loads; the same with vectorised loads; and these loads with $24$ small primes below $2^{13}$
+and six large ones ($24+6$), the filter this paper describes (\code{4094af4} made both changes).  On \code{sf5} and \code{sf3} almost every
 polynomial takes \code{chain\_block}; on \code{sf4} every polynomial takes \code{chain\_general} at every prime (the stage counts of \code{NF\_PDFDEBUG}).
 
 In \code{27d917f} the small-prime loads were not vectorised: gfortran's cost model rejected the loop that gathered three arrays of $21$-bit pieces through the block's
@@ -440,7 +441,7 @@ vectorises, and the split once per buffer is gone ($54$ cycles per polynomial in
 unchanged.  The $24$ small primes then save most of the large stages, which cost about twice as much as in the floating-point filter: a polynomial reaches them only if
 no small prime rejects it, and with $24$ almost none does (cycle counters: $0.4$ instead of $30.7$ cycles per polynomial in the large stages, $6.2$ more in the small ones,
 the filter $8.6\%$ faster).  The split $24+6$ had the lowest medians of those with $30$ primes in two earlier timings ($6+24$ and $12+18$ below $2^{13}$).  The
-present filter is faster than the floating-point one in every row: by $14\%$ and $4\%$ with AVX2 on \code{sf5} and \code{sf3} (the $4\%$ is less than the spread of the
+$24+6$ filter is faster than the floating-point one in every row: by $14\%$ and $4\%$ with AVX2 on \code{sf5} and \code{sf3} (the $4\%$ is less than the spread of the
 runs: the fastest and the slowest run of one filter differ by $5$--$31\%$), by $19$--$20\%$ with the baseline build, and by $48$--$58\%$ on \code{sf4}; against the
 vectorised loads with six small primes it is $7$--$15\%$ faster.  Timings of different series differ by up to about $10\%$, so only filters of one series are compared.
 The Barrett version is the slowest throughout: AVX2 has no $64$-bit vector multiplication, and a $32$-bit lane holds half as many residues per register as the $16$-bit
@@ -456,12 +457,14 @@ searches ($\{2,5\}$ now, $\{2,11\}$ and $\{5,11\}$ before) have more than $100$ 
 \begin{table}[ht]
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
 \caption{CPU filter plus exact test (the application's polDisc time) in seconds for the first $60{,}006{,}400$ polynomials, median of seven runs; in brackets the
-change against the floating-point filter.  Montgomery: as in \code{27d917f} (scalar loads), with vectorised loads, and present ($24$ small primes).  Work units
+change against the floating-point filter.  Montgomery: the three steps of the text, each with one change more: $6+24$ primes (small $+$ large) with scalar loads
+(\code{27d917f}); the same primes with vectorised loads; then $24+6$ primes with these loads (\code{4094af4}, the filter described here).  Work units
 \code{sf5\_DS-14x11\_Grp33043of705883}, \code{sf3\_DS-16x270\_Grp74of3932160}, \code{sf4\_DS-13x271-25\_Grp98of200000}.}\label{tab:speed}
 \begin{tabular}{@{}llrrrrr@{}}
 \toprule
 & & & & \multicolumn{3}{c}{Montgomery} \\ \cmidrule(l){5-7}
-work unit & build & floating point & Barrett & scalar loads & vectorised loads & present \\ \midrule
+& & & & scalar loads & \multicolumn{2}{c}{vectorised loads} \\ \cmidrule(lr){5-5}\cmidrule(l){6-7}
+work unit & build & floating point & Barrett & $6+24$ primes & $6+24$ primes & $24+6$ primes \\ \midrule
 \code{sf5} & AVX2     & $5.84$  & $12.03$ ($+106\%$) & $6.65$ ($+14\%$)  & $5.49$ ($-6\%$)  & $5.03$ ($-14\%$) \\
            & baseline & $8.86$  & $24.47$ ($+176\%$) & $8.80$ ($-1\%$)   & $7.96$ ($-10\%$) & $7.21$ ($-19\%$) \\
 \code{sf3} & AVX2     & $5.44$  & $11.87$ ($+118\%$) & $6.52$ ($+20\%$)  & $5.65$ ($+4\%$)  & $5.23$ ($-4\%$) \\
