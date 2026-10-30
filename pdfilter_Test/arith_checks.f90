@@ -14,7 +14,7 @@
 !                          their difference leaves 16 bits
 !   sredc                 windows around x = +-2^31 q, the counterexamples, the extreme classes, random x, differences
 !                          a b - c d with a,b,c,d at and near +-(q-1); model in 128-bit integers
-!   ldres                  the loading on extreme and random coefficients for 2,585 moduli (with 200 random odd q < 2^31)
+!   ldres                  the loading on extreme and random coefficients for 6,169 moduli (with 200 random odd q < 2^31)
 !   inv32                  q q^-1 = 1 mod 2^32 and the signed 16/32-bit forms, for many q
 !   bounds-small Q0 Q1     the bound propagation of the small-prime stage (Section 8.8) for every odd q in [Q0,Q1]
 !   bounds-large Q0 Q1     the same for the large-prime stage
@@ -597,11 +597,11 @@ contains
       do i = 1, 16384
         if (abs(int(res(i), i8)) >= qq .or. modulo(int(res(i), i16) - int(c(i), i16), int(qq, i16)) /= 0) bad2 = bad2 + 1
       end do
-      ! moduli: every odd q in (2^8, 2^10); 2^24 + 1 and every 8th odd number in the top 32000 below 2^25;
+      ! moduli: every odd q in (2^8, 2^13); 2^24 + 1 and every 8th odd number in the top 32000 below 2^25;
       ! then 200 random odd q < 2^31
-      if (qq < 1023) then
+      if (qq < 8191) then
         qq = qq + 2
-      else if (qq == 1023) then
+      else if (qq == 8191) then
         qq = 2_i8**24 + 1
       else if (qq == 2_i8**24 + 1) then
         qq = 2_i8**25 - 1 - 2*1999*8
@@ -609,7 +609,7 @@ contains
         qq = qq + 16
         if (qq >= 2_i8**25) qq = 2_i8**25 + 1
       else
-        iq = nmod - 2385
+        iq = nmod - 5969
         if (iq >= 200) exit
         qq = ior(modulo(xs(rng), 2_i8**31 - 2_i8**25) + 2_i8**25, 1_i8)
       end if
@@ -622,13 +622,13 @@ contains
     integer(i8) :: qq, inv, nq, bad, rng, j, ns, nl
     nq = 0; bad = 0; rng = 7_i8
     ! the filter primes of pdf_init's rule for S = {2,5}, all odd q < 2^20, and 10^6 random odd q < 2^31
-    ns = 0; qq = 1023
-    do while (ns < 6 .and. qq > 256)
+    ns = 0; qq = 8191
+    do while (ns < 24 .and. qq > 256)
       if (usable25(qq)) then; ns = ns + 1; call inv_one(qq, nq, bad); end if
       qq = qq - 2
     end do
     nl = 0; qq = 2_i8**25 - 1
-    do while (nl < 24 .and. qq > 2_i8**24)
+    do while (nl < 6 .and. qq > 2_i8**24)
       if (usable25(qq)) then; nl = nl + 1; call inv_one(qq, nq, bad); end if
       qq = qq - 2
     end do

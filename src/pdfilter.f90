@@ -21,7 +21,7 @@
 ! All arithmetic is integer arithmetic with signed Montgomery multiplication:
 ! no floating point is used, so the results do not depend on the rounding
 ! mode, on x87 or SSE arithmetic, or on flags such as -ffast-math.
-!  * Small primes 2^8 < q < 2^10: 16-bit lanes (sixteen per AVX2 register),
+!  * Small primes 2^8 < q < 2^13: 16-bit lanes (sixteen per AVX2 register),
 !    R = 2^16 (mont).  Values are kept in (-2q, 2q), a difference of two
 !    Montgomery products; a value is 0 mod q iff it is 0 or +-q.
 !  * Large primes 2^24 < q < 2^25: 32-bit lanes, R = 2^32 (sredc), products
@@ -34,13 +34,15 @@
 !    power), so the zero tests are exact.  Euler's criterion runs in the
 !    Montgomery domain: acc starts at R mod q and ends at chi*R mod q, so -1
 !    is the residue -R, i.e. negr or negr - q with negr = -R mod q in [0, q).
-!  * Loading: every coefficient c is split once per buffer as
+!  * Loading: per prime and block, the coefficients of the block's polynomials
+!    are gathered from pol (gather), and every coefficient c is split as
 !    c = p0 + p1*2^21 + p2*2^42 (p0, p1 in [0, 2^21), p2 = floor(c/2^42) in
-!    [-2^21, 2^21)); per prime, p0*d0 + p1*d1 + p2*d2 with d_i = 2^(21i)*2^32
-!    mod q is reduced once by sredc, which gives c mod q itself, in (-q, q).
-! The first stage uses the small primes; each prime rejects about half of the
-! candidates, and the few survivors continue with the large primes.  All inner
-! loops vectorise across polynomials (BLK lanes).
+!    [-2^21, 2^21)); p0*d0 + p1*d1 + p2*d2 with d_i = 2^(21i)*2^32 mod q is
+!    reduced once by sredc, which gives c mod q itself, in (-q, q) (ldcoef).
+! The first 24 stages use the small primes; each prime rejects about half of
+! the candidates, so almost only polynomials whose discriminant is a square
+! (mod those primes) continue with the six large primes.  All inner loops
+! vectorise across polynomials (BLK lanes).
 !
 ! Contract (pdfilter_chains.tex, Section "The interface contract"):
 !  * pdf_init(numP, pSet): pSet(1:numP) is the set S of primes that the exact
@@ -76,13 +78,15 @@ module PDF_MOD
 #endif
 
   integer, parameter :: i2 = c_int16_t, i4 = c_int32_t, i8 = c_int64_t
-  integer, parameter :: MAXQ = 24, MAXS = 6, BLK = 64
+  ! At most MAXS small and MAXQ large primes, 30 stages in all.  A 16-bit stage has twice the lanes per register of a
+  ! 32-bit one and cheaper reductions, so the small primes do the work and the large ones see few polynomials.
+  integer, parameter :: MAXQ = 6, MAXS = 24, BLK = 64
   ! The limits the proofs need (pdfilter_chains.tex, Proposition "Every value is in range" and Theorem "The limits of the
   ! whole filter"): QMIN <= q <= QS_MAX for a small prime, QMIN <= q <= QL_MAX for a large one.  pdf_init skips any other
   ! prime (function chosen).  pdf_init searches the usable primes below QS_START down to QS_STOP (exclusive), then below
   ! QL_START down to QL_STOP; these ranges lie inside the limits.
   integer(i8), parameter :: QMIN = 11, QS_MAX = 8385, QL_MAX = 1097010265
-  integer(i8), parameter :: QS_START = 2_i8**10 - 1, QS_STOP = 256
+  integer(i8), parameter :: QS_START = 2_i8**13 - 1, QS_STOP = 256
   integer(i8), parameter :: QL_START = 2_i8**25 - 1, QL_STOP = 2_i8**24
 
   ! Large primes (32-bit stage, R = 2^32): qinv = q^-1 mod 2^32 as a signed
@@ -98,7 +102,6 @@ module PDF_MOD
   integer(i8) :: qsexp(MAXS)
 
   integer, allocatable, save :: idx(:), nidx(:), uidx(:)
-  integer(i4), allocatable, save :: p0A(:, :), p1A(:, :), p2A(:, :)
   logical, save :: debug = .false., allgen = .false.
   ! Per prime stage: go straight to chain_general when most lanes of the last
   ! probe left the generic chain (structurally degenerate families).
@@ -307,6 +310,14 @@ contains
     ldres = sredc(int(p0, i8)*int(d0, i8) + int(p1, i8)*int(d1, i8) + int(p2, i8)*int(d2, i8), q, qinv)
   end function ldres
 
+  ! c mod q in (-q, q) for an int64 coefficient c: its pieces p0, p1, p2 (see the header) through ldres.
+  elemental integer(i4) function ldcoef(c, d0, d1, d2, q, qinv)
+    integer(i8), intent(in) :: c
+    integer(i4), intent(in) :: d0, d1, d2, q, qinv
+    ldcoef = ldres(int(iand(c, 2_i8**21 - 1), i4), int(iand(shifta(c, 21), 2_i8**21 - 1), i4), int(shifta(c, 42), i4), &
+                   d0, d1, d2, q, qinv)
+  end function ldcoef
+
   ! Test value k of a known-answer table with |value| <= bound: the extremes first, then pseudo-random values.
   integer(i8) function kat_val(k, bound, rng)
     integer, intent(in) :: k
@@ -332,14 +343,15 @@ contains
   end function kat_val
 
   ! Start-up check of the compiled arithmetic (pdfilter_chains.tex, Proposition "The start-up check").  For every chosen
-  ! prime: mont (small primes), sredc and ldres (both, with the stored constants) and the 21-bit split of pdf_filter, called
-  ! elementally on arrays as in the chains, on extreme and pseudo-random inputs, against values computed with MODULO and
-  ! exact division only (no conversion out of range, no bit operation on a negative value).  .false. on any mismatch.
+  ! prime: mont (small primes), sredc and ldres (both, with the stored constants) and the 21-bit split, called
+  ! elementally on arrays as in the chains, and the loads themselves (load_block_s or load_block: gather, split, ldres) on a
+  ! block of the same coefficients, on extreme and pseudo-random inputs, against values computed with MODULO and exact
+  ! division only (no conversion out of range, no bit operation on a negative value).  .false. on any mismatch.
   logical function arith_ok()
-    integer(i2) :: a2(BLK), b2(BLK), u2(BLK)
-    integer(i4) :: u4(BLK), p0(BLK), p1(BLK), p2(BLK), q4, qi4, d(0:2)
-    integer(i8) :: x(BLK), c(BLK), q, lo, m, t, rng
-    integer :: j, l, stage
+    integer(i2) :: a2(BLK), b2(BLK), u2(BLK), as(BLK, 0:10)
+    integer(i4) :: u4(BLK), p0(BLK), p1(BLK), p2(BLK), q4, qi4, d(0:2), al(BLK, 0:10)
+    integer(i8) :: x(BLK), c(BLK), q, lo, m, t, rng, pk(11, BLK), v
+    integer :: j, l, k, stage, ids(BLK)
     arith_ok = .true.
     rng = 88172645463325252_i8
     do stage = 1, ns + nq
@@ -388,23 +400,62 @@ contains
             p2(l) /= (t - modulo(t, 2_i8**21)) / 2_i8**21) arith_ok = .false.
         if (abs(int(u4(l), i8)) >= q .or. modulo(int(u4(l), i8), q) /= modulo(c(l), q)) arith_ok = .false.
       end do
+      ! The loads: polynomial l has the coefficients c rotated by l - 1 + 7k, in pol's layout; the block lists them in
+      ! reverse order.
+      do l = 1, BLK
+        pk(1, l) = 1
+        do k = 0, 9
+          pk(11-k, l) = c(1 + mod(l - 1 + 7*k, BLK))
+        end do
+        ids(l) = BLK + 1 - l
+      end do
+      if (stage <= ns) then
+        call load_block_s(pk, ids, BLK, j, as)
+        al = int(as, i4)
+      else
+        call load_block(pk, ids, BLK, j, al)
+      end if
+      do l = 1, BLK
+        do k = 0, 9
+          v = int(al(l, k), i8)
+          if (abs(v) >= q .or. modulo(v, q) /= modulo(pk(11-k, ids(l)), q)) arith_ok = .false.
+        end do
+        if (al(l, 10) /= 1) arith_ok = .false.
+      end do
     end do
   end function arith_ok
 
+  ! The coefficients of a block: x(l, k) = coefficient of x^k of polynomial ids(l), l = 1..c, k = 0..9 (pol(11-k, ids(l)):
+  ! each polynomial is 11 consecutive values of pol); the lanes c+1..BLK are 0.  Gathering whole polynomials first keeps the
+  ! arithmetic of the loads on contiguous lanes, where gfortran vectorises it.
+  subroutine gather(pol, ids, c, x)
+    integer(i8), intent(in) :: pol(11, *)
+    integer, intent(in) :: c
+    integer, intent(in) :: ids(c)
+    integer(i8), intent(out) :: x(BLK, 0:9)
+    integer :: l, k
+    do l = 1, c
+      do k = 0, 9
+        x(l, k) = pol(11-k, ids(l))
+      end do
+    end do
+    x(c+1:BLK, :) = 0
+  end subroutine gather
+
   ! Small-prime versions of load_block / chain_block (same algorithm).
-  subroutine load_block_s(ids, c, j, a)
+  subroutine load_block_s(pol, ids, c, j, a)
+    integer(i8), intent(in) :: pol(11, *)
     integer, intent(in) :: c, j
     integer, intent(in) :: ids(c)
     integer(i2), intent(out) :: a(BLK, 0:10)
     integer(i4) :: q, qinv, d0, d1, d2
-    integer :: l, k
+    integer(i8) :: x(BLK, 0:9)
+    integer :: k
 
     q = qsl(j); qinv = qinvsl(j); d0 = lds(0, j); d1 = lds(1, j); d2 = lds(2, j)
+    call gather(pol, ids, c, x)
     do k = 0, 9
-      do l = 1, c
-        a(l, k) = int(ldres(p0A(ids(l), k), p1A(ids(l), k), p2A(ids(l), k), d0, d1, d2, q, qinv), i2)
-      end do
-      a(c+1:BLK, k) = 0
+      a(:, k) = int(ldcoef(x(:, k), d0, d1, d2, q, qinv), i2)
     end do
     a(:, 10) = 1
   end subroutine load_block_s
@@ -459,22 +510,21 @@ contains
   end subroutine chain_block_s
 
   ! Load and reduce a block of polynomials into F_q.
-  ! a(l,k) = coefficient of x^k of polynomial idx(l), k = 0..10, in (-q, q).
-  ! p0A/p1A/p2A hold every coefficient split into 21-bit pieces, computed once
-  ! per buffer so each prime only gathers and reduces.
-  subroutine load_block(ids, c, j, a)
+  ! a(l,k) = coefficient of x^k of polynomial ids(l), k = 0..10, in (-q, q);
+  ! the lanes c+1..BLK are 0 (and 1 at k = 10).
+  subroutine load_block(pol, ids, c, j, a)
+    integer(i8), intent(in) :: pol(11, *)
     integer, intent(in) :: c, j
     integer, intent(in) :: ids(c)
     integer(i4), intent(out) :: a(BLK, 0:10)
     integer(i4) :: q, qinv, d0, d1, d2
-    integer :: l, k
+    integer(i8) :: x(BLK, 0:9)
+    integer :: k
 
     q = qv(j); qinv = qinvv(j); d0 = ldv(0, j); d1 = ldv(1, j); d2 = ldv(2, j)
+    call gather(pol, ids, c, x)
     do k = 0, 9
-      do l = 1, c
-        a(l, k) = ldres(p0A(ids(l), k), p1A(ids(l), k), p2A(ids(l), k), d0, d1, d2, q, qinv)
-      end do
-      a(c+1:BLK, k) = 0
+      a(:, k) = ldcoef(x(:, k), d0, d1, d2, q, qinv)
     end do
     a(:, 10) = 1
   end subroutine load_block
@@ -603,7 +653,8 @@ contains
 
   ! One block through prime stage j (small primes first, then large ones),
   ! with the fast generic chain or, for lanes that left it, the general one.
-  subroutine run_block(ids, c, j, general, keep, ok)
+  subroutine run_block(pol, ids, c, j, general, keep, ok)
+    integer(i8), intent(in) :: pol(11, *)
     integer, intent(in) :: c, j
     integer, intent(in) :: ids(c)
     logical, intent(in) :: general
@@ -611,14 +662,14 @@ contains
     integer(i4) :: a(BLK, 0:10)
     integer(i2) :: as(BLK, 0:10)
     if (j <= ns) then
-      call load_block_s(ids, c, j, as)
+      call load_block_s(pol, ids, c, j, as)
       if (general) then
         call chain_general_s(as, j, keep)
       else
         call chain_block_s(as, j, keep, ok)
       end if
     else
-      call load_block(ids, c, j - ns, a)
+      call load_block(pol, ids, c, j - ns, a)
       if (general) then
         call chain_general(a, j - ns, keep)
       else
@@ -634,23 +685,14 @@ contains
     integer(i8), intent(in) :: pol(11, n)
     integer(c_signed_char), intent(out) :: flag(n)
     logical :: keep(BLK), ok(BLK), usegen, probe
-    integer :: na, nn, nu, j, s, c, l, k
-    integer(i8) :: x
+    integer :: na, nn, nu, j, s, c, l
 
     if (n <= 0) return
     if (allocated(idx)) then
-      if (size(idx) < n) deallocate(idx, nidx, uidx, p0A, p1A, p2A)
+      if (size(idx) < n) deallocate(idx, nidx, uidx)
     end if
-    if (.not. allocated(idx)) allocate(idx(n), nidx(n), uidx(n), p0A(n, 0:9), p1A(n, 0:9), p2A(n, 0:9))
+    if (.not. allocated(idx)) allocate(idx(n), nidx(n), uidx(n))
 
-    do k = 0, 9
-      do l = 1, n
-        x = pol(11-k, l)
-        p0A(l, k) = int(iand(x, 2_i8**21 - 1), i4)
-        p1A(l, k) = int(iand(shifta(x, 21), 2_i8**21 - 1), i4)
-        p2A(l, k) = int(shifta(x, 42), i4)
-      end do
-    end do
     do l = 1, n
       idx(l) = l
     end do
@@ -673,7 +715,7 @@ contains
       ! Pass 1: every candidate; lanes that left the generic chain go to uidx.
       do s = 1, na, BLK
         c = min(BLK, na - s + 1)
-        call run_block(idx(s:s+c-1), c, j, usegen, keep, ok)
+        call run_block(pol, idx(s:s+c-1), c, j, usegen, keep, ok)
         if (usegen) ok = .true.
         do l = 1, c
           if (.not. ok(l)) then
@@ -693,7 +735,7 @@ contains
       ! Pass 2: those lanes through the general chain.
       do s = 1, nu, BLK
         c = min(BLK, nu - s + 1)
-        call run_block(uidx(s:s+c-1), c, j, .true., keep, ok)
+        call run_block(pol, uidx(s:s+c-1), c, j, .true., keep, ok)
         do l = 1, c
           if (keep(l)) then
             nn = nn + 1

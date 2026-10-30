@@ -20,7 +20,7 @@
 #   S13   small primes in [8000, 8192)               Lemma mont (q <= 8192)                       0
 #   SC    small 8369, 8329: mont has counterexamples Theorem "limits of the whole filter" (q <= 8385)  0
 #   SF    small primes in (8385, 8761]               none (above the proved bound)                0 (no event in simulation)
-#   S2    small primes up to 2^14 (16369 .. 15881)   none                                         0 (no event in simulation)
+#   S2    small primes up to 2^14 (16369 .. 14449)   none                                         0 (no event in simulation)
 #   SD    small primes in (19000, 19961]             none                                         0 or a few; directed: failures
 #   SE    small primes in (21000, 23981]             none                                         failures (seen in simulation)
 #   S15   small primes in (30000, 32767]             none                                         many failures
@@ -33,7 +33,7 @@
 #   L31   large primes just below 2^31               none                                         0 (no event in simulation);
 #                                                                                                 directed inputs exist (found later)
 #   SG    small primes in (8000, 8761], guard on       the guard skips the 6 above 8385 (6 lines on   0
-#                                                    stderr); the filter takes 8369 ... 8081
+#                                                    stderr); the filter takes 8369 ... 8009
 # The rows beyond the proved limits (NOLIM below) are built with -DPDF_NO_LIMITS, which switches off pdf_init's guard (the
 # primes outside the limits would otherwise be skipped); every other row keeps the guard, and SG shows that it works.
 # Faults of the integer arithmetic (one line each; the oracle test reports which strata found them):
@@ -68,7 +68,7 @@ mutate() {   # out.f90 sed-expression count [file] : checks that every expressio
   sed -e "$2" "$src" > "$1"
   [ "$(diff "$src" "$1" | grep -c '^>')" = "$3" ] || { echo "the sed expression did not change $1 as expected"; exit 1; }
 }
-small() { echo "s/QS_START = 2_i8\*\*10 - 1, QS_STOP = 256$/QS_START = $1_i8, QS_STOP = $2/"; }   # start, lower bound (exclusive)
+small() { echo "s/QS_START = 2_i8\*\*13 - 1, QS_STOP = 256$/QS_START = $1_i8, QS_STOP = $2/"; }   # start, lower bound (exclusive)
 large() { echo "s/QL_START = 2_i8\*\*25 - 1, QL_STOP = 2_i8\*\*24$/QL_START = $1_i8, QL_STOP = $2_i8/"; }
 for f in $ROWS; do
   case $f in
@@ -93,7 +93,7 @@ for f in $ROWS; do
     Z1)   mutate "$OUT/pdfilter_Z1.f90" 's/ \.and\. abs(p(:, m-1, ir)) \/= q)/)/' 1 ;;
     Z2)   mutate "$OUT/pdfilter_Z2.f90" 's/^#define GZERO(x) (x == 0 \.or\. abs(x) == q)/#define GZERO(x) (x == 0)/' 1 ;;
     E1)   mutate "$OUT/pdfilter_E1.f90" 's/(acc == negr \.or\. acc == negr - q)/(acc == negr)/' 2 ;;
-    U1)   mutate "$OUT/pdfilter_U1.f90" 's/p2A(l, k) = int(shifta(x, 42), i4)/p2A(l, k) = int(shiftr(x, 42), i4)/' 1 ;;
+    U1)   mutate "$OUT/pdfilter_U1.f90" 's/int(shifta(c, 42), i4), &$/int(shiftr(c, 42), i4), \&/' 1 ;;
     D1)   mutate "$OUT/pdfilter_D1.f90" 's/r = modulo(r\*2_i8\*\*21, q)/r = modulo(r*2_i8**20, q)/' 2 ;;
     K1)   mutate "$OUT/pdfilter_K1.f90" 's/^    do j = 1, ns + nq$/    do j = 1, ns + nq - 1/' 1 ;;
     G1)   # chain_general.inc is included from the directory of the including file first: a broken copy next to a copy of the filter

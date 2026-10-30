@@ -684,12 +684,12 @@ def is_prime(n):
 def usable(q):
     if q % 4 != 1 or not is_prime(q): return False
     return all(p % q != 0 and pow(p, (q - 1) // 2, q) == 1 for p in (2, 5))
-small, q = [], 2 ** 10 - 1
-while len(small) < 6 and q > 256:
+small, q = [], 2 ** 13 - 1
+while len(small) < 24 and q > 256:
     if usable(q): small.append(q)
     q -= 2
 large, q = [], 2 ** 25 - 1
-while len(large) < 24 and q > 2 ** 24:
+while len(large) < 6 and q > 2 ** 24:
     if usable(q): large.append(q)
     q -= 2
 FP = small + large

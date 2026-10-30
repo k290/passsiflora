@@ -421,8 +421,8 @@ static std::vector<u64> filterPrimes()
 {
   std::vector<u64> pr;
   int ns = 0, nq = 0;
-  for (u64 q = 1023; ns < 6 && q > 256; q -= 2) if (usablePrime(q)) { pr.push_back(q); ns++; }
-  for (u64 q = (1ull << 25) - 1; nq < 24 && q > (1ull << 24); q -= 2) if (usablePrime(q)) { pr.push_back(q); nq++; }
+  for (u64 q = 8191; ns < 24 && q > 256; q -= 2) if (usablePrime(q)) { pr.push_back(q); ns++; }
+  for (u64 q = (1ull << 25) - 1; nq < 6 && q > (1ull << 24); q -= 2) if (usablePrime(q)) { pr.push_back(q); nq++; }
   return pr;
 }
 

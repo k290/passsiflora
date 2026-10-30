@@ -90,8 +90,8 @@ Let $f$ pass, and let $q$ be a prime with $q\equiv1\pmod4$ at which every $p\in 
 \end{proposition}
 
 Indeed $\chi(D)=\chi(\pm1)\prod_p\chi(p)^{\alpha_p}\chi(m)^2$, $\chi(-1)=1$ because $q\equiv1\pmod4$, and $\chi(p)=1$ by the choice of $q$.  So a symbol $-1$ at
-one such prime is a proof that $f$ fails.  The CPU filter uses $30$ such primes: six \emph{small} ones below $2^{10}$ ($1009,929,881,809,769,761$ for $S=\{2,5\}$) and
-$24$ \emph{large} ones below $2^{25}$ ($33554249,\dots,33551849$).  Each rejects about half of the candidates; survivors of all $30$ go on to the exact test, which
+one such prime is a proof that $f$ fails.  The CPU filter uses $30$ such primes: $24$ \emph{small} ones below $2^{13}$ ($8161,8089,\dots,6481$ for $S=\{2,5\}$) and
+six \emph{large} ones below $2^{25}$ ($33554249,\dots,33553649$).  Each rejects about half of the candidates; survivors of all $30$ go on to the exact test, which
 decides them as before.  The GPU kernel applies the same filter at up to $24$ primes in $(256,1024)$ ($14$ exist for $S=\{2,5\}$) before it hands the survivors to the CPU.
 
 \paragraph{Why integer arithmetic.}  The first version of the filter (commit \code{327b04f}) stored residues in floating point and reduced with the rounding trick
@@ -234,14 +234,14 @@ stock program only by rejecting a polynomial that the exact test would wrongly a
 \paragraph{The representation.}  Elements of $\Fq$ are integers in a small range around $0$.  Products are reduced by signed Montgomery reduction: for
 $R=2^k$, $qq'\equiv1\pmod R$ and $m=s_k(xq')$ (the signed residue in $[-R/2,R/2)$), $u=(x-mq)/R$ is an integer, $u\equiv xR^{-1}\pmod q$ and $|u|\le|x|/R+q/2$
 \stproved.  The small primes use $R=2^{16}$ in $16$-bit lanes (\code{mont}, $16$ lanes per AVX2 register, compiled to \code{vpmulhw}/\code{vpmullw}), the large ones
-$R=2^{32}$ with $64$-bit products (\code{sredc}).  A $64$-bit coefficient is split once into three $21$-bit pieces and loaded at each prime by one reduction
-(\code{ldres}).
+$R=2^{32}$ with $64$-bit products (\code{sredc}).  At each prime, the coefficients of a block of $64$ polynomials are copied from the application's buffer, and each
+$64$-bit coefficient is split into three $21$-bit pieces and loaded by one reduction (\code{ldcoef}, \code{ldres}).
 
 \paragraph{What the language must do.}  The proofs use three rules: (S1) an operation whose exact result fits its kind gives that result; (S2) a conversion to a
 narrower kind reduces modulo $2^k$; (S3) \code{shifta} is an arithmetic shift and \code{iand} with $2^k-1$ keeps the low bits.  The Fortran standard leaves (S2) and
 the bit model to the processor; the GNU Fortran manual documents (S3) but says nothing about (S2), which GCC documents for C.  Standard-conforming replacements exist but made
-\code{pdf\_filter} $2$ to $6$ times slower in a micro-benchmark (AVX2: $105$--$126$\,ns per polynomial as written, $572$--$697$ with \code{modulo} and exact division,
-$225$--$262$ with offsets) \stnum, because the compiler then no longer uses the $16$-bit multiply-high instructions.  So the code keeps them, and they are checked
+\code{pdf\_filter} $2$ to $6$ times slower in a micro-benchmark (with the six small primes below $2^{10}$ it then had; AVX2: $105$--$126$\,ns per polynomial as written,
+$572$--$697$ with \code{modulo} and exact division, $225$--$262$ with offsets) \stnum, because the compiler then no longer uses the $16$-bit multiply-high instructions.  So the code keeps them, and they are checked
 in three ways: the compiled reductions against exact models on all inputs that matter (GCC~15.2 and~16.2), the whole filter on complete sets at tiny primes
 (Section~\ref{sec:evidence}), and at every start of the program (below).
 
@@ -269,17 +269,16 @@ The proof \cite[Section~8]{P} has four parts.
 \paragraph{The size limits, and the guard.}  The single-reduction arguments stop at $q\le2^{13}$ (small) and $q\le2^{30}+1$ (large).  Following the bounds of the
 values through the chains instead gives larger limits for the whole filter, proved with a complete finite computation \stnum: small primes up to $8385$ and large
 primes up to $1{,}097{,}010{,}265$.  This holds although \code{mont} itself has counterexamples from $8241$ and \code{sredc} on a difference from $2^{30}+23279$,
-because the chains never form those operands.  The limits are not known to be sharp.  The shipped primes are far inside them, below $2^{10}$ and $2^{25}$.  \code{pdf\_init}
+because the chains never form those operands.  The limits are not known to be sharp.  The shipped primes are inside them, below $2^{13}$ and $2^{25}$.  \code{pdf\_init}
 enforces them: a usable prime outside $[11,8385]$ (small) or $[11,1{,}097{,}010{,}265]$ (large) is skipped with one line on standard error, so no future change of the
 search can leave the proved region silently.
 
 \paragraph{The start-up check.}  At the end of \code{pdf\_init} the function \code{arith\_ok} runs the compiled arithmetic on known inputs: \code{mont} and \code{sredc}
-on $64$ inputs per prime including the extremes, the inverse relations $qq'\equiv1$, the split of a coefficient into pieces, and the loading, all compared with values
-computed by \code{modulo} and exact division only, which do not depend on (S2) or (S3).  If it fails, \code{pdf\_init} writes one line on standard error and chooses
+on $64$ inputs per prime including the extremes, the inverse relations $qq'\equiv1$, the split of a coefficient into pieces, and the loads of the filter themselves on a
+block of $64$ polynomials with these coefficients, all compared with values computed by \code{modulo} and exact division only, which do not depend on (S2) or (S3).  If it fails, \code{pdf\_init} writes one line on standard error and chooses
 no prime, so that every flag is $1$ and the exact test alone decides \stproved.  It guards against a compiler or flag set without the behaviour of (S2), (S3) on the
-machine where the program runs.  It does not show that the code inlined into the chains was compiled the same way, and it evaluates its own copy of the
-coefficient split rather than \code{pdf\_filter}'s lines; the deliberate fault ``top piece shifted logically'' in \code{pdf\_filter} passes it (the oracle test sees that
-fault).
+machine where the program runs.  It does not show that the code inlined into the chains was compiled the same way.  The loads it runs are the compiled routines that
+load the polynomials (one copy of each in both objects), so a fault in the split, such as the deliberate fault ``top piece shifted logically'', fails it.
 
 \paragraph{Instruction sets.}  The application contains an AVX2 build and a baseline (SSE2) build of the filter and picks the AVX2 one when the CPU reports AVX2 and
 FMA.  The AVX2 build was compiled with \code{-march=x86-64-v3}, which also lets the compiler use BMI1/2, LZCNT, MOVBE and F16C, none of which the run-time test checks; it
@@ -363,7 +362,7 @@ $25{,}518{,}310{,}785$ polynomials and $204{,}146{,}486{,}280$ verdicts: none wr
 
 \paragraph{The arithmetic alone} \stnum.  The reductions, cut out of the source (not retyped) and compiled with the filter's flags and at \code{-O0}, against exact
 models: \code{mont} on every pair of operands for every odd prime below $2^{13}$ ($333{,}937{,}622{,}331$ pairs) and every odd $q$ in $[8193,8303]$; \code{sredc} on windows
-around its limits and random inputs; the loading on $42{,}352{,}640$ coefficients for $2{,}585$ moduli; the bound propagation of the size limits for every odd $q$ up to
+around its limits and random inputs; the loading on $101{,}072{,}896$ coefficients for $6{,}169$ moduli; the bound propagation of the size limits for every odd $q$ up to
 $32{,}767$ (small) and $1{,}100{,}000{,}001$ (large).  With GCC~15.2 (Linux) and 16.2 (MSYS2): no error.
 
 \paragraph{An exact oracle, and deliberate faults} \stnum.  A test that only feeds polynomials that must pass cannot see a filter that rejects too little
@@ -376,21 +375,23 @@ $1{,}000{,}000$ polynomials (oracle test total failures, AVX2 build / the old ``
 \toprule
 fault & oracle test & ``must pass'' test \\ \midrule
 none & 0 & 0 \\
-zero test $\pm q$ in \code{chain\_block\_s} & 156 & 0 \\
-zero test $\pm q$ in \code{chain\_general\_s} & 3,461 & 3 \\
-Euler: $-R$ recognised only as one representative & 186,381 & 0 \\
-top piece of a coefficient shifted logically & 1,012,353 & 412,963 \\
-wrong loading constants (now caught by the start-up check: filter off) & 717,978 missed & 0 \\
-parity of \code{chain\_general} & 236,578 & 174,075 \\
-last stage skipped & 7,983 & 0 \\
+zero test $\pm q$ in \code{chain\_block\_s} & 360 & 0 \\
+zero test $\pm q$ in \code{chain\_general\_s} & 23,283 & 349 \\
+Euler: $-R$ recognised only as one representative & 57,624 & 0 \\
+top piece of a coefficient shifted logically (caught by the start-up check: filter off) & 643,008 missed & 0 \\
+wrong loading constants (caught by the start-up check: filter off) & 643,008 missed & 0 \\
+parity of \code{chain\_general} & 236,849 & 161,538 \\
+last stage skipped & 7,280 & 0 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The oracle test sees all seven; the floating-point faults (x87, rounding up) give $0$ on the integer filter, as Theorem~D says, while on the floating-point filter
-of \code{327b04f} the oracle test saw $61$ false and $304$ missed rejections under x87 and $37{,}329$ false under rounding up.  Primes moved across the size limits
-behave as the proofs predict: no wrong verdict inside them; beyond them wrong verdicts appear, at some primes only for directed inputs found by a search.  The
-$146{,}771$ candidates captured from seven real work units pass through the filter with the oracle's verdicts.
+The oracle test sees all seven; the floating-point faults (x87, rounding up, down, toward zero) give $0$ on the integer filter, as Theorem~D says, while on the
+floating-point filter of \code{327b04f} the oracle test saw $66$ false and $296$ missed rejections under x87 and $37{,}329$ false under rounding up.  Primes moved
+across the size limits behave as the proofs predict: no wrong verdict inside them; beyond them wrong verdicts appear, at some primes only for directed inputs found by
+a search.  With $24$ small primes the generated polynomials reach the large stages only through the constructions that control every symbol; the large-stage code is
+the same, instruction for instruction (\code{objdump}), as in a build with six small primes below $2^{10}$, which the oracle test ran with $788{,}246$ of $1{,}000{,}000$
+polynomials reaching the large stages and no failure.  The $146{,}771$ candidates captured from seven real work units pass through the filter with the oracle's verdicts.
 
 \paragraph{The exact test} \stnum.  Table~\ref{tab:poldisc}.
 
@@ -406,33 +407,42 @@ every polynomial, stopping at the first difference), five units in both builds r
 \paragraph{Speed} \stnum.  On the GPU, the device time of all kernel launches, old (floating-point filter) against new kernel, five alternating runs each: median
 $1217$ against $1091$\,ms and $3715$ against $3324$\,ms on two work units, about $10\%$ less.
 
-On the CPU (a measurement of 28 October 2026, not in \cite{P}), Table~\ref{tab:speed} gives the application's own timing split (\code{NF\_PROFILE}) over the first $60{,}006{,}400$ polynomials of three work units,
-seven runs per filter, the filters alternating, one run at a time on an otherwise idle Linux machine (load $1.0$).  The three applications differ only in the
-filter object: the floating-point filter of \code{327b04f}, compiled as it shipped (\code{-march=x86-64-v3}); the present filter; and an earlier integer version
-with Barrett reduction ($32$-bit lanes for the small primes, $64$-bit products for the large ones), which was never committed.  The Barrett version gave the truth files
-of all $31$ work units in both builds before it was timed.  On \code{sf5} and \code{sf3} almost every polynomial takes \code{chain\_block}; on \code{sf4} every
-polynomial takes \code{chain\_general} at every prime (the stage counts of \code{NF\_PDFDEBUG} on the first batch of $10{,}240$ polynomials, the same for all
-three filters).  With AVX2 the floating-point
-filter is still about $20\%$ faster on \code{chain\_block}, $13\%$ on the whole run with the enumeration; with the baseline build, and on \code{chain\_general} with
-either build, the present filter is as fast or faster.  The Barrett version is the slowest throughout: AVX2 has no $64$-bit vector multiplication, and a $32$-bit lane
-holds half as many residues per register as the $16$-bit lanes of the Montgomery stage.  The runs of one filter spread by up to $28\%$ (minimum to maximum).  The guard,
-the start-up check and the other changes of the last revision cost nothing measurable (filter plus exact test, medians against the previous revision: $6.07\to6.16$\,s
-and $6.89\to6.86$\,s with AVX2, $7.42\to7.53$\,s and $8.26\to8.16$\,s baseline).
+On the CPU, Table~\ref{tab:speed} gives the application's own timing split (\code{NF\_PROFILE}) over the first $60{,}006{,}400$ polynomials of three work units,
+seven runs per filter, the filters alternating, one run at a time on an otherwise idle Linux machine (one-minute load $0.19$ before the first run, $1.04$ after the
+last).  The applications differ only in the filter object: the floating-point filter of \code{327b04f}, compiled as it shipped (\code{-march=x86-64-v3}); an earlier
+integer version with Barrett reduction ($32$-bit lanes for the small primes, $64$-bit products for the large ones; never committed, it gave the truth files of all $31$ work
+units in both builds before it was timed); the Montgomery filter as committed in \code{27d917f}, with six small primes below $2^{10}$ and $24$ large ones; the same with
+vectorised loads; and the present filter, which has these loads and $24$ small primes below $2^{13}$ with six large ones.  On \code{sf5} and \code{sf3} almost every
+polynomial takes \code{chain\_block}; on \code{sf4} every polynomial takes \code{chain\_general} at every prime (the stage counts of \code{NF\_PDFDEBUG}).
+
+In \code{27d917f} the small-prime loads were not vectorised: gfortran's cost model rejected the loop that gathered three arrays of $21$-bit pieces through the block's
+indices, and cycle counters in the application showed these scalar loads ($114$ cycles per polynomial on \code{sf5}, against $61$ in the floating-point filter) to be the
+whole of its gap with AVX2.  The vectorised loads copy each polynomial's ten coefficients into a block buffer and split and reduce them on contiguous lanes, which gfortran
+vectorises, and the split once per buffer is gone ($54$ cycles per polynomial in the floating-point filter, $44$ before).  The arithmetic and the compiled chains are
+unchanged.  The $24$ small primes then save most of the large stages, which cost about twice as much as in the floating-point filter: a polynomial reaches them only if
+no small prime rejects it, and with $24$ almost none does (cycle counters: $0.4$ instead of $30.7$ cycles per polynomial in the large stages, $6.2$ more in the small ones,
+the filter $8.6\%$ faster).  The split $24+6$ had the lowest medians of those with $30$ primes in two earlier timings ($6+24$ and $12+18$ below $2^{13}$).  The
+present filter is faster than the floating-point one in every row: by $14\%$ and $4\%$ with AVX2 on \code{sf5} and \code{sf3} (the $4\%$ is less than the spread of the
+runs: the fastest and the slowest run of one filter differ by $5$--$31\%$), by $19$--$20\%$ with the baseline build, and by $48$--$58\%$ on \code{sf4}; against the
+vectorised loads with six small primes it is $7$--$15\%$ faster.  Timings of different series differ by up to about $10\%$, so only filters of one series are compared.
+The Barrett version is the slowest throughout: AVX2 has no $64$-bit vector multiplication, and a $32$-bit lane holds half as many residues per register as the $16$-bit
+lanes of the Montgomery stage.
 
 \begin{table}[ht]
-\centering\footnotesize
+\centering\footnotesize\setlength{\tabcolsep}{4pt}
 \caption{CPU filter plus exact test (the application's polDisc time) in seconds for the first $60{,}006{,}400$ polynomials, median of seven runs; in brackets the
-change against the floating-point filter.  Work units \code{sf5\_DS-14x11\_Grp33043of705883}, \code{sf3\_DS-16x270\_Grp74of3932160},
-\code{sf4\_DS-13x271-25\_Grp98of200000}.}\label{tab:speed}
-\begin{tabular}{@{}llrrr@{}}
+change against the floating-point filter.  Montgomery: as in \code{27d917f} (scalar loads), with vectorised loads, and present ($24$ small primes).  Work units
+\code{sf5\_DS-14x11\_Grp33043of705883}, \code{sf3\_DS-16x270\_Grp74of3932160}, \code{sf4\_DS-13x271-25\_Grp98of200000}.}\label{tab:speed}
+\begin{tabular}{@{}llrrrrr@{}}
 \toprule
-work unit & build & floating point & Barrett & Montgomery (present) \\ \midrule
-\code{sf5} & AVX2     & $5.47$  & $12.06$ ($+120\%$) & $6.62$ ($+21\%$) \\
-           & baseline & $8.58$  & $22.77$ ($+165\%$) & $7.92$ ($-8\%$) \\
-\code{sf3} & AVX2     & $5.36$  & $11.37$ ($+112\%$) & $6.43$ ($+20\%$) \\
-           & baseline & $7.90$  & $21.82$ ($+176\%$) & $7.61$ ($-4\%$) \\
-\code{sf4} & AVX2     & $12.96$ & $14.88$ ($+15\%$)  & $8.46$ ($-35\%$) \\
-           & baseline & $20.70$ & $31.62$ ($+53\%$)  & $10.63$ ($-49\%$) \\ \bottomrule
+& & & & \multicolumn{3}{c}{Montgomery} \\ \cmidrule(l){5-7}
+work unit & build & floating point & Barrett & scalar loads & vectorised loads & present \\ \midrule
+\code{sf5} & AVX2     & $5.84$  & $12.03$ ($+106\%$) & $6.65$ ($+14\%$)  & $5.49$ ($-6\%$)  & $5.03$ ($-14\%$) \\
+           & baseline & $8.86$  & $24.47$ ($+176\%$) & $8.80$ ($-1\%$)   & $7.96$ ($-10\%$) & $7.21$ ($-19\%$) \\
+\code{sf3} & AVX2     & $5.44$  & $11.87$ ($+118\%$) & $6.52$ ($+20\%$)  & $5.65$ ($+4\%$)  & $5.23$ ($-4\%$) \\
+           & baseline & $8.20$  & $22.52$ ($+175\%$) & $7.89$ ($-4\%$)   & $7.33$ ($-11\%$) & $6.59$ ($-20\%$) \\
+\code{sf4} & AVX2     & $13.37$ & $16.09$ ($+20\%$)  & $8.55$ ($-36\%$)  & $7.64$ ($-43\%$) & $6.99$ ($-48\%$) \\
+           & baseline & $21.88$ & $32.81$ ($+50\%$)  & $11.25$ ($-49\%$) & $10.86$ ($-50\%$) & $9.28$ ($-58\%$) \\ \bottomrule
 \end{tabular}
 \end{table}
 
@@ -464,9 +474,7 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 \item (H) for the application's polynomials is measured on real candidates (about $12$ times headroom), not proved from the search bounds.
 \item The GPU filter is checked on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested, and no run-time
   check exercises the filter on the device.
-\item The start-up check covers its own copy of the coefficient split, not \code{pdf\_filter}'s.
 \item Only $S=\{2,5\}$ is exercised by the tests; other sets are covered by the proofs.
-\item With AVX2 the floating-point filter is still about $20\%$ faster on \code{chain\_block} (Table~\ref{tab:speed}); where the time goes was not isolated.
 \end{itemize}
 
 \paragraph{Reproducing.}  The checks above are scripts of the repository, in \code{pdfilter\_Test} unless stated; \cite[Appendix~B]{P} gives the commands.
@@ -478,7 +486,7 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 \item the work units: \code{build/test-suite-unix.sh}.
 \end{itemize}
 Kept outside the repository: the captured candidates, the Linux build recipe used for the application with BOINC replaced, the Windows harness of the
-GPU runs, and the Barrett version and the scripts of the CPU timing.
+GPU runs, and the Barrett version, the instrumented copies and the scripts of the CPU timing.
 
 {\small
 \begin{thebibliography}{9}

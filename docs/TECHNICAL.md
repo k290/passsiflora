@@ -36,8 +36,8 @@ Disc(A) mod q comes from a Euclid chain over F_q:
   are tracked explicitly.
 
 All arithmetic is integer arithmetic: signed Montgomery multiplication with R = 2^16 in
-16-bit lanes for the six small primes (2^8 < q < 2^10) and R = 2^32 with 64-bit products
-for the 24 large ones (2^24 < q < 2^25), and a three-piece loading of the 64-bit
+16-bit lanes for the 24 small primes (2^8 < q < 2^13) and R = 2^32 with 64-bit products
+for the six large ones (2^24 < q < 2^25), and a three-piece loading of the 64-bit
 coefficients. The filter does no floating-point operation, so its result does not depend
 on the rounding mode, on x87 or SSE code, or on `-ffast-math`. `pdf_init` chooses a prime
 only inside the proved limits of the arithmetic (q ≤ 8385 small, q ≤ 1,097,010,265 large,

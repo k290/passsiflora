@@ -1,6 +1,6 @@
 // test_pdfilter_oracle.cpp -- tests the pre-filter (pdfilter.f90) against an exact oracle.
 //
-// WHAT IS CHECKED.  For every polynomial f and every prime q of the filter (6 small, 24 large, in the order of the filter's
+// WHAT IS CHECKED.  For every polynomial f and every prime q of the filter (24 small, 6 large, in the order of the filter's
 // stages) an independent oracle computes Disc(f) mod q -- the classical Euclidean algorithm over F_q with inverses, which
 // shares nothing with the filter's pseudo-remainder chains, its Montgomery arithmetic or its coefficient loading -- and the
 // Legendre symbol.  The filter must reject f exactly when some symbol is -1, and (with the test hook, below) at the first
@@ -21,11 +21,12 @@
 //            Legendre symbols are +1 at the stages before J and -1 at J (D = D1*D2, matched on its vector of symbols);
 //            built as g(x^2) with g(0) = D, a depressed h(x^2) with constant D, or x^10 + b x^5 + c with b^2 - 4c = D,
 //            then transformed (Tschirnhaus, x -> c x + t, x -> -x)
-//   crt      coefficients built by the Chinese remainder theorem over the 6 small primes from residues that pass there:
-//            every one reaches the large stages (coefficients up to 63 bits)
-//   crtdeg   the same with a degenerate (non-generic) Euclid chain planted at one small prime
-//   crtdegL  a degenerate chain planted at one of the first 6 large primes (CRT over that prime and 3 small ones, then
-//            sampled until the polynomial reaches that stage)
+//   crt      coefficients built by the Chinese remainder theorem over the first small primes (as many as keep the modulus
+//            below 2^62: four of the 13-bit ones) from residues that pass there (coefficients up to 63 bits)
+//   crtdeg   the same with a degenerate (non-generic) Euclid chain planted at one of these primes
+//   crtdegL  a degenerate chain planted at one of the first large primes (CRT over that prime and as many small ones as
+//            fit, at most 3, then sampled until the polynomial reaches that stage; only the large stages that sampling
+//            reaches in about 2^12 tries are planted, so with the filter's 24 small primes none: the stratum is off)
 //   rep      a repeated factor over Z (Disc = 0: kept everywhere)
 //   real     the application's passing polynomials (-real FILE) and transformed copies
 //   cand     the application's candidates as the filter received them (-cand FILE; capshim.c captures them)
@@ -38,8 +39,8 @@
 // exactly the lanes the oracle says reach it, chain_block must hand exactly the lanes with a non-generic chain to
 // chain_general, and the counters give a coverage report per stage.  The hook also reports the filter's primes, which
 // the oracle then uses (they are checked to be usable and compared with pdf_init's rule).  With REF=<directory> in
-// build-linux.sh a second filter is linked and compared with the first and with the oracle (differential test, e.g.
-// the floating-point filter of main against the integer one).  -rm up|down|zero runs every filter call under another
+// build-linux.sh a second filter is linked and compared with the first and with the oracle (differential test; it
+// must have the first build's primes, which the floating-point filter of 327b04f no longer has: its are those of -oldrule).  -rm up|down|zero runs every filter call under another
 // rounding mode.
 //
 // Output: a coverage table per stratum (from the oracle), a table per stage (from the hook), the failures per build, the
@@ -169,12 +170,15 @@ static bool usablePrime(u64 q)       // q = 1 mod 4 prime and every p in S a non
   for (size_t k = 0; k < Sset.size(); k++) { if (q % (u64)Sset[k] == 0 || powm((u64)Sset[k], (q - 1) / 2, q) != 1) return false; }
   return true;
 }
-static std::vector<u64> specPrimes() // pdf_init's rule: 6 below 2^10 (and above 256) from the top, 24 below 2^25 (above 2^24)
+// pdf_init's rule: 24 below 2^13 (and above 256) from the top, 6 below 2^25 (above 2^24).  oldRule: the rule of the filters
+// before 2026-10-29, among them the floating-point filter of 327b04f: 6 below 2^10, 24 below 2^25.
+static bool oldRule = false;
+static std::vector<u64> specPrimes()
 {
   std::vector<u64> pr;
-  int ns = 0, nq = 0;
-  for (u64 q = 1023; ns < 6 && q > 256; q -= 2) if (usablePrime(q)) { pr.push_back(q); ns++; }
-  for (u64 q = (1ull << 25) - 1; nq < 24 && q > (1ull << 24); q -= 2) if (usablePrime(q)) { pr.push_back(q); nq++; }
+  int ns = 0, nq = 0, maxs = oldRule ? 6 : 24, maxq = oldRule ? 24 : 6;
+  for (u64 q = oldRule ? 1023 : 8191; ns < maxs && q > 256; q -= 2) if (usablePrime(q)) { pr.push_back(q); ns++; }
+  for (u64 q = (1ull << 25) - 1; nq < maxq && q > (1ull << 24); q -= 2) if (usablePrime(q)) { pr.push_back(q); nq++; }
   return pr;
 }
 
@@ -592,7 +596,7 @@ static void resWithRoots(u64 q, Res &g, int mult)          // (x - r)^mult * (x 
 static bool resDegenerate(u64 q, Res &g)
 {
   for (int attempt = 0; attempt < 1000; attempt++) {
-    int kind = rnd_int(q < 4096 ? 5 : 4);
+    int kind = rnd_int(q < 16384 ? 5 : 4);
     g.fill(0); g[10] = 1;
     if (kind == 0) { int k = 1 + rnd_int(7); g[k] = 1 + rnd64() % (q - 1); g[0] = rnd64() % q; }
     else if (kind == 1) { for (int i = 0; i <= 6; i += 2) g[i] = rnd64() % q; }
@@ -687,8 +691,8 @@ static bool makeRep(Poly &p)         // (x - a)^2 h or (x^2 + u x + w)^2 h over 
   scrambleOrKeep(p, 0.7);
   return true;
 }
-// The CRT strata use as many primes as keep the modulus below 2^62 (all six small filter primes: about 2^58.4), so that every
-// residue class has representatives in int64.
+// The CRT strata use as many primes as keep the modulus below 2^62 (four of the 24 small filter primes, each below 2^13),
+// so that every residue class has representatives in int64.
 static const i128 CRTMAX = (i128)1 << 62;
 static bool makeCrt(Poly &p, bool degen)
 {
@@ -708,11 +712,22 @@ static bool makeCrt(Poly &p, bool degen)
   crtPick(c, p, rnd_unif() < 0.7);
   return true;
 }
-static bool makeCrtDegL(Poly &p)
+// The large stages that crtdegL can plant at: nsm small primes fit into the modulus next to a large one; the other NS - nsm
+// small stages and the large stages before the planted one are passed by sampling, each with probability about 1/2, and
+// the planted stage L is kept to at most 2^12 expected tries.  0: none (the stratum is then off).
+static int crtdegLMax()
 {
   int NL = NST - NS;
-  if (NL < 1 || NS < 1) return false;
-  int L = 1 + rnd_int(std::min(6, NL)), target = NS + L;
+  if (NL < 1 || NS < 1) return 0;
+  int nsm = 0;
+  for (i128 M = FPr[NS]; nsm < std::min(3, NS) && M * FPr[nsm] < CRTMAX; nsm++) M *= FPr[nsm];
+  return std::max(0, std::min(std::min(6, NL), 13 - (NS - nsm)));
+}
+static bool makeCrtDegL(Poly &p)
+{
+  int Lmax = crtdegLMax();
+  if (Lmax < 1) return false;
+  int L = 1 + rnd_int(Lmax), target = NS + L;
   std::vector<int> small(NS);
   std::iota(small.begin(), small.end(), 0);
   for (int i = NS - 1; i > 0; i--) std::swap(small[i], small[rnd_int(i + 1)]);
@@ -725,7 +740,8 @@ static bool makeCrtDegL(Poly &p)
   { Res g; if (!resDegenerate(FPr[target - 1], g)) return false; mods.push_back(FPr[target - 1]); res.push_back(g); }
   Crt c;
   crtCombine(mods, res, c);
-  for (int tries = 0; tries < 4000; tries++) {
+  const int maxTries = 16 << (NS - (int)mods.size() + L);
+  for (int tries = 0; tries < maxTries; tries++) {
     crtPick(c, p, true);
     OracleOut o = oracle(p);
     if (o.stage == 0 || o.stage >= target) return true;
@@ -820,6 +836,8 @@ static void usage(const char *prog)
   printf("  -nometa        no transformed second run\n");
   printf("  -rm MODE       up | down | zero: run every filter call under another rounding mode\n");
   printf("  -stages        print the table per stage (the counters of the test hook)\n");
+  printf("  -oldrule       without a test hook, take the primes of the rule before 2026-10-29 (6 below 2^10, 24 below 2^25), as\n"
+         "                 the floating-point filter of 327b04f has; a filter linked with REF must have the primes of the first build\n");
 }
 
 static int run(int argc, char **argv)
@@ -842,6 +860,7 @@ static int run(int argc, char **argv)
     else if (a == "-xcheck") xfrac = atof(nxt().c_str());
     else if (a == "-nometa") doMeta = false;
     else if (a == "-stages") showStages = true;
+    else if (a == "-oldrule") oldRule = true;
     else if (a == "-rm") { std::string v = nxt(); hostile = v == "up" ? 1 : v == "down" ? 2 : v == "zero" ? 3 : 0; if (!hostile) { usage(argv[0]); return 2; } }
     else if (a[0] != '-' && npos == 0 && atoll(a.c_str()) > 0) { N = atoll(a.c_str()) * 10000; npos++; }
     else if (a[0] != '-' && npos == 1) { seed = (u64)atoll(a.c_str()); npos++; }
@@ -934,6 +953,11 @@ static int run(int argc, char **argv)
     }
     if (wt[S_REAL] > 0 && realSeeds.empty()) { printf("stratum real needs -real FILE\n"); return 2; }
     if (wt[S_CAND] > 0 && cands.empty()) { printf("stratum cand needs -cand FILE\n"); return 2; }
+  }
+  if (wt[S_CRTDEGL] > 0 && crtdegLMax() < 1) {
+    if (gArg != "all") { printf("stratum crtdegL: with %d small stages no sampled polynomial reaches a large one\n", NS); return 2; }
+    wt[S_CRTDEGL] = 0;
+    printf("stratum crtdegL off: with %d small stages no sampled polynomial reaches a large one\n", NS);
   }
   double wsum = 0; for (int s = 0; s < S_N; s++) wsum += wt[s];
   if (wsum <= 0) { printf("no stratum\n"); return 2; }
@@ -1146,7 +1170,7 @@ static int run(int argc, char **argv)
   // ---- report
   double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - T0).count();
   printf("---- coverage by stratum, from the oracle (%.1f s) ----\n", wall);
-  printf("%-8s %9s %8s %8s %8s %8s | %9s %9s | %8s %8s | %7s %7s | %8s %8s | %5s %5s\n", "stratum", "polys", "rej 1-6", "rej 7+", "kept", "reach 7",
+  printf("%-8s %9s %8s %8s %8s %8s | %9s %9s | %8s %8s | %7s %7s | %8s %8s | %5s %5s\n", "stratum", "polys", "rej S", "rej L", "kept", "reach L",
          "visits S", "visits L", "nongen S", "nongen L", "rejNG S", "rejNG L", "Disc0 S", "Disc0 L", "pat S", "pat L");
   Cov tot;
   for (int s = 0; s < S_N; s++) {
@@ -1162,9 +1186,9 @@ static int run(int argc, char **argv)
   }
   printf("%-8s %9lld %8lld %8lld %8lld %8lld | %9lld %9lld | %8lld %8lld | %7lld %7lld | %8lld %8lld | %5zu %5zu\n", "all", tot.polys, tot.rejS, tot.rejL, tot.kept, tot.reachL,
          tot.visS, tot.visL, tot.ngS, tot.ngL, tot.rejNgS, tot.rejNgL, tot.zS, tot.zL, tot.patS.size(), tot.patL.size());
-  printf("(rej 1-6 / 7+: rejected at a small / large stage; visits: (polynomial, stage) pairs evaluated at small (S) / large (L) stages; nongen:\n"
-         " non-generic Euclid chains among them; rejNG: rejections with a non-generic chain (by chain_general); Disc0: Disc = 0 mod q; pat: distinct\n"
-         " degree sequences of the non-generic chains)\n");
+  printf("(rej S / L: rejected at a small (1-%d) / large stage; reach L: kept or rejected at a large stage; visits: (polynomial, stage) pairs\n"
+         " evaluated at small (S) / large (L) stages; nongen: non-generic Euclid chains among them; rejNG: rejections with a\n"
+         " non-generic chain (by chain_general); Disc0: Disc = 0 mod q; pat: distinct degree sequences of the non-generic chains)\n", NS);
   printf("rejection stage, all strata: 1-6 %lld, 7-12 %lld, 13-18 %lld, 19-24 %lld, 25-30 %lld, kept %lld\n", tot.hist[0], tot.hist[1], tot.hist[2], tot.hist[3], tot.hist[4], tot.hist[5]);
   {
     static const char *nm[] = { "<=8", "9-16", "17-24", "25-32", "33-40", "41-48", "49-56", "57-63" };

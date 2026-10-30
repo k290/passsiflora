@@ -54,17 +54,18 @@ static i4 sredc32(i8 x) { i4 m = (i4)((i8)(i4)x * QIL); return (i4)((x - (i8)m *
 static i4 load(i8 c) { i4 p0 = (i4)(c & ((1 << 21) - 1)), p1 = (i4)((c >> 21) & ((1 << 21) - 1)), p2 = (i4)(c >> 42);
   return sredc32((i8)p0 * LD[0] + (i8)p1 * LD[1] + (i8)p2 * LD[2]); }
 
-/* ---- exact answer: chi(disc) and normality, by Euclid with inverses mod Q */
-static i8 pw(i8 b, i8 e, i8 m) { i128 r = 1, x = ((b % m) + m) % m; while (e) { if (e & 1) r = r * x % m; x = x * x % m; e >>= 1; } return (i8)r; }
+/* ---- exact answer: chi(disc) and normality, by Euclid with inverses mod Q.  Q < 2^31 (it fits i4), so every product of two
+   residues is below 2^62 and the arithmetic is done in i8. */
+static i8 pw(i8 b, i8 e, i8 m) { i8 r = 1, x = ((b % m) + m) % m; while (e) { if (e & 1) r = r * x % m; x = x * x % m; e >>= 1; } return r; }
 static void exact(const i8 *c, int *chi, int *normal) {
   i8 a[11], b[11]; int n = 10, m = 9; i8 q = Q;
   for (int i = 0; i <= 10; i++) { a[i] = c[10 - i] % q; if (a[i] < 0) a[i] += q; }
-  for (int i = 0; i <= 9; i++) b[i] = (i8)((i128)(i + 1) * a[i + 1] % q);
-  i128 res = 1; int neg = 0; *normal = 1; i8 *A = a, *B = b;
+  for (int i = 0; i <= 9; i++) b[i] = (i + 1) * a[i + 1] % q;
+  i8 res = 1; int neg = 0; *normal = 1; i8 *A = a, *B = b;
   for (;;) {
     if (m == 0) { res = res * pw(B[0], n, q) % q; break; }
     i8 il = pw(B[m], q - 2, q);
-    for (int i = n; i >= m; i--) { i8 t = (i8)((i128)A[i] * il % q); if (t) for (int k = 0; k <= m; k++) A[i - m + k] = (i8)((((i128)A[i - m + k] - (i128)t * B[k]) % q + q) % q); }
+    for (int i = n; i >= m; i--) { i8 t = A[i] * il % q; if (t) for (int k = 0; k <= m; k++) A[i - m + k] = ((A[i - m + k] - t * B[k]) % q + q) % q; }
     int k = m - 1; while (k >= 0 && A[k] == 0) k--;
     if (k != m - 1 && m - 1 >= 1) *normal = 0;
     if (k < 0) { res = 0; break; }
@@ -73,7 +74,7 @@ static void exact(const i8 *c, int *chi, int *normal) {
     i8 *t = A; A = B; B = t; n = m; m = k;
   }
   if (neg) res = (q - res) % q;
-  i8 d = (i8)((q - res) % q);
+  i8 d = (q - res) % q;
   *chi = d == 0 ? 0 : (pw(d, (q - 1) / 2, q) == 1 ? 1 : -1);
 }
 
@@ -143,22 +144,25 @@ static double run_poly(const i8 *c, int *event, int *ok, int *kb, int *kg) {
   return OBJU ? polyu : polymax;
 }
 
-/* a large-prime directed input must reach its stage: the first large stage comes after the six small ones, so the input is
+/* a large-prime directed input must reach its stage: the first large stage comes after the 24 small ones, so the input is
    lifted to c' = c + Q t (coefficientwise) with the same loaded values at Q and a symbol other than -1 at each small prime
-   (the primes of pdf_init for S = {2,5}).  Returns 1 and c' on success. */
-static const i8 SMALLP[6] = { 1009, 929, 881, 809, 769, 761 };
+   (the primes of pdf_init for S = {2,5}).  A random t passes the 24 with probability about 2^-24, so up to 2^28 tries; the
+   random numbers of the search are restored afterwards, so the lift does not change the rest of a climb.  Returns 1 and c'
+   on success. */
+static const i8 SMALLP[24] = { 8161, 8089, 8081, 8009, 7841, 7681, 7649, 7561, 7529, 7489, 7481, 7369,
+                                7321, 7129, 7121, 7001, 6961, 6841, 6761, 6689, 6569, 6529, 6521, 6481 };
 static int lift(const i8 *c, i8 *out) {
-  i8 save = Q; int ok = 0;
-  for (long tries = 0; tries < 100000 && !ok; tries++) {
+  i8 save = Q; uint64_t rsave = rs; int ok = 0;
+  for (long tries = 0; tries < (1L << 28) && !ok; tries++) {
     out[0] = 1;
     for (int k = 1; k <= 10; k++) {
       i4 want = load(c[k]);
       do out[k] = c[k] + Q * ((i8)(rnd() % 2097152) - 1048576); while (load(out[k]) != want);
     }
     ok = 1;
-    for (int j = 0; j < 6 && ok; j++) { int chi, normal; Q = SMALLP[j]; exact(out, &chi, &normal); Q = save; if (chi == -1) ok = 0; }
+    for (int j = 0; j < 24 && ok; j++) { int chi, normal; Q = SMALLP[j]; exact(out, &chi, &normal); Q = save; if (chi == -1) ok = 0; }
   }
-  Q = save;
+  Q = save; rs = rsave;
   return ok;
 }
 
@@ -211,6 +215,7 @@ static int climb(long N, long iters) {
 int main(int argc, char **argv) {
   if (argc < 5) { fprintf(stderr, "usage: limit_probe small|large Q SEED N [climb ITERS [x|u]]\n"); return 2; }
   SMALL = argv[1][0] == 's'; Q = atoll(argv[2]); rs = strtoull(argv[3], 0, 10); long N = atol(argv[4]);
+  if (Q <= 5 || Q >= (i8)1 << 31 || !(Q & 1)) { fprintf(stderr, "Q must be odd, > 5 and below 2^31\n"); return 2; }
   i8 R16 = 1 << 16, R32 = (i8)1 << 32;
   QI2 = (i2)(qinv32(Q) & 0xFFFF); ONE2 = (i2)(R16 % Q); NEGR2 = (i2)((Q - R16 % Q) % Q);
   QI4 = qinv32(Q); ONE4 = (i4)(R32 % Q); NEGR4 = (i4)((Q - R32 % Q) % Q);

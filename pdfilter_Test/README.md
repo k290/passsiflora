@@ -86,31 +86,41 @@ measures how much the test sees.  For `test_pdfilter.cpp` it is the number of va
 | floating point rounding mode up | 0 (0) / 0 (0) | 0 / 0 |
 | large primes up to 2^29 (3,000,000) | 0 (0) / 0 (0) | 0 / 0 |
 | small primes up to 2^14 | 0 (0) / 0 (0) | 0 / 0 |
-| zero test +-q (`chain_block_s`) | 156 (0) / 130 (0) | 0 / 0 |
-| zero test +-q (`chain_general_s`) | 3,461 (0) / 4,766 (0) | 3 / 3 |
-| Euler: -R only as `negr` | 186,381 (165,045) / 144,825 (108,090) | 0 / 0 |
-| top piece shifted unsigned | 1,012,353 (0) / 1,249,505 (0) | 412,963 / 412,963 |
-| loading constants 2^(20i), before the start-up check | 1,132,612 (0) / 1,383,679 (0) | 751,240 / 751,240 |
-| loading constants 2^(20i), now (the start-up check switches the filter off) | 717,978 (717,978) / 717,978 (717,978) | 0 / 0 |
-| `chain_general` parity | 236,578 (4,853) / 301,907 (4,846) | 174,075 / 174,075 |
-| last stage skipped | 7,983 (7,354) / 8,340 (7,354) | 0 / 0 |
+| zero test +-q (`chain_block_s`) | 360 (0) / 546 (0) | 0 / 0 |
+| zero test +-q (`chain_general_s`) | 23,283 (0) / 33,647 (0) | 349 / 349 |
+| Euler: -R only as `negr` | 57,624 (1,515) / 83,008 (2,235) | 0 / 0 |
+| top piece shifted unsigned (the start-up check switches the filter off) | 643,008 (643,008) / 643,008 (643,008) | 0 / 0 |
+| loading constants 2^(20i) (the start-up check switches the filter off) | 643,008 (643,008) / 643,008 (643,008) | 0 / 0 |
+| `chain_general` parity | 236,849 (4,217) / 281,816 (4,220) | 161,538 / 161,538 |
+| last stage skipped | 7,280 (6,619) / 7,651 (6,619) | 0 / 0 |
 
+This is the present filter (24 small primes below 2^13, 6 large; the run without a fault has 643,008 rejections).
 The integer filter does no floating-point arithmetic, so the x87 and rounding faults cannot reach it; the large primes up to 2^29 are inside the range
 where its arithmetic is proved exact.  The small primes up to 2^14 are above every proved limit, and `mont` itself does fail there (at q = 16369, 2.4 % of
 the pairs in (-2q, 2q) give a result outside (-q, q)), but the filter's operands do not come near those pairs: no wrong verdict appeared in either test
 or in a directed search, and whether one is possible there is open (see the size limits below).
-The table was run again after `pdf_init`'s guard and start-up check were added (2026-10-27): every row is the same except the loading constants,
-which now fail the start-up check, so the filter switches itself off (every flag 1): the oracle test sees every rejection of the run missed, the
-"must pass" test sees nothing, and the application stays correct, only slower.  The check does not see the unsigned top piece, a fault in
-`pdf_filter`'s own split lines (it evaluates its own copy of them).
-Of the seven faults of the arithmetic, `test_pdfilter.cpp` sees the two gross ones that reach the filter (before the start-up check also the loading
-constants), 3 polynomials of a fourth and nothing of the others; the oracle test sees all seven.  The Euler fault only loses rejections (165,045
-missed), the last-stage fault only shows on polynomials that reach stage 30 (all 7,354 from the oracle test's `target` stratum), and the `chain_block_s`
-zero test is seen only by the routing check.
+The table was run again after every change of the filter.  With six small primes below 2^10: after `pdf_init`'s guard and start-up check were added
+(2026-10-27) the loading constants failed the start-up check, so the filter switched itself off (every flag 1): the oracle test saw every rejection of
+the run missed, the "must pass" test nothing, and the application stays correct, only slower (before: 1,132,612 / 1,383,679 and 751,240 / 751,240).
+After the loads were changed to gather whole polynomials and the start-up check to call the loads themselves (2026-10-28), the unsigned top piece
+(now in `ldcoef`) failed it too (before: 1,012,353 / 1,249,505 and 412,963 / 412,963).  With 24 small primes (2026-10-29) the faults that act at the
+small stages are seen more often; with six they gave: zero test in `chain_block_s` 156 / 130 (routing only), in `chain_general_s` 3,461 / 4,766 and
+3 / 3, Euler 186,381 (165,045) / 144,825 (108,090), parity 236,578 / 301,907 and 174,075 / 174,075, last stage 7,983 (7,354) / 8,340 (7,354).
+Of the seven faults of the arithmetic, `test_pdfilter.cpp` sees one gross one that reaches the filter (the `chain_general` parity; before the start-up
+check covered them, also the top piece and the loading constants), 349 polynomials of a second and nothing of the others; the oracle test sees all seven.
+The Euler fault only loses rejections, which with 24 small stages mostly become later ones (47,854 wrong stages, 1,515 missed), the last-stage fault only
+shows on polynomials that reach stage 30 (all 6,619 from the oracle test's `target` stratum), and the `chain_block_s` zero test changes few verdicts
+(11 wrong stages, all in `crtdeg`) and is seen mainly by the routing check.
 
-The oracle test on the floating-point filter of commit 327b04f (`FILTER=<its src>`, AVX2 / baseline): x87 61 / 56 false and 304 / 311 missed
-rejections; rounding up 37,329 / 37,320 false and 7,506 / 7,506 missed; rounding down and toward zero 717,978 missed rejections each, every rejection of
-the run (the "must pass" tests report 0 there).  Details in Section 13 of `pdfilter_chains.tex`.
+With 24 small primes the generated polynomials reach the large stages only through the strata `valid`, `rep` and `target`.  The large-stage code did
+not change (`objdump -d`: the same instructions for the chains and loads as the build with six small primes below 2^10), and that build, run through the
+oracle test with its primes, sends 788,246 of 1,000,000 polynomials through the large stages, including the CRT strata, with no failure.  Under
+`-rm up`, `-rm down` and `-rm zero` the present filter has no failure either.
+
+The oracle test on the floating-point filter of commit 327b04f (`FILTER=<its src>`, polynomials for its primes with `-oldrule`, AVX2 / baseline): x87
+66 / 56 false and 296 / 311 missed rejections (61 and 304 in the AVX2 build when `build-linux.sh` still used `-march=x86-64-v3`); rounding up 37,329 /
+37,320 false and 7,506 / 7,506 missed; rounding down and toward zero 717,978 missed rejections each, every rejection of the run (the "must pass" tests
+report 0 there; under x87 `test_pdfilter.cpp` reports 194 / 194 with the present flags).  Details in Section 13 of `pdfilter_chains.tex`.
 
 ### How large may the primes be?
 
@@ -120,7 +130,7 @@ small primes up to 8385 and large primes up to 1,097,010,265.  Computed exactly 
 Python by `checks.py` C10): `mont` first fails at q = 8241 (first prime 8263, first prime = 1 mod 4 8269, first prime `pdf_init` could choose for
 S = {2,5} 8329), `sredc` on a difference at q = 2^30 + 23279 (first prime 2^30 + 23293, first usable 2^30 + 23377).  Not known: whether the whole-filter
 limits are sharp.  `pdf_init` enforces them: a usable prime outside [11, 8385] (small) or [11, 1,097,010,265] (large) is skipped with one
-line on stderr (function `chosen`; the shipped search, below 2^10 and 2^25, never meets that case).  Test builds may switch the guard off with
+line on stderr (function `chosen`; the shipped search, below 2^13 and 2^25, never meets that case).  Test builds may switch the guard off with
 `-DPDF_NO_LIMITS`; `fault_checks.sh` does so for the rows beyond the limits, and its row SG checks that the guard skips the primes above 8385.
 
 The rows S8 ... L31 of `fault_checks.sh` move the primes across these limits (the expected result of each row was written down before it ran).
@@ -130,21 +140,25 @@ Oracle test / `test_pdfilter.cpp`, AVX2 / baseline, 1,000,000 polynomials, seed 
 | row | primes | proved? | oracle test | `test_pdfilter.cpp` | directed inputs |
 |---|---|---|---|---|---|
 | S8 | 241, 89, 41 | yes | 0 / 0 | 0 / 0 | |
-| S13 | 8161 ... 8009 | yes | 0 / 0 | 0 / 0 | |
+| S13 | 8161 ... 8009 (4) | yes | 0 / 0 | 0 / 0 | |
 | SC | 8369, 8329 (`mont` has counterexamples) | yes, whole-filter theorem | 0 / 0 | 0 / 0 | |
-| SF | 8761 ... 8521 | no | 0 / 0 | 0 / 0 | none found |
-| S2 | 16369 ... 15881 | no | 0 / 0 | 0 / 0 | none found |
-| SD | 19961 ... 19609 | no | 0 / 0 | 0 / 0 | 1 input: 2,240 / 3,495 |
-| SE | 23929 ... 23561 | no | 3,475 / 4,460 | 252 / 252 | 20 inputs: 2,143 / 3,602 |
-| S15 | 32609 ... 32369 | no | 666,466 / 814,620 | 504,958 / 504,958 | 20 inputs: 2,145 / 3,409 |
-| L24 | 16777121 ... 16774409 | yes | 0 / 0 | 0 / 0 | |
-| L30 | 1073741689 ... | yes | 0 / 0 | 0 / 0 | |
-| LC | 2^30 + 26385 ... 2^30 + 23377 (`sredc` has counterexamples) | yes, whole-filter theorem | 0 / 0 | 0 / 0 | |
-| LF | 1097013329 ... 1097010329 | no | 0 / 0 | 0 / 0 | none found |
-| L31 | 2147483489 ... 2147479129 | no | 0 / 0 | 0 / 0 | 16 inputs: 3,493 / 3,493 |
-| SG | 8761 ... 8521 skipped by the guard; 8369 ... 8081 | yes | 0 / 0 | 0 / 0 | |
+| SF | 8761 ... 8521 (6) | no | 0 / 0 | 0 / 0 | none found |
+| S2 | 16369 ... 14449 | no | 0 / 0 | 0 / 0 | none found |
+| SD | 19961 ... 19001 (14) | no | 0 / 0 | 0 / 0 | 1 input: 2,970 / 3,517 |
+| SE | 23929 ... 21881 | no | 3,887 / 5,345 | 372 / 372 | 20 inputs: 2,191 / 3,590 |
+| S15 | 32609 ... 30809 | no | 831,770 / 1,039,077 | 722,889 / 722,889 | 20 inputs: 2,206 / 3,366 |
+| L24 | 16777121 ... 16776481 | yes | 0 / 0 | 0 / 0 | |
+| L30 | 1073741689 ... 1073740609 | yes | 0 / 0 | 0 / 0 | |
+| LC | 2^30 + 26385 ... 2^30 + 25617 (`sredc` has counterexamples) | yes, whole-filter theorem | 0 / 0 | 0 / 0 | |
+| LF | 1097013329 ... 1097012809 | no | 0 / 0 | 0 / 0 | none found |
+| L31 | 2147483489 ... 2147482481 | no | 0 / 0 | 0 / 0 | 10 inputs: 3,492 / 3,542 |
+| SG | 8761 ... 8521 skipped by the guard; 8369 ... 8009 (7) | yes | 0 / 0 | 0 / 0 | |
 
-At SD and L31 the filter gives wrong verdicts that neither test sees in 1,000,000 polynomials; only the directed inputs show them.
+Each row takes up to 24 small primes (fewer, in brackets, where its range has fewer usable ones) and 6 large ones.  At SD and L31 the filter gives
+wrong verdicts that neither test sees in 1,000,000 polynomials; only the directed inputs show them.  The L31 inputs are lifted so that the 24 small
+primes pass them (`limit_probe.c` tries up to 2^28 lifts).  With six small primes per row (until 2026-10-29) the numbers were: SD 0 / 0, 0 / 0,
+1 input 2,240 / 3,495; SE 3,475 / 4,460, 252 / 252, 20 inputs 2,143 / 3,602; S15 666,466 / 814,620, 504,958 / 504,958, 20 inputs 2,145 / 3,409;
+L31 16 inputs 3,493 / 3,493; every other row 0.
 
 ## What the versions of the test detect: the floating-point filter (commit 327b04f)
 

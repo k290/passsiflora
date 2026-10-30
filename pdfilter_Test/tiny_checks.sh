@@ -4,7 +4,7 @@
 # only change is the four search constants QS_START, QS_STOP, QL_START, QL_STOP (sed; the guard QMIN = 11 and every other line
 # are as shipped).  test_tiny.cpp then runs every polynomial of a set through the AVX2 and the baseline build, each with the
 # normal routing and with every lane through chain_general, and compares flag and stage with chi(disc f mod q).
-#   bash tiny_checks.sh              all sets (25.5 billion polynomials, 8 runs each: 6.6 hours on 16 logical CPUs, partly shared)
+#   bash tiny_checks.sh              all sets (25.5 billion polynomials, 8 runs each: 4.6 hours on 16 idle logical CPUs)
 #   QUICK=1 bash tiny_checks.sh      a few minutes
 # Environment: OUT (default tiny_build), JOBS (default: the number of CPUs), PARI as for build-linux.sh.  Exit status 1 on a failure.
 cd "$(dirname "$0")"
@@ -14,8 +14,8 @@ mkdir -p "$OUT"
 SRC=../src/pdfilter.f90
 build() {   # q kind
   local d="$OUT/f_$1_$2"; mkdir -p "$d"
-  if [ "$2" = small ]; then e="s/QS_START = 2_i8\*\*10 - 1, QS_STOP = 256$/QS_START = $1_i8, QS_STOP = $(($1 - 1))/; s/QL_START = 2_i8\*\*25 - 1, QL_STOP = 2_i8\*\*24$/QL_START = 1_i8, QL_STOP = 2_i8/"
-  else e="s/QS_START = 2_i8\*\*10 - 1, QS_STOP = 256$/QS_START = 1_i8, QS_STOP = 2/; s/QL_START = 2_i8\*\*25 - 1, QL_STOP = 2_i8\*\*24$/QL_START = $1_i8, QL_STOP = $(($1 - 1))_i8/"; fi
+  if [ "$2" = small ]; then e="s/QS_START = 2_i8\*\*13 - 1, QS_STOP = 256$/QS_START = $1_i8, QS_STOP = $(($1 - 1))/; s/QL_START = 2_i8\*\*25 - 1, QL_STOP = 2_i8\*\*24$/QL_START = 1_i8, QL_STOP = 2_i8/"
+  else e="s/QS_START = 2_i8\*\*13 - 1, QS_STOP = 256$/QS_START = 1_i8, QS_STOP = 2/; s/QL_START = 2_i8\*\*25 - 1, QL_STOP = 2_i8\*\*24$/QL_START = $1_i8, QL_STOP = $(($1 - 1))_i8/"; fi
   sed -e "$e" "$SRC" > "$d/pdfilter.f90"
   [ "$(diff "$SRC" "$d/pdfilter.f90" | grep -c '^>')" = 2 ] || { echo "the sed expressions did not change the search constants"; exit 1; }
   FILTER="$d" OUT="$OUT/b_$1_$2" TEST=test_tiny.cpp bash build-linux.sh > "$OUT/build_$1_$2.log" 2>&1 || { cat "$OUT/build_$1_$2.log"; exit 1; }
