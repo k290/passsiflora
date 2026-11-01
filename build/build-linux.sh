@@ -8,7 +8,9 @@ cp /root/nf/ref/config.h .
 INC="-I. -I$BI -I$P/src/headers -I$P/Olinux-x86_64"
 gfortran -O3 -march=x86-64 -mavx2 -mno-popcnt -cpp -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" -c pdfilter.f90 -o pdfilter_v3.o
 gfortran -O3 -march=x86-64 -mtune=generic -cpp -DPDF_MOD=pdfilter_base "-DPDF_INIT_NAME='pdf_init_base'" "-DPDF_FILTER_NAME='pdf_filter_base'" -c pdfilter.f90 -o pdfilter_base.o
-for f in polDiscTest_cpu TgtMartinet GetDecics; do
+# upstream's exact test with -fwrapv: an int64 overflow in it wraps by definition (docs/TECHNICAL.md)
+g++ -O3 -fwrapv -w $INC -DAPP_VERSION_CPU_STD -c -o polDiscTest_cpu.o polDiscTest_cpu.cpp
+for f in TgtMartinet GetDecics; do
   g++ -O3 -w $INC -DAPP_VERSION_CPU_STD -c -o $f.o $f.cpp
 done
 g++ -O2 -w $INC -c nf_gpu_stub.cpp

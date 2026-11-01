@@ -5,7 +5,9 @@
 //   build/test_poldisc FAMILY COUNT SEED [-cand FILE] [-hits FILE] [-part i/N] [-S 2,5]
 // FAMILY: rand3, rand100, rand1e6 (random monic, coefficients uniform in [-B, B]); pass (G(x^2) with G(0) = +-(1, 2, 5, 10)*m^2, and
 // shifts x+t, |t| <= 3: polynomials built to pass); passbig (the same with |G_k| <= 10^6, m <= 10^5, |t| <= 2, so that upstream's int64 steps
-// overflow on polynomials that pass); zero (disc = 0: a square factor); cand (the captured candidates of the
+// overflow on polynomials that pass); wrap (g + 2^62 at the constant term, g with |a_i| <= 3 passing and B9 = 10/cont(f') even: upstream's
+// int64 steps see a0 only through B9^2*a0 with 4 | B9^2, so the wrapped numbers are those of g and upstream passes a polynomial that does
+// not pass); zero (disc = 0: a square factor); cand (the captured candidates of the
 // application, -cand FILE, with the shifts x+t, |t| <= 2); hits (the 83 real results, -hits FILE, with x -> -x and the shifts
 // |t| <= COUNT).  -S gives the set S (one to three primes, default 2,5; for pass and passbig G(0) is then +-(a product of primes of S)
 // times m^2).  -part i/N runs every N-th polynomial of cand or hits, starting with the i-th.
@@ -13,8 +15,9 @@
 // iterations, done in int64 before GMP takes over) would overflow (replayed in 128 bits), and the filter's flags (AVX2 and
 // baseline builds, which must agree).
 // Counted: disagreements of upstream and the definition (split by overflow), and filter flags 0 where upstream or the
-// definition says 1.  Exit status 1 if upstream disagrees with the definition without an overflow, or the filter rejects a
-// polynomial that the definition or upstream passes.
+// definition says 1 (where upstream says 1, split by overflow: outside the int64 range upstream can pass a polynomial that does
+// not pass, as in wrap).  Exit status 1 if upstream disagrees with the definition without an overflow, or the filter rejects a
+// polynomial that the definition passes, or one that upstream passes without an overflow.
 #include <pari/pari.h>
 #include <cstdio>
 #include <cstdlib>
@@ -156,7 +159,7 @@ int main(int argc, char **argv)
   if (fam == "hits") { if (!hitsf) { fprintf(stderr, "hits needs -hits FILE\n"); return 2; } base = readPolys(hitsf); }
   // the polynomials of the family, generated in blocks of up to 4096
   i64 made = 0, idx = part_i - 1, tshift = 0, sign = 1;
-  i64 n_poly = 0, n_ov = 0, n_up = 0, n_def = 0, dis_noov = 0, dis_ov = 0, filt_bad_def = 0, filt_bad_up = 0, filt_rej = 0, base_disagree = 0;
+  i64 n_poly = 0, n_ov = 0, n_up = 0, n_def = 0, dis_noov = 0, dis_ov = 0, filt_bad_def = 0, filt_bad_up = 0, filt_bad_up_ov = 0, filt_rej = 0, base_disagree = 0;
   std::vector<i64> buf; std::vector<char> up; std::vector<signed char> fl, fb;
   i64 total = (fam == "cand") ? (i64)base.size() * 5 : (fam == "hits") ? (i64)base.size() * 2 * (2 * count + 1) : count;
   if (fam == "cand" || fam == "hits") total = total > part_i - 1 ? (total - part_i + part_n) / part_n : 0;
@@ -178,6 +181,18 @@ int main(int argc, char **argv)
         i64 f[11]; for (int k = 0; k <= 10; k++) f[k] = 0;
         for (int k = 0; k <= 5; k++) f[10 - 2 * k] = G[k];             // f[col] is the coefficient of x^(10-col), G[k] of x^k
         shift(f, urand(big ? 2 : 3), c);               // |coefficients| <= 10^11 * 3^10 < 2^63 for passbig
+      } else if (fam == "wrap") {
+        for (;;) {
+          for (int k = 1; k <= 10; k++) c[k] = urand(3);
+          bool b9even = false;
+          for (int k = 0; k < 10; k += 2) if ((((i64)(k + 1) * c[10 - (k + 1)]) & 1) == 1) b9even = true;
+          signed char fl;
+          if (!b9even) continue;
+          pdf_filter_v3(c, 1, &fl);                       // the filter first: it rejects almost every one that does not pass
+          if (!fl || !passes(c)) continue;
+          c[10] += (c[10] < 0 ? 1 : -1) * ((i64)1 << 62);
+          break;
+        }
       } else if (fam == "zero") {          // (x^2 + a x + b)^2 * (x^6 + ...)
         i64 a = urand(20), b = urand(20), h[7]; h[0] = 1; for (int k = 1; k <= 6; k++) h[k] = urand(20);
         i64 q2[5] = {1, 2 * a, a * a + 2 * b, 2 * a * b, b * b};    // (x^2 + a x + b)^2, leading first
@@ -210,14 +225,14 @@ int main(int argc, char **argv)
         else { dis_noov++; if (dis_noov <= 5) { fprintf(stderr, "DISAGREE upstream %d definition %d:", up[i], def); for (int k = 0; k <= 10; k++) fprintf(stderr, " %lld", c[k]); fprintf(stderr, "\n"); } }
       }
       if (fl[i] != fb[i]) base_disagree++;
-      if (fl[i] == 0) { filt_rej++; if (def) filt_bad_def++; if (up[i]) filt_bad_up++; }
+      if (fl[i] == 0) { filt_rej++; if (def) filt_bad_def++; if (up[i]) (ov ? filt_bad_up_ov : filt_bad_up)++; }
     }
     made += n;
   }
   // machine line: family polynomials upstream-passes definition-passes overflows disagree-without-overflow disagree-with-overflow
-  // filter-rejects rejects-passing-by-definition rejects-passing-by-upstream AVX2-baseline-differences
-  printf("POLDISC %s %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld\n", fam.c_str(), (long long)n_poly, (long long)n_up, (long long)n_def,
+  // filter-rejects rejects-passing-by-definition rejects-passing-by-upstream (without / with overflow) AVX2-baseline-differences
+  printf("POLDISC %s %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld\n", fam.c_str(), (long long)n_poly, (long long)n_up, (long long)n_def,
          (long long)n_ov, (long long)dis_noov, (long long)dis_ov, (long long)filt_rej, (long long)filt_bad_def, (long long)filt_bad_up,
-         (long long)base_disagree);
+         (long long)base_disagree, (long long)filt_bad_up_ov);
   return (dis_noov || filt_bad_def || filt_bad_up || base_disagree) ? 1 : 0;
 }

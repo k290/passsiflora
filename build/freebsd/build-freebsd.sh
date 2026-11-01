@@ -32,7 +32,9 @@ INC="-I. -I/root/w/boinc -I/root/w/boinc/lib -I/root/w/boinc/api -I$P/src/header
 rm -f *.o *.mod GetDecics_*
 $FC -O3 -march=x86-64 -mavx2 -mno-popcnt -cpp -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" -c pdfilter.f90 -o pdfilter_v3.o
 $FC -O3 -march=x86-64 -mtune=generic -cpp -DPDF_MOD=pdfilter_base "-DPDF_INIT_NAME='pdf_init_base'" "-DPDF_FILTER_NAME='pdf_filter_base'" -c pdfilter.f90 -o pdfilter_base.o
-for f in polDiscTest_cpu TgtMartinet GetDecics; do $CXX -O3 -w $INC -DAPP_VERSION_CPU_STD -c -o $f.o $f.cpp; done
+# upstream's exact test with -fwrapv: an int64 overflow in it wraps by definition (docs/TECHNICAL.md)
+$CXX -O3 -fwrapv -w $INC -DAPP_VERSION_CPU_STD -c -o polDiscTest_cpu.o polDiscTest_cpu.cpp
+for f in TgtMartinet GetDecics; do $CXX -O3 -w $INC -DAPP_VERSION_CPU_STD -c -o $f.o $f.cpp; done
 $CXX -O2 -w $INC -c nf_gpu_stub.cpp
 GF=$($FC -print-file-name=libgfortran.a); QM=$($FC -print-file-name=libquadmath.a)
 $CXX -O3 -static -o GetDecics_cpu GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_stub.o pdfilter_v3.o pdfilter_base.o \

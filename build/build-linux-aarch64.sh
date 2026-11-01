@@ -25,7 +25,9 @@ INC="-I. -I/usr/include/boinc -I$P/src/headers -I$P/$OBJ"
 BL=/usr/lib/aarch64-linux-gnu
 rm -f *.o *.mod GetDecics_*
 gfortran -O3 -ffp-contract=off -cpp -c pdfilter.f90 -o pdfilter.o
-for f in polDiscTest_cpu TgtMartinet GetDecics; do
+# upstream's exact test with -fwrapv: an int64 overflow in it wraps by definition (docs/TECHNICAL.md)
+g++ -O3 -fwrapv -ffp-contract=off -w $INC -DAPP_VERSION_CPU_STD -c -o polDiscTest_cpu.o polDiscTest_cpu.cpp
+for f in TgtMartinet GetDecics; do
   g++ -O3 -ffp-contract=off -w $INC -DAPP_VERSION_CPU_STD -c -o $f.o $f.cpp
 done
 g++ -O2 -std=c++11 -w $INC -c nf_gpu_stub.cpp

@@ -12,8 +12,9 @@ The value upstream tests differs from Disc(A) only by rational square factors
 (the content of B contributes c^10, the last sub-resultant step (B0/h)^(2k)), so the
 question is the same for Disc(A). This holds whenever upstream's first two sub-resultant
 iterations, which it does in int64 before switching to GMP, do not overflow; when they do,
-upstream's own result is undefined (`pdfilter_Test/pdfilter_chains.tex`, Proposition "What
-the exact test computes", measured by `pdfilter_Test/poldisc_checks.sh`). Take a prime q ≡ 1 (mod 4) such that every p in S
+the number wraps around and upstream's result can be wrong (`pdfilter_Test/pdfilter_chains.tex`,
+Proposition "What the exact test computes", measured by `pdfilter_Test/poldisc_checks.sh`;
+see "The int64 numbers of the exact test" below). Take a prime q ≡ 1 (mod 4) such that every p in S
 is a quadratic residue mod q. If the polynomial passed, Disc(A) would be
 ± (product of primes in S) × (a square), so its Legendre symbol mod q could only be 0
 or 1. **A Legendre symbol of −1 is therefore a proof that the polynomial fails.**
@@ -47,6 +48,24 @@ compiled arithmetic on known inputs; if that check fails it uses no prime, so ev
 check, the masked loop of the general path) are in `pdfilter_Test/pdfilter_chains.tex`.
 The CPU build contains an AVX2 copy (compiled with `-mavx2`; used when the CPU has AVX2
 and FMA) and a baseline (SSE2) copy and picks one at run time.
+
+### The one assumption: upstream's int64 steps do not overflow
+
+Upstream's test does its first two sub-resultant iterations in int64 and does not check that the
+products fit. The search regions keep them below 2^60: the largest value seen on real candidates is
+2^59.45, and none of the 14.8 billion polynomials of the 31 test work units overflows. Passiflora relies
+on this, as the stock program does, and says so in the source: above upstream's first iteration
+(`polDiscTest_cpu.cpp`, through the patch) and where the filter is called (`testPolys`,
+`nfGpuFlushBatch`).
+
+If a polynomial did overflow, the value would wrap around (`polDiscTest_cpu.cpp` is compiled with
+`-fwrapv`, so this is defined behaviour) and upstream's verdict could be wrong in either direction.
+Usually it rejects a polynomial that passes; the stock program does the same, so the output is unchanged
+and the field is lost in both. Rarely it passes one that does not; the filter, which is exact, would then
+reject it, and the counters of the output would differ from the stock program's (constant terms near
+2^62 do this). Before running a work unit with much larger polynomials than today's, check them with
+`pdfilter_Test/poldisc_checks.sh` (`CAND=<file>`, which reports every overflow); `pdfilter_Test/POLDISC_INT64.md` compares the ways the
+program itself could check.
 
 ## 2. Exact shortcuts in the enumeration (patch)
 

@@ -16,7 +16,9 @@ cd "$W/src"
 INC="-I. -I$BOINC/include/boinc -I$BOINC/include -I$P/src/headers -I$P/$OBJ -I/opt/homebrew/include"
 rm -f *.o *.mod GetDecics_*
 gfortran -O3 -mcpu=apple-m1 -ffp-contract=off -cpp $MIN -c pdfilter.f90 -o pdfilter.o
-for f in polDiscTest_cpu TgtMartinet GetDecics; do
+# upstream's exact test with -fwrapv: an int64 overflow in it wraps by definition (docs/TECHNICAL.md)
+clang++ -O3 -fwrapv -ffp-contract=off -std=c++11 -w $MIN $INC -DAPP_VERSION_CPU_STD -c -o polDiscTest_cpu.o polDiscTest_cpu.cpp
+for f in TgtMartinet GetDecics; do
   clang++ -O3 -ffp-contract=off -std=c++11 -w $MIN $INC -DAPP_VERSION_CPU_STD -c -o $f.o $f.cpp
 done
 clang++ -O2 -std=c++11 -w $MIN $INC -c nf_gpu_stub.cpp

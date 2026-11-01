@@ -103,6 +103,13 @@ rounding mode to ``up'' before the filter is initialised makes it reject valid p
 correctness depends on the floating-point environment of the volunteer's machine cannot be proved correct for the program that ships.  The integer version
 removes the dependence.
 
+\paragraph{The one assumption about the data.}  Everything below is proved for every input except one link: that the exact test of GetDecics itself
+computes the definition of passing.  It does so only while its first two iterations, which it runs in $64$-bit integers without overflow checks, stay in
+range: hypothesis (H) of Section~\ref{sec:poldisc}.  The search regions keep them below $2^{60}$ (no overflow among the $14.8$ billion polynomials of the
+$31$ test work units); for a polynomial outside, GetDecics can give a wrong verdict and Passiflora's counters can differ from the stock program's.  Whoever
+widens a search region, or gives the program other polynomials, has to check (H) first; the source says so where the filter is called and above the
+\code{int64} steps.
+
 %======================================================================
 \section{The two chains and their theorems}
 
@@ -171,8 +178,9 @@ resultant by an even power of a rational, and the removal of $S$ is complete.
 remainder; the code does not check that these products fit into $63$ bits, and relies on the polynomials it is given.  The polynomials of the enumeration are
 bounded by its search region, and the author of GetDecics has said that polynomials generated for the fields under test should not overflow these steps.  The
 source shows the same design: it sends one branch of the second iteration, where ``the result would exceed a long'', to GMP.  For a polynomial outside that
-region the overflow is undefined behaviour in C; in practice the value wraps around modulo $2^{64}$, the GMP steps that follow work on a wrong number, and the
-test answers ``does not pass''.  (H) states the condition explicitly, so that the proposition says exactly what it rests on.
+region the overflow is undefined behaviour in C as GetDecics is built; Passiflora compiles the test with \code{-fwrapv}, so that the value wraps around modulo
+$2^{64}$ by definition (as it does in practice anyway).  The GMP steps that follow work on a wrong number, and the test usually answers ``does not pass'', though
+not always (below).  (H) states the condition explicitly, so that the proposition says exactly what it rests on.
 
 \paragraph{How it was measured.}  The program \code{test\_poldisc.cpp} links the compiled \code{polDiscTest\_cpu} of GetDecics and compares its flag with the
 definition computed independently by PARI (the discriminant, the primes of $S$ removed, the square test).  It also replays the \code{int64} steps of GetDecics in
@@ -209,7 +217,8 @@ moderate size do, which is what the search region produces.  What matters is the
 
 \paragraph{The evidence on real data.}  On the $146{,}771$ candidates captured from seven real work units the largest \code{int64} value is $2^{59.45}$ (none above
 $2^{60}$), a factor of about $12$ below the limit $2^{63}$; on the $83$ results of the test work units it is $2^{48.5}$; and on all $733{,}855$ real candidates and
-shifts of Table~\ref{tab:poldisc} no step overflows.  This agrees with the author's statement.  It is a measurement on samples, not a proof from the search bounds,
+shifts of Table~\ref{tab:poldisc} no step overflows.  A temporary copy of the application that checked every polynomial found no overflow among the
+$14{,}846{,}153{,}955$ polynomials of the $31$ test work units, all of which gave their truth files.  This agrees with the author's statement.  It is a measurement on samples, not a proof from the search bounds,
 so (H) remains a named assumption of this paper, with three and a half bits of measured headroom.
 
 \paragraph{An illustration of the mechanism.}  The following polynomial is constructed; the enumeration does not produce it.  It only shows what (H) excludes.
@@ -224,10 +233,16 @@ It defines the same number field, and $\disc g=3^{90}\disc f$, so $g$ passes as 
 \code{int64} value would be about $2^{67}$, and GetDecics rejects it; with the roots multiplied by $2$ the largest value is about $2^{56.5}$ and GetDecics accepts it.
 The enumeration produced $f$; scaled copies such as $g$, with roots three times as large, are not among the polynomials it generates.
 
-\paragraph{Passiflora and (H).}  Passiflora keeps the exact test as GetDecics has it (its patch changes only the test's conversions for a $32$-bit \code{long}), so
-that its output is the stock program's.  The filter rejects only polynomials that provably do not pass, by the definition, so it never needs (H) for its own
-soundness: (H) enters only where the filter's verdicts are compared with those of the exact test (contract (C1)).  Outside (H) the filter could differ from the
-stock program only by rejecting a polynomial that the exact test would wrongly accept; that did not happen in the tests (last column of the table).
+\paragraph{Passiflora and (H).}  Passiflora keeps the exact test as GetDecics has it (its patch changes only the test's conversions for a $32$-bit \code{long}, and
+\code{-fwrapv} only defines what an overflow does), so that its output is the stock program's.  The filter rejects only polynomials that provably do not pass, by the
+definition, so it never needs (H) for its own soundness: (H) enters only where the filter's verdicts are compared with those of the exact test (contract (C1)).
+Outside (H) the filter can differ from the stock program only by rejecting a polynomial that the exact test wrongly accepts.  That did not happen in the tests
+(last column of the table), but it can be constructed \stnum.  When $B_9=10/\mathrm{cont}(f')$ is even, the \code{int64} steps see the constant term $a_0$ only
+through $B_9^2a_0$, and $4\mid B_9^2$, so adding $2^{62}$ to $a_0$ leaves every wrapped value unchanged: $h=x^{10}+x^9-3x^8-2x^7+x^6-x^5-x^3+3x^2+2x-2$ passes, and
+GetDecics also passes $h+2^{62}$, which the filter rejects.  The polynomials written out would be the same (PARI's field-discriminant test rejects $h+2^{62}$), but
+the counters would differ.  Such constant terms are far outside any search region, and the author of GetDecics has said that the real work units
+stay inside (H); so Passiflora relies on it, states it in its source and checks it on the test work units (above), rather than checking it at run time.
+A check of every polynomial would cost about half of the filter's time; the alternatives are compared in \code{pdfilter\_Test/POLDISC\_INT64.md}.
 
 %======================================================================
 \section{Exact integer arithmetic}\label{sec:integer}
@@ -526,7 +541,7 @@ claim & status & rests on \\ \midrule
 GPU filter & \stproved & Theorem E; assumes the device compiler and device correct (tested on the device at start-up), host and device code of one format (checked at start-up) \\ \midrule
 compiler correctness & \stassume & tiny-prime test, arithmetic checks with two GCC versions, oracle test, start-up check; docs/BUILDING.md names the checked compilers \\
 (S2), (S3) & \stassume & as above; the start-up check switches the filter off if either fails on the running machine \\
-(H) & \stassume & the enumeration's search region (the author's statement); no overflow on $733{,}855$ real candidates and shifts, largest value $2^{59.45}$ against $2^{63}$ \\
+(H) & \stassume & the enumeration's search region (the author's statement); no overflow on $733{,}855$ real candidates and shifts, largest value $2^{59.45}$ against $2^{63}$; none among the $14{,}846{,}153{,}955$ polynomials of the $31$ test work units \\
 (A2) & \stassume & no thread of the program calls the filter \\
 \bottomrule
 \end{tabularx}
@@ -536,7 +551,7 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 \begin{itemize}
 \item Whether the size limits $8385$ and $1{,}097{,}010{,}265$ are sharp (no shipped prime is near them).  The directed search narrows the first failure to
   $(8385,15901]$ and $(1{,}097{,}010{,}265,\ 1{,}749{,}999{,}961]$ for primes $\equiv1\pmod4$; closing the gap needs a sharper proof, not more search.
-\item (H) for the application's polynomials is measured on real candidates (about $12$ times headroom), not proved from the search bounds.
+\item (H) for the application's polynomials is measured on real candidates (about $12$ times headroom) and checked on every polynomial of the $31$ test work units, not proved from the search bounds.
 \item The GPU filter is checked on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested; the program checks the filter on
   every device at start-up.
 \item The searches use $S=\{2,5\}$; the proofs hold for every $S$, and the tests were also run for five other sets ($\{2,11\}$, $\{5,11\}$,
@@ -547,7 +562,7 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 \begin{itemize}
 \item tiny primes: \code{tiny\_checks.sh};  the arithmetic and the size limits: \code{arith\_checks.sh};
 \item the oracle test and the faults: \code{fault\_checks.sh} with \code{test\_pdfilter\_oracle.cpp};
-\item the exact test: \code{poldisc\_checks.sh};
+\item the exact test: \code{poldisc\_checks.sh} (family \code{wrap}: the constructed overflow);
 \item the GPU filter: \code{test\_gpu\_filter.cpp};  the mathematics, the citations and the ledger: \code{checks.py};
 \item the work units: \code{build/test-suite-unix.sh}.
 \end{itemize}

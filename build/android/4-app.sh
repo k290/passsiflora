@@ -12,7 +12,9 @@ CXX=$TC/aarch64-linux-android24-clang++
 CC=$TC/aarch64-linux-android24-clang
 INC="-I. -I$B -I$B/lib -I$B/api -I$P/src/headers -I$P/Olinux-aarch64 -I$G/include"
 $GT/aarch64-linux-android-gfortran -O3 -ffp-contract=off -cpp -c pdfilter.f90 -o pdfilter.o
-for f in polDiscTest_cpu TgtMartinet GetDecics; do
+# upstream's exact test with -fwrapv: an int64 overflow in it wraps by definition (docs/TECHNICAL.md)
+$CXX -O3 -fwrapv -ffp-contract=off -std=c++11 -w $INC -DAPP_VERSION_CPU_STD -c -o polDiscTest_cpu.o polDiscTest_cpu.cpp
+for f in TgtMartinet GetDecics; do
   $CXX -O3 -ffp-contract=off -std=c++11 -w $INC -DAPP_VERSION_CPU_STD -c -o $f.o $f.cpp
 done
 $CXX -O2 -std=c++11 -w $INC -c nf_gpu_stub.cpp

@@ -20,7 +20,7 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +#include <cfloat>
 +#include <array>
 +#include <set>
-@@ -44,0 +51,273 @@
+@@ -44,0 +51,274 @@
 +// ---- shared pieces of the polynomial discriminant stage -------------------------------
 +
 +static void (*nfPdfFilter)(const long long*, int, signed char*) = 0;
@@ -198,6 +198,7 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +  for(int k=0; k<numPrimes; k++)  pSet[k] = (int)itos((GEN)Sg[k+1]);
 +  nfPdfSetup(numPrimes, pSet);
 +
++  // As in testPolys: the filter agrees with polDiscTest_cpu while its int64 steps stay in range (see there).
 +  size_t total = polys.size()/11;
 +  for(size_t off=0; off<total; off += polyBufferSize) {
 +    int m = (int)std::min((size_t)polyBufferSize, total-off);
@@ -294,7 +295,7 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +            nfNow()-nfProfStart, nfProfPd, nfNow()-nfProfStart-nfProfPd);
 +  }
 +
-@@ -129,0 +409,16 @@
+@@ -129,0 +410,16 @@
 +  {
 +    int np = (int)(lg(Sg)-1);
 +    // S is kept in arrays of 3 (here, for the pre-filter, and upstream's pSet[3]): a work unit with more primes is refused.
@@ -311,22 +312,22 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +    nfCheckBudget = nfUseGpu ? (sc ? atoll(sc) : 5000000LL) : 0;
 +  }
 +
-@@ -335 +630 @@
+@@ -335 +631 @@
 -  double s1a2_mag,s2a2_mag,s1a3_mag,s2a3_mag,s1a4_mag,s2a4_mag;
 +  double s1a2_mag,s2a2_mag,s1a3_sq,s2a3_sq,s1a4_sq,s2a4_sq;
-@@ -752,0 +1048,6 @@
+@@ -752,0 +1049,6 @@
 +              // sqrt(X)<=B is replaced by 0<=X<=T with T = sqrtLeLimit(B); see there.
 +              const double T_a3  = sqrtLeLimit(2*tq[3]);
 +              const double T_a3c = sqrtLeLimit(2*tqc[3]);
 +              const double T_a4  = sqrtLeLimit(B_a4);
 +              const double T_a4c = sqrtLeLimit(B_a4c);
 +
-@@ -891,2 +1192,2 @@
+@@ -891,2 +1193,2 @@
 -                          s1a3_mag = sqrt(a31sq + lambda1*a31a32  + lambda2*a32sq);
 -                          s2a3_mag = sqrt(a31sq + lambda1c*a31a32 + lambda2c*a32sq);
 +                          s1a3_sq = a31sq + lambda1*a31a32  + lambda2*a32sq;
 +                          s2a3_sq = a31sq + lambda1c*a31a32 + lambda2c*a32sq;
-@@ -894 +1195,11 @@
+@@ -894 +1196,11 @@
 -                          if( (s1a3_mag<=2*tq[3]) && (s2a3_mag<=2*tqc[3]) )
 +                          // Same as: sqrt(s1a3_sq)<=2*tq[3] && sqrt(s2a3_sq)<=2*tqc[3]
 +#ifdef NF_COUNT
@@ -339,7 +340,7 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +                            fprintf(stderr, "NF_CHECK_SQRT mismatch (a3)\n");  exit(4); }
 +#endif
 +                          if( s1a3_sq>=0.0 && s1a3_sq<=T_a3 && s2a3_sq>=0.0 && s2a3_sq<=T_a3c )
-@@ -937,0 +1249,34 @@
+@@ -937,0 +1250,34 @@
 +                              if(nfUseGpu)
 +                                {
 +                                // The m2/m1 loops run on the GPU: queue this node.
@@ -374,11 +375,11 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +                                  }
 +                                }
 +                              if(!nfUseGpu || nfBatchChecked)
-@@ -941,0 +1287,3 @@
+@@ -941,0 +1288,3 @@
 +#ifdef NF_COUNT
 +                                nfCnt[5]++;
 +#endif
-@@ -960 +1308,12 @@
+@@ -960 +1309,12 @@
 -                                for(m1=m1_L;m1<=m1_U;++m1)
 +                                // Skip the m1 values that provably fail the a4 test below.
 +                                pari_long m1_lo = m1_L, m1_hi = m1_U;
@@ -392,12 +393,12 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +#endif
 +
 +                                for(m1=m1_lo;m1<=m1_hi;++m1)
-@@ -970,2 +1329,2 @@
+@@ -970,2 +1330,2 @@
 -                                  s1a4_mag = sqrt(a41sq + lambda1*a41a42  + lambda2*a42sq);
 -                                  s2a4_mag = sqrt(a41sq + lambda1c*a41a42 + lambda2c*a42sq);
 +                                  s1a4_sq = a41sq + lambda1*a41a42  + lambda2*a42sq;
 +                                  s2a4_sq = a41sq + lambda1c*a41a42 + lambda2c*a42sq;
-@@ -973 +1332,18 @@
+@@ -973 +1333,18 @@
 -                                  if( (s1a4_mag<=B_a4) && (s2a4_mag<=B_a4c) )
 +                                  // Same as: sqrt(s1a4_sq)<=B_a4 && sqrt(s2a4_sq)<=B_a4c
 +#ifdef NF_COUNT
@@ -417,23 +418,27 @@ diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp
 +                                    fprintf(stderr, "NF_CHECK_SQRT mismatch (a4)\n");  exit(4); }
 +#endif
 +                                  if( s1a4_sq>=0.0 && s1a4_sq<=T_a4 && s2a4_sq>=0.0 && s2a4_sq<=T_a4c )
-@@ -1026,0 +1403,2 @@
+@@ -1026,0 +1404,2 @@
 +                                                    if(nfUseGpu)  { ++nfRefCount;  if(nfGpuCheck) nfRefFilter(bb); }
 +                                                    else {
-@@ -1056,0 +1435 @@
+@@ -1056,0 +1436 @@
 +                                                      }  // end of CPU-only buffering
-@@ -1067,0 +1447,2 @@
+@@ -1067,0 +1448,2 @@
 +                                // Leave m1 where the unpruned loop would have (used by the final checkpoint).
 +                                m1 = (m1_L > m1_U) ? m1_L : m1_U + 1;
-@@ -1093,0 +1475,2 @@
+@@ -1093,0 +1476,2 @@
 +  if(nfUseGpu)  nfGpuFlushBatch(0,0,0,0,0,0,0, StatVec, outfile, true);
 +
-@@ -1142,0 +1526 @@
+@@ -1142,0 +1527 @@
 +
-@@ -1241 +1625,63 @@
+@@ -1241 +1626,67 @@
 -  int status = polDiscTest_cpu(polBufNow, numPolysNow, polGoodFlag, NULL, numPrimes, pSet);
 +  // Exact modular pre-filter (pdfilter.f90): clears the flag only for polynomials
 +  // that provably fail; the original GMP test then runs on the survivors.
++  // The filter decides by the true discriminant.  polDiscTest_cpu agrees with it only while its first two
++  // iterations, done in int64 without overflow checks, stay in range; the search regions keep them below 2^60,
++  // so the output is the stock program's.  A work unit with much larger polynomials could change that: see the
++  // comment above the first iteration in polDiscTest_cpu.cpp before running one.
 +  static int pdfReady = 0;
 +  static int noFilter = 0;
 +  static long long maxPolys = 0;
@@ -524,19 +529,26 @@ diff -U0 -r a/GetDecicsSrc/polDiscTest_cpu.cpp b/GetDecicsSrc/polDiscTest_cpu.cp
 @@ -48 +54 @@
 -#ifdef MINGW
 +#if defined(MINGW) || defined(NF_LONG32)
-@@ -214 +220 @@
+@@ -141,0 +148,6 @@
++    // Passiflora: nothing in the two iterations below checks that an int64 product or difference fits.  For the
++    // polynomials of the searches the largest value is about 2^60 (2^59.45 on real candidates; none of the 14.8 billion
++    // polynomials of the 31 test work units overflows).  A larger polynomial can overflow: the value then wraps modulo
++    // 2^64 (this file is compiled with -fwrapv), and the verdict can be wrong in either direction.  The pre-filter in
++    // front of this test is exact, so such a polynomial could also make Passiflora's counters differ from the stock
++    // program's.  Constant terms near 2^62 are an example (pdfilter_Test/POLDISC_INT64.md).
+@@ -214 +226 @@
 -      #ifndef MINGW
 +      #if !defined(MINGW) && !defined(NF_LONG32)
-@@ -251 +257 @@
+@@ -251 +263 @@
 -      #ifndef MINGW
 +      #if !defined(MINGW) && !defined(NF_LONG32)
-@@ -273 +279 @@
+@@ -273 +285 @@
 -      #ifndef MINGW
 +      #if !defined(MINGW) && !defined(NF_LONG32)
-@@ -293 +299 @@
+@@ -293 +305 @@
 -    #ifndef MINGW
 +    #if !defined(MINGW) && !defined(NF_LONG32)
-@@ -773,0 +780,12 @@
+@@ -773,0 +786,12 @@
 +
 +#ifdef NF_LONG32
 +// longs (and the GMP limbs) are 32 bits: build the 64-bit value from two halves.

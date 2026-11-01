@@ -26,7 +26,9 @@ BL=/usr/lib/$(gcc -dumpmachine)
 [ -f "$W/boinclibs/libboinc_api.a" ] && BB=$W/boinclibs || BB=$BL   # source-built BOINC libraries where the distribution ones are empty
 rm -f *.o *.mod GetDecics_*
 gfortran -O3 -ffp-contract=off -cpp -c pdfilter.f90 -o pdfilter.o
-for f in polDiscTest_cpu TgtMartinet GetDecics; do
+# upstream's exact test with -fwrapv: an int64 overflow in it wraps by definition (docs/TECHNICAL.md)
+g++ -O3 -fwrapv -ffp-contract=off -w $INC -DAPP_VERSION_CPU_STD -c -o polDiscTest_cpu.o polDiscTest_cpu.cpp
+for f in TgtMartinet GetDecics; do
   g++ -O3 -ffp-contract=off -w $INC -DAPP_VERSION_CPU_STD -c -o $f.o $f.cpp
 done
 g++ -O2 -std=c++11 -w $INC -c nf_gpu_stub.cpp

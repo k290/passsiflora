@@ -51,7 +51,9 @@ gfortran -O3 -march=x86-64 -mtune=generic -cpp -DPDF_MOD=pdfilter_base "-DPDF_IN
          "-DPDF_FILTER_NAME='pdf_filter_base'" -c pdfilter.f90 -o pdfilter_base.o
 
 INC="-I. -I$BOINC_INCLUDE -I$PARI/src/headers -I$PARI/Olinux-x86_64"
-for f in polDiscTest_cpu TgtMartinet GetDecics; do g++ -O3 $INC -DAPP_VERSION_CPU_STD -c $f.cpp; done
+# upstream's exact test with -fwrapv: an int64 overflow in it wraps by definition (docs/TECHNICAL.md)
+g++ -O3 -fwrapv $INC -DAPP_VERSION_CPU_STD -c polDiscTest_cpu.cpp
+for f in TgtMartinet GetDecics; do g++ -O3 $INC -DAPP_VERSION_CPU_STD -c $f.cpp; done
 g++ -O2 $INC -c nf_gpu_stub.cpp                      # CPU-only build (no OpenCL)
 
 g++ -O3 -static -o GetDecics_cpu GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_stub.o \

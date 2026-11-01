@@ -9,6 +9,7 @@
 #                 the differential check of test_pdfilter_oracle.cpp (other tests ignore it)
 #   EXTRA_CXX     further C++ sources compiled and linked with the test, LIBS_EXTRA further libraries; test_poldisc.cpp needs upstream's
 #                 polDiscTest_cpu.cpp and GMP:  EXTRA_CXX=<GetDecicsSrc>/polDiscTest_cpu.cpp LIBS_EXTRA=-lgmp TEST=test_poldisc.cpp bash build-linux.sh
+#   EXTRA_CXXFLAGS further flags for the EXTRA_CXX sources (poldisc_checks.sh: -fwrapv, as the application compiles polDiscTest_cpu.cpp)
 # Then run   build/test_pdfilter 100   (100 blocks of 10000 polynomials; a second argument is the seed).
 cd "$(dirname "$0")"
 . ./pari-config.sh
@@ -35,7 +36,7 @@ $CXX -O3 -w $INC -c -o "$OUT/$PROG.o" "$TEST" || exit 1
 EXTRAOBJ=
 for x in $EXTRA_CXX; do
   o="$OUT/extra_$(basename "${x%.cpp}").o"
-  $CXX -O3 -w -c -o "$o" "$x" || exit 1
+  $CXX -O3 -w $EXTRA_CXXFLAGS -c -o "$o" "$x" || exit 1
   EXTRAOBJ="$EXTRAOBJ $o"
 done
 $CXX -O3 $LINK -o "$OUT/$PROG$EXE" "$OUT/$PROG.o" "$OUT/pdfilter_v3.o" "$OUT/pdfilter_base.o" $REFOBJ $EXTRAOBJ $LIBS $LIBS_EXTRA || exit 1
