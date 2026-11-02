@@ -459,12 +459,19 @@ every odd $q\le9001$ and around the large limit.
 for any it skips.  The shipped primes are below $2^{13}$ and $2^{25}$, far inside these limits; the guard ensures that no future change of the prime search can
 leave the proved region silently.
 
-\paragraph{How sharp the limits are} \stnum.  The individual reductions fail earlier than the whole filter: \code{mont} with operands in $(-2q,2q)$ first returns a
+\paragraph{How sharp the limits are} \stnum.  The limits are those of the worst case, in which every reduction errs by the largest amount in the unfavourable
+direction.  One iteration of \code{chain\_general} then turns a bound $b$ into about $2b^2/R+q$ at a small stage and $2b^2/R+q/2$ at a large one, which has a fixed
+point only for $q\le R/8=2^{13}$ and $q\le R/4=2^{30}$.  Above these the bound grows in every iteration, and the limits exceed them only because a chain stops within
+$18$ iterations: the recursion of \code{chain\_general} gives $8883$ and $1{,}151{,}026{,}981$ for $9$ iterations, $8245$ and $1{,}080{,}369{,}269$ for $36$.  A finer
+analysis of the same kind (exact maxima of single reductions, a bound per coefficient) can therefore gain only a few per cent.  The individual reductions fail earlier
+than the whole filter: \code{mont} with operands in $(-2q,2q)$ first returns a
 value outside $(-q,q)$ at $q=8241$, and \code{sredc} on a difference $ab-cd$ at $q=2^{30}+23279$ (complete searches); the chains never form those operands.  Above the
 filter limits, a directed search on a model of the chains, at every prime $\equiv1\pmod4$ from $8389$ to $19961$ and at $64$ large primes, finds the first results
 outside $(-q,q)$ at $15901$ (small) and $1{,}749{,}999{,}961$ (large), and the first wrong verdicts at $18457$ and $2{,}032{,}588{,}133$; those found at primes
-\code{pdf\_init} could choose make the real filter fail as well.  So the proved limits are at least $0.53$ and $0.63$ of the true thresholds for such failures, and
-probably not sharp; a search cannot establish where the thresholds lie.
+\code{pdf\_init} could choose make the real filter fail as well.  So the proved limits are at least $0.53$ and $0.63$ of the true thresholds for such failures.
+Limits much closer to the thresholds would need a proof that the reductions of one run cannot all err in the unfavourable direction, a property of the Montgomery
+quotients along a data-dependent chain over about $q^{10}$ inputs for which no method is known.  The search gives only upper bounds: its first failures moved to
+smaller primes as it was given more effort.
 
 \subsection{The start-up check}
 
@@ -526,7 +533,16 @@ Lemma~\ref{lem:eulermont} with $\code{acc}\in[0,2q)$, so $\chi=-1$ exactly when 
 
 \paragraph{The table.}  The table takes the smallest usable primes in $(256,8192)$, at most $24$.  Every set $S$ of one to three primes below $60$ (the application
 allows $|S|\le3$) has at least $24$ there \stnum, while a range below $1024$ would leave fewer than the $8$ that GPU mode requires for $592$ of these $833$ sets.  The
-smallest primes come first because Euler's criterion takes one step per bit of $(q-1)/2$.
+smallest primes come first because Euler's criterion takes one step per bit of $(q-1)/2$: the $24$ largest below $8192$ instead took $1.0$ to $1.3\%$ more device
+time \stnum.
+
+\paragraph{One kind of prime, none of the CPU's.}  The kernel has no large primes.  Its arithmetic is unsigned $32$-bit with $R=2^{16}$; a large prime needs
+$64$-bit products, and an integer kernel with $R=2^{32}$ was $47\%$ slower than the floating-point kernel (Section~\ref{sec:timings}).  Large primes would also gain
+nothing: a stage rejects about half of what reaches it whatever the size of its prime, and on the CPU, where both kinds exist, the cost is lowest with the small
+primes first and does not rise when large primes are replaced by small ones (Section~\ref{sec:split}).  The kernel's survivors then pass through the CPU filter's $30$
+stages before the exact test, where a prime of the kernel's table would reject nothing new.  The CPU takes the largest usable primes below $2^{13}$ and the kernel the
+smallest above $256$; for the sets $S$ of the project's searches, with at least $115$ usable primes in $(256,2^{13})$, the two never share one ($281,\dots,1489$
+against $6481,\dots,8161$ for $S=\{2,5\}$).
 
 \paragraph{Host and device code must match.}  Theorem E needs the kernel to read the table the program builds.  For OpenCL this holds by construction: the kernel
 source is part of the program.  The CUDA kernel is a fat binary embedded at build time and the MUSA kernel a library loaded at run time, so either could be left over
@@ -751,6 +767,8 @@ failure, on fewer polynomials than for $\{2,5\}$.
 %======================================================================
 \section{Performance}\label{sec:speed}
 
+\subsection{Timings}\label{sec:timings}
+
 \paragraph{CPU} \stnum.  Table~\ref{tab:speed} gives the application's own timing split (\code{NF\_PROFILE}) over the first $60{,}006{,}400$ polynomials of three
 work units, seven runs per filter, the filters alternating, one run at a time on an otherwise idle machine.  The programs differ only in the filter: the earlier
 floating-point filter; an integer filter with Barrett reduction ($32$-bit lanes for the small primes, $64$-bit products for the large ones); and the Montgomery filter
@@ -781,23 +799,17 @@ work unit & build & floating point & Barrett & $6+24$ primes & $6+24$ primes & $
 vectorise; cycle counters in the application showed these loads ($114$ cycles per polynomial on \code{sf5}, against $61$ in the floating-point filter) to account for
 the whole gap with AVX2.  The vectorised loads copy each polynomial's ten coefficients into a block buffer and split and reduce them on contiguous lanes ($44$ cycles).
 The arithmetic and the compiled chains are the same in both.  \emph{The prime split.}  With $24$ small primes almost no polynomial reaches the large stages, which cost
-about twice as much as in the floating-point filter ($0.4$ instead of $30.7$ cycles per polynomial there, $6.2$ more in the small stages, the filter $8.6\%$ faster).
+about twice as much as in the floating-point filter ($0.4$ instead of $30.7$ cycles per polynomial there, $6.2$ more in the small stages, the filter $8.6\%$ faster);
+Section~\ref{sec:split} shows why $24+6$ is as good as any split.
 The resulting filter is faster than the floating-point one in every row: by $14\%$ and $4\%$ with AVX2 on \code{sf5} and \code{sf3} (the $4\%$ is less than the
 spread of the runs, $5$--$31\%$ between the fastest and the slowest run of one filter), by $19$--$20\%$ with the baseline build, and by $48$--$58\%$ on \code{sf4}.
 Barrett reduction is the slowest throughout: AVX2 has no $64$-bit vector multiplication, and a $32$-bit lane holds half as many residues per register as the $16$-bit
 lanes of the Montgomery stage.  Timings of different series differ by up to about $10\%$, so only filters of one series are compared.
 
-\emph{Why $24+6$} \stnum.  A cost model, measured stage by stage with cycle counters in the application (five work units, ten splits, both builds, five runs each),
-predicts the filter time of every split to within $1\%$.  Each stage keeps half of the polynomials whatever the size of its prime ($0.5001$ at the small primes,
-$0.4993$--$0.5007$ at the large ones), a call stops as soon as it has no polynomial left, a large stage costs $3.1$--$4.2$ times a small one per block, and the exact
-test costs $6.7$--$8.0\,\mu$s per kept polynomial.  An exchange argument shows that small primes belong first \stproved; of the splits of $30$ stages, $30+0$ is the
-cheapest and $24+6$ is within $0.14\%$ of it, and $30$ stages are within $0.10\%$ of the best number.  All three prime sets of the project's searches ($\{2,5\}$,
-$\{2,11\}$, $\{5,11\}$) have more than $100$ usable primes below $2^{13}$, and the first stage alone takes almost half of the filter's time.
-
 \paragraph{GPU} \stnum.  Table~\ref{tab:gpuspeed} gives one series of the kernel in four versions: the floating-point kernel, and the integer kernel in three
 steps, each with one change more than the step before (the integer arithmetic with $14$ primes below $2^{10}$; the table of $24$ primes below $2^{13}$; the start-up
 self-test).  The versions alternate, and every run gave its truth file.  The integer kernel takes $9$--$12\%$ less device time than the floating-point one; the wider
-table adds $0.3$--$0.9\%$; the self-test, which runs once at start-up, leaves the device time unchanged.  A whole run takes $3$--$10\%$ less on the three longer
+table, chosen for the sets $S$ it covers rather than for speed (Section~\ref{sec:gpu}), adds $0.3$--$0.9\%$; the self-test, which runs once at start-up, leaves the device time unchanged.  A whole run takes $3$--$10\%$ less on the three longer
 units; on \code{sf5}, where start-up and the window check take most of the run, the differences are inside the spread of the runs.  An integer kernel with
 $R=2^{32}$, canonical residues and \code{mul\_hi} was also exact but $47\%$ slower than the floating-point kernel.
 
@@ -834,6 +846,177 @@ work unit & time & floating point & no self-test & no self-test & self-test \\ \
 \end{tabular}
 \end{table}
 
+\paragraph{A repeat run} \stnum.  On 2 November 2026 the floating-point versions and the program described here were timed again, two versions only, on the
+same machine and by the same procedure; Tables~\ref{tab:speed} and~\ref{tab:gpuspeed} stand as measured.  The two CPU programs differ only in the filter.  The
+two GPU programs both contain the CPU filter described here and differ in the GPU code and the host part of the patch.  Table~\ref{tab:repeat} gives the results.
+The changes agree with the earlier series to within $0.2$ percentage points for the device time and $3$ for the CPU and the whole runs: the CPU filter is $6$--$21\%$ faster on \code{sf5} and \code{sf3} and $50$--$56\%$ on
+\code{sf4}, the kernel takes $9.1$--$11.5\%$ less device time, and a whole GPU run takes $1$--$9\%$ less.  As before, the AVX2 rows of \code{sf5} and \code{sf3},
+the whole runs on \code{sf5} and the CUDA run on \code{sf4} differ by less than the spread of their runs.  Both CPU programs gave the truth file of a whole work unit
+in both builds; all $142$ GPU runs gave their truth files on the GPU (the integer kernel runs there only after its start-up self-test has passed), and the
+GPU core clock stayed at $1785$\,MHz.
+
+\begin{table}[ht]
+\centering\footnotesize\setlength{\tabcolsep}{4pt}
+\caption{The repeat run: the floating-point version against the program described here, medians; in brackets the change.  CPU: filter plus exact test in seconds
+for the first $60{,}006{,}400$ polynomials, $7$ runs, spread up to $15\%$.  GPU, GTX~1650: ``device'' as in Table~\ref{tab:gpuspeed}, $7$ runs, spread
+$0.3$--$1.6\%$; ``OpenCL'', ``CUDA'': the whole run, $5$ runs, spread up to $9\%$.}\label{tab:repeat}
+\begin{tabular}[t]{@{}llrr@{}}
+\toprule
+work unit & build & floating point & integer \\ \midrule
+\code{sf5} & AVX2     & $5.94$  & $5.23$ ($-12\%$) \\
+           & baseline & $8.73$  & $6.98$ ($-20\%$) \\
+\code{sf3} & AVX2     & $5.27$  & $4.94$ ($-6\%$) \\
+           & baseline & $8.31$  & $6.55$ ($-21\%$) \\
+\code{sf4} & AVX2     & $13.84$ & $6.89$ ($-50\%$) \\
+           & baseline & $20.66$ & $9.13$ ($-56\%$) \\ \bottomrule
+\end{tabular}\qquad
+\begin{tabular}[t]{@{}llrr@{}}
+\toprule
+work unit & time & floating point & integer \\ \midrule
+\code{sf5} & device (ms) & $1194$  & $1057$ ($-11.5\%$) \\
+           & OpenCL (s)  & $2.98$  & $2.83$ ($-5\%$) \\
+           & CUDA (s)    & $2.59$  & $2.48$ ($-4\%$) \\
+\code{sf3} & device (ms) & $15049$ & $13677$ ($-9.1\%$) \\
+           & OpenCL (s)  & $16.98$ & $15.67$ ($-8\%$) \\
+           & CUDA (s)    & $18.05$ & $16.75$ ($-7\%$) \\
+\code{sf4} & device (ms) & $3038$  & $2701$ ($-11.1\%$) \\
+           & OpenCL (s)  & $8.16$  & $7.75$ ($-5\%$) \\
+           & CUDA (s)    & $7.66$  & $7.58$ ($-1\%$) \\
+\code{sf7} & device (ms) & $7940$  & $7051$ ($-11.2\%$) \\
+           & OpenCL (s)  & $9.84$  & $8.97$ ($-9\%$) \\
+           & CUDA (s)    & $9.43$  & $8.96$ ($-5\%$) \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{The prime split}\label{sec:split}
+
+The CPU filter can divide its stages between small primes ($16$-bit lanes) and large primes ($64$-bit products) in any proportion; it uses $24$ small and six large,
+written $24+6$.  This section gives a model of the cost, proves which orders and splits the model favours, and measures it.
+
+\paragraph{Which primes there are} \stnum.  The batch status pages of NumberFields@home (read on 30~October~2026) list seven searches for decic fields, all with
+$S=\{2,5\}$; earlier, smaller searches used $S=\{2,11\}$ and $\{5,11\}$.  For these three sets the rule of \code{pdf\_init} (Proposition~\ref{prop:rule}) leaves
+$115$, $117$ and $115$ usable primes in $(256,2^{13})$, so the filter always gets its $24$ small primes, against $14$, $13$ and $14$ in $(256,2^{10})$, where an earlier
+version took them.  Within the range the size of a prime hardly matters: a polynomial whose discriminant is not $\pm2^a5^b$ times a square survives a stage with
+probability about $(q+1)/(2q)$ (half of the nonzero residues are squares, and $\disc f\equiv0$ keeps it too), $0.50006$ at $q\approx8000$ and $0.50008$ at
+$q\approx6000$.
+
+\paragraph{A model of the cost.}  One call of \code{pdf\_filter} runs the stages in turn on the polynomials still kept, packed into blocks of $64$ after every
+stage, and stops when none is left.  Let $N_j$ be the number of polynomials that enter stage $j$ ($N_1=n$, the size of the call) and $N_{T+1}$ the number kept
+after the last of the $T$ stages; the application runs the exact test on these.  The model gives a stage of type $t$ (small or large prime) that is entered by $N>0$
+polynomials in $b$ blocks (those of pass~1 and the few of pass~2) the cost
+\[
+c_t(N)=\alpha_t+\beta_t\,b+\gamma_t\,N,\qquad c_t(0)=0,
+\]
+since a block's chain costs the same however many of its $64$ lanes are live, the gather of the coefficients does not, and a stage that runs at all pays for its
+constants and its loop.  The exact test costs $c_x$ per kept polynomial.  The coefficients depend on the work unit (on \code{sf4} every block takes
+\code{chain\_general}) and on the build.
+
+\begin{lemma}[Order of the stages]\label{lem:order}\stproved
+Let one call run stages with the primes $q_1,\dots,q_T$ in this order, with $N_j$ as above.
+\begin{enumerate}[label=(\alph*)]
+\item $N_j$ depends only on the set $\{q_1,\dots,q_{j-1}\}$, not on its order, and $N_1\ge N_2\ge\dots\ge N_{T+1}$.
+\item Suppose a stage of type $t$ entered by $N$ polynomials costs $c_t(N)$, where $D=c_\ell-c_s$ is nonnegative and nondecreasing on $\{0,1,\dots,n\}$, and the exact
+test costs $c_x$ per kept polynomial.  Suppose further that for every set $A$ of primes and any two primes $p,p'\notin A$, the numbers of polynomials of the call that
+$A\cup\{p\}$ and $A\cup\{p'\}$ keep have the same distribution.  Then putting a small stage in front of an adjacent large one does not raise the expected cost, and
+neither does replacing a large prime by an unused small one.  So, of all orders of $s$ small and $\ell$ large primes, small ones first costs least in expectation, and
+the expected cost does not rise when large primes are replaced by small ones.
+\end{enumerate}
+\end{lemma}
+\begin{proof}
+(a) By Theorem C, which holds for the program by Theorem D, a polynomial $f$ of the enumeration (which is monic) enters stage $j$ exactly when
+$\leg{\disc f}{q_i}\ne-1$ for $i=1,\dots,j-1$, a condition on the set of these primes alone; the set of polynomials meeting it can only shrink as primes are added.
+
+(b) Let stages $i$ and $i+1$ have the large prime $p$ and the small prime $p'$, and let $A$ be the primes before them.  Exchanging the two changes nothing before stage
+$i$, and by (a) the polynomials that enter stage $i+2$ and every later stage, and those kept at the end, are the same either way.  Stage $i$ is entered by $N_i$
+polynomials either way; stage $i+1$ by the number $K$ that $A\cup\{p\}$ keeps before the exchange and by the number $K'$ that $A\cup\{p'\}$ keeps after it.  The cost
+before minus the cost after is
+\[
+c_\ell(N_i)+c_s(K)-c_s(N_i)-c_\ell(K')=D(N_i)-D(K')+c_s(K)-c_s(K').
+\]
+The last two terms have expectation $0$, since $K$ and $K'$ have the same distribution, and $D(N_i)\ge D(K')$ since $N_i\ge K'$ by (a) and $D$ is nondecreasing.
+Replacing the large prime $p$ of a stage $k$ by a small prime $p''$ that no stage uses changes the cost of stage $k$ from $c_\ell(N_k)$ to $c_s(N_k)$, which is
+$D(N_k)\ge0$ less; every later stage, and the exact test, is entered by the polynomials kept by a set $A\cup\{p''\}$ instead of $A\cup\{p\}$ ($A$ the other primes
+before it), which by assumption has the same distribution, and the expected cost is the sum of the stages' expected costs.  Exchanges of adjacent pairs bring every
+small stage in front of every large one.
+\end{proof}
+
+The first assumption of (b) is a property of the cost functions, the second of the polynomials.  In the model in which each polynomial whose discriminant is not
+$\pm2^a5^b$ times a square survives a prime $q$ independently with probability $(q+1)/(2q)$, the distributions for two primes differ only through this probability, by
+less than $10^{-4}$ for the primes in question.  The measurements test both assumptions.
+
+\paragraph{The measurements} \stnum.  Copies of the filter with only the constants of the split changed (\code{MAXS}, \code{MAXQ}), instrumented with time-stamp
+counters around every stage, load and chain and with counters of the polynomials, calls and blocks that enter every stage, were linked into the application (BOINC
+replaced by stand-ins, as for the work units of Section~\ref{sec:evidence}).  They ran the first $20{,}008{,}960$ polynomials of five work units, \code{sf3},
+\code{sf4} and \code{sf5} of Table~\ref{tab:speed} and two from the running searches, \code{sf6\_DS-7x10\_Grp16925of160000} and
+\code{sf7\_DS-12x12\_Grp164787of1000000}, with ten splits ($24+6$ as shipped, $30+0$, $18+12$, $12+18$, $6+24$, and $12$, $16$, $20$, $24$ and $40$ small primes
+alone), both builds, five runs each, the splits alternating: $500$ runs.  Every call had $n=10{,}240$ polynomials, and the counts were the same in all runs and both
+builds.  The processor has two kinds of cores and a run may get either, so the filter's time varies by up to $30.5\%$ between the runs of one split; stage~$1$ does the
+same work in every split (prime $8161$, all polynomials), so every time is divided by the same run's stage-$1$ time, after which the five runs of a split agree to
+within $1.7\%$.  On every unit the filter's time is $2.09$ to $2.18$ times that of stage~$1$: the first stage alone takes almost half.
+
+The quantities of the model: a small stage keeps $0.50012$ to $0.50017$ of the polynomials that enter it (model $0.50006$), a large one $0.49934$ to $0.50074$ (standard
+error $0.00063$, model $0.50000$); a full block of a large stage costs $3.1$ to $4.2$ times one of a small stage; the exact test costs $6.7$ to $8.0\,\mu$s per kept
+polynomial; and on two units the polynomials that survive many stages come in \emph{clusters}, several in one call, which stay together from stage to stage: of the
+polynomials kept by all $40$ stages of $40+0$, $484$ lie in $50$ calls on \code{sf5} and $19$ in $8$ on \code{sf4}; the other three units have none.  With these
+numbers and the measured share of lanes that leave \code{chain\_block}, the model gives the blocks of every split and unit to within $0.1\%$ (those of stages $13$ and
+later, where a call holds only a few polynomials, to within $4.4\%$), and with $\alpha_t,\beta_t,\gamma_t$ fitted on the small stages of $24+6$ and the large stages
+of $6+24$ alone it predicts the filter time of all ten splits to within $1.0\%$ in every unit and build (Table~\ref{tab:split}).  Differences below about $0.5\%$ are
+within the scatter of the runs.  The time of the stages after the $24$th, measured directly, resolves those: on \code{sf5}, where clusters reach them, the six large
+stages of $24+6$ take $0.167\%$ (AVX2) and $0.229\%$ (baseline) of the filter's time, the six small stages of $30+0$ there $0.048\%$ and $0.050\%$; on the other units
+at most $0.029\%$ and $0.009\%$.
+
+\begin{table}[ht]
+\centering\footnotesize\setlength{\tabcolsep}{4pt}
+\caption{Splits of the CPU filter: filter and exact test (the exact test as polDisc time minus filter time, in time-stamp ticks of the same run), change against
+$24+6$ in percent, measured (median of five runs, each in units of its stage~$1$) / model.  $s+\ell$: $s$ small and $\ell$ large primes.  Work units as in
+Table~\ref{tab:speed}, and \code{sf6\_DS-7x10\_Grp16925of160000}, \code{sf7\_DS-12x12\_Grp164787of1000000}.}\label{tab:split}
+\begin{tabular}{@{}llrrrrr@{}}
+\toprule
+build & split & \code{sf3} & \code{sf4} & \code{sf5} & \code{sf6} & \code{sf7} \\ \midrule
+AVX2 & $6+24$  & $+6.91$ / $+7.09$ & $+6.81$ / $+6.73$ & $+8.58$ / $+8.41$ & $+7.49$ / $+7.17$ & $+7.07$ / $+7.10$ \\
+     & $12+18$ & $+1.76$ / $+1.63$ & $+1.39$ / $+1.52$ & $+2.36$ / $+1.75$ & $+1.96$ / $+1.66$ & $+1.65$ / $+1.63$ \\
+     & $18+12$ & $+0.07$ / $+0.05$ & $-0.10$ / $+0.06$ & $+0.43$ / $+0.14$ & $-0.12$ / $+0.05$ & $-0.07$ / $+0.05$ \\
+     & $30+0$  & $-0.15$ / $-0.00$ & $-0.28$ / $-0.01$ & $+0.23$ / $-0.10$ & $+0.46$ / $-0.00$ & $+0.07$ / $-0.00$ \\
+     & $12+0$  & $+1.76$ / $+1.74$ & $+0.22$ / $+0.61$ & $+1.36$ / $+1.23$ & $+1.58$ / $+1.40$ & $+1.61$ / $+1.73$ \\
+     & $16+0$  & $+0.27$ / $+0.08$ & $-0.12$ / $-0.04$ & $-0.09$ / $-0.14$ & $+0.33$ / $+0.06$ & $-0.05$ / $+0.08$ \\
+     & $20+0$  & $+0.18$ / $+0.00$ & $-0.09$ / $-0.03$ & $+0.31$ / $-0.17$ & $+0.23$ / $+0.00$ & $-0.17$ / $+0.00$ \\
+     & $24+0$  & $+0.20$ / $-0.00$ & $+0.06$ / $-0.02$ & $+0.18$ / $-0.14$ & $+0.63$ / $-0.00$ & $-0.23$ / $-0.00$ \\
+     & $40+0$  & $+0.16$ / $-0.00$ & $-0.15$ / $-0.00$ & $+0.48$ / $-0.03$ & $+0.42$ / $-0.00$ & $-0.27$ / $-0.00$ \\ \midrule
+baseline & $6+24$  & $+9.73$ / $+9.87$ & $+9.92$ / $+9.81$ & $+11.50$ / $+11.50$ & $+9.84$ / $+9.77$ & $+9.64$ / $+9.83$ \\
+     & $12+18$ & $+2.43$ / $+2.25$ & $+2.39$ / $+2.26$ & $+3.18$ / $+2.43$ & $+2.12$ / $+2.23$ & $+2.31$ / $+2.24$ \\
+     & $18+12$ & $+0.18$ / $+0.06$ & $+0.09$ / $+0.08$ & $+0.10$ / $+0.20$ & $-0.07$ / $+0.06$ & $-0.05$ / $+0.06$ \\
+     & $30+0$  & $+0.41$ / $-0.00$ & $+0.19$ / $-0.02$ & $+0.08$ / $-0.14$ & $+0.00$ / $-0.00$ & $-0.23$ / $-0.00$ \\
+     & $12+0$  & $+1.29$ / $+1.19$ & $+0.18$ / $+0.26$ & $+0.68$ / $+0.55$ & $+1.09$ / $+0.89$ & $+1.02$ / $+0.99$ \\
+     & $16+0$  & $+0.18$ / $+0.04$ & $+0.24$ / $-0.07$ & $-0.11$ / $-0.23$ & $+0.27$ / $+0.02$ & $-0.07$ / $+0.03$ \\
+     & $20+0$  & $+0.04$ / $+0.00$ & $+0.08$ / $-0.04$ & $+0.03$ / $-0.21$ & $-0.25$ / $+0.00$ & $+0.03$ / $+0.00$ \\
+     & $24+0$  & $+0.08$ / $-0.00$ & $-0.09$ / $-0.03$ & $-0.08$ / $-0.18$ & $-0.19$ / $-0.00$ & $+0.03$ / $-0.00$ \\
+     & $40+0$  & $+0.01$ / $-0.00$ & $+0.20$ / $-0.01$ & $+0.25$ / $-0.06$ & $-0.08$ / $-0.00$ & $-0.21$ / $-0.00$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The optimum} \stnum.  \emph{Order.}  The survival is the same for small and large primes within the error of the measurement, which is the second
+assumption of Lemma~\ref{lem:order}(b).  The fitted costs give $D=c_\ell-c_s\ge14{,}911$ time-stamp ticks ($3.11$\,GHz) for every $N\ge1$; $D$ is nondecreasing on
+\code{sf5}, and on the other units it falls within one block by at most $5{,}306$ ticks, less than a ninth of the step $\beta_\ell-\beta_s$ it then makes at the next
+block.  So small primes go first, except possibly for such a fall when two counts lie in the same block.  \emph{Splits of $30$ stages.}  Under the model $30+0$ is the
+cheapest in every unit and build; $24+6$ costs $0.00$ to $0.14\%$ more, $18+12$ $0.04$ to $0.34\%$, $12+18$ $1.5$ to $2.6\%$ and $6+24$ $6.8$ to $11.6\%$.
+\emph{The number of stages.}  Adding a last small stage changes the expected cost by $E\,c_s(N_{T+1})-c_x\,E(N_{T+1}-N_{T+2})$.  Deep in the chain a call holds a cluster
+(with probability $\pi$, of mean size $m$) and about $n2^{-T}$ other polynomials; the stage costs about $\pi c_s(m)+n2^{-T}c_s(1)$ and saves about $c_xn2^{-T-1}$.
+Without clusters (\code{sf3}, \code{sf6}, \code{sf7}) each further stage pays a little as long as $c_s(1)<c_x/2$, which holds there ($6{,}095$ to $9{,}084$ against
+$10{,}452$ to $12{,}452$ ticks), so there is no best number.  With clusters the saving halves from stage to stage while $\pi c_s(m)$ stays, and the last stage worth
+adding is about
+\[
+T^\ast=\log_2\frac{n\,(c_x/2-c_s(1))}{\pi\,c_s(m)},
+\]
+$17.9$ and $15.1$ on \code{sf5} (AVX2, baseline; the model's best $T$ is $18$ and $16$).  On \code{sf4}, where $c_s(1)>c_x/2$, the model's best is $16$ and $14$.  In
+every unit and build $T=30$ costs at most $0.10\%$ more than the model's best $T$; the measured totals for $16$ to $40$ small stages agree within the scatter, while
+$12$ stages cost $0.2$ to $1.8\%$ more.
+
+\paragraph{The conclusion.}  The shipped $24+6$ is within $0.14\%$ of the best split of $30$ stages and within $0.25\%$ of the model's optimum over all numbers of
+stages (\code{sf5}, baseline, at $16$ stages) in all ten cases, and no measurement separates it from $30+0$.  It was chosen by an earlier, shorter timing of a few splits; the
+model, made afterwards, shows that no split of $30$ stages and no number of stages is measurably faster, so it stays.  Every split is bounded below by the first
+stages, which every polynomial or every other polynomial passes through: a faster filter needs a cheaper small stage, not another split.
+
 %======================================================================
 \section{What it all rests on}\label{sec:ledger}
 
@@ -855,8 +1038,10 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 
 \paragraph{Open items.}
 \begin{itemize}
-\item Whether the size limits $8385$ and $1{,}097{,}010{,}265$ are sharp (no shipped prime is near them).  The directed search narrows the first failure to
-  $(8385,15901]$ and $(1{,}097{,}010{,}265,\ 1{,}749{,}999{,}961]$ for primes $\equiv1\pmod4$; closing the gap needs a sharper proof, not more search.
+\item Where the filter first fails above the size limits.  The limits $8385$ and $1{,}097{,}010{,}265$ are, up to the slack of the $18$ iterations, the best a
+  step-by-step worst-case bound can give (Section~\ref{sec:limits}); the first failure for primes $\equiv1\pmod4$ lies in $(8385,15901]$ and
+  $(1{,}097{,}010{,}265,\ 1{,}749{,}999{,}961]$.  Locating it needs an argument about correlated reductions for which no method is known.  The program is not
+  affected: the shipped primes are below $2^{13}$ and $2^{25}$, and the guard keeps every chosen prime inside the limits.
 \item (H) is measured on real candidates (about $12$ times headroom) and checked on every polynomial of the $31$ test work units, not proved from the search bounds.
 \item The GPU filter was tested on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested.  The program
   checks the filter on every device at start-up.
