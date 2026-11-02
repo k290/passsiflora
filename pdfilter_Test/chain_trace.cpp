@@ -3,7 +3,7 @@
 //   chain_block    follows subroutine chain_block of src/pdfilter.f90 (lines 266-319), for one polynomial
 //   chain_general  follows src/chain_general.inc, for one polynomial
 //
-// It is for reading and for reproducing WORKED_EXAMPLE.md, not for speed.  Numbers are reduced to the range -(q-1)/2 ... (q-1)/2, as red() does.
+// It is for reading, not for speed.  Numbers are reduced to the range -(q-1)/2 ... (q-1)/2, as red() does.
 //
 // Usage:
 //   chain_trace show q c_n ... c_0 [block | blockfull | general]

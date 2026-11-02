@@ -21,9 +21,7 @@ itself: there is no copy of the filter in this directory, so a test always tests
 | `capshim.c` | captures the candidates the application hands to the filter, with its verdicts, for `test_pdfilter_oracle -cand` (instructions in the file). |
 | `test_pdfilter.cpp` | Eric's second version plus four small changes (below), rewritten so that it builds on Linux and on Windows ("must pass" polynomials only). |
 | `test_pdfilter_linux.cpp` | Eric's second version with the same four changes applied as a small patch (+47 / -15 lines; Linux only, PARI 2.9 or later).  `git diff ccb629f:pdfilter_Test/test_pdfilter_eric.cpp HEAD:pdfilter_Test/test_pdfilter_linux.cpp` shows the diff against Eric's file.  It gives the same numbers as `test_pdfilter.cpp` on Linux. |
-| `CHANGES.md` | the changes to Eric's test, each with its reason, and how the filter picks `chain_block` or `chain_general`. |
-| `WORKED_EXAMPLE.md` | a worked example for students: small polynomials followed step by step through `chain_block` and `chain_general`. |
-| `chain_trace.cpp` | the program that produced those traces (`TEST=chain_trace.cpp bash build-linux.sh`, then `build/chain_trace show ...` or `build/chain_trace test`). |
+| `chain_trace.cpp` | both chains step by step for any degree and prime, with a printed trace, and a comparison with the exact discriminant (`TEST=chain_trace.cpp bash build-linux.sh`, then `build/chain_trace show ...` or `build/chain_trace test`). |
 | Eric's original | not in the tree; `git show ccb629f:pdfilter_Test/test_pdfilter_eric.cpp` (it is the file he sent). |
 | `test_pdfilter_full.cpp` | an earlier, larger harness (several generators, a corpus of real polynomials, rounding-mode options). |
 | `build-linux.sh`, `build-windows.sh`, `pari-config.sh` | build the filter (AVX2, `-mavx2`, and baseline, with the test hook) and the test; `FILTER=dir` builds another filter (e.g. the floating-point one of commit 327b04f), `REF=dir` links a second filter for the oracle test's differential check. |
@@ -31,7 +29,7 @@ itself: there is no copy of the filter in this directory, so a test always tests
 | `tiny_checks.sh`, `test_tiny.cpp` | the compiled filter on **every** polynomial of complete sets at tiny primes (13: all depressed monic degree-10 polynomials; 17-41: structured sets; shifts), both builds, normal routing and every lane through `chain_general`, against an exact Euclid oracle. |
 | `poldisc_checks.sh`, `test_poldisc.cpp` | upstream's compiled `polDiscTest_cpu` (with `-fwrapv`, as the application compiles it) against the definition (PARI), with a 128-bit replay of its int64 steps, and the filter against both; family `wrap` builds polynomials on which the int64 steps overflow and upstream passes a polynomial that the filter rightly rejects (`POLDISC_INT64.md`) (`UPSTREAM=<GetDecicsSrc>`; `S=2,11` for another set S, as `-S` of the oracle test, `test_pdfilter_full.cpp` and `test_gpu_filter.cpp`). |
 | `test_gpu_filter.cpp` | the GPU kernel's integer filter (`src/nf_kernel.h`, included, not copied) compiled for the CPU, prime by prime against an exact oracle; first it runs the GPU mode's start-up self-test with the kernel compiled for the CPU in the role of the device. |
-| `checks.py` | exact checks of the mathematics (C0-C10). |
+| `checks.py` | exact checks of the mathematics (C0-C7, C10). |
 | `fault_checks.sh`, `rmshim.c` | break the filter on purpose (floating-point faults, prime ranges, seven faults of the integer arithmetic) and count what each test reports. |
 | `repro/` | the fault guide for the floating-point filter of commit 327b04f (`repro.sh` builds that filter and compares every step with the transcripts in `repro/expected/`). |
 | `test_pdfilter` | Eric's old Linux binary.  It is truncated (4 MB of the ~29 MB its ELF header expects) and segfaults; use the build scripts. |
