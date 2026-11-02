@@ -1,4 +1,4 @@
-# Upstream's exact test against Definition "Passing" (pdfilter_chains.tex, Proposition "What the exact test computes"): builds
+# Upstream's exact test against Definition "Passing" (docs/whitepaper.tex, Proposition "What the exact test computes"): builds
 # test_poldisc.cpp with build-linux.sh, linked with upstream's polDiscTest_cpu.cpp and GMP, and runs every family of polynomials of
 # test_poldisc.cpp in parallel chunks.  Linux.
 #   UPSTREAM=<GetDecicsSrc> CAND=<candidates> HITS=<hits> bash poldisc_checks.sh      about 10.7 million polynomials
@@ -7,7 +7,7 @@
 #                                                                                     hits files, polynomials of S = {2,5}, are not used)
 # polDiscTest_cpu.cpp is compiled with -fwrapv, as the application compiles it.
 # UPSTREAM is upstream's source directory, with the patch applied (the patch changes only polDiscTest_cpu.cpp's conversions for a
-# 32-bit long, which do not matter on 64-bit Linux, but the document's line numbers are those of the patched file), CAND a file of
+# 32-bit long, which do not matter on 64-bit Linux), CAND a file of
 # captured candidates and HITS a file of results, one polynomial per line, leading coefficient first (Appendix "Reproducing the
 # tables").  Environment: OUT (default poldisc_build), JOBS (default: the number of CPUs), PARI as for build-linux.sh.
 # Exit status 1 if upstream and the definition disagree on a polynomial where upstream's int64 steps do not overflow, or the filter

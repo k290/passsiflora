@@ -1,5 +1,5 @@
 // test_tiny.cpp -- the compiled filter against an exact oracle on complete sets of polynomials at a tiny prime
-// (pdfilter_chains.tex, Section "The compiled code at tiny primes").  tiny_checks.sh builds src/pdfilter.f90 with one tiny
+// (docs/whitepaper.tex, Section 8, "The compiled filter on complete sets at tiny primes").  tiny_checks.sh builds src/pdfilter.f90 with one tiny
 // prime in its tables (the search constants QS_START ... changed by sed; nothing else) and runs this program in parallel.
 //
 // Usage: test_tiny Q KIND MODE START COUNT

@@ -9,7 +9,7 @@
 //   env   : OCL_LIB=<OpenCL library>  call its clGetPlatformIDs before the first testPolys, as nfGpuInit does in the application
 //           FEED_ALONE=1               one testPolys call (a batch of 1) per polynomial instead of one call for the whole file
 //           NF_VERIFY=1, NF_PDFDEBUG=1, NF_FORCE_BASE=1, NF_GENERAL_ALL=1: read by the application and the filter themselves
-// Linked with the application's own TgtMartinet.o, polDiscTest_cpu.o and nf_gpu_stub.o and the filter objects (see the guide).
+// Linked with the application's own TgtMartinet.o, polDiscTest_cpu.o and nf_gpu_stub.o and the filter objects (see repro.sh).
 #include <dlfcn.h>
 #include <cstdio>
 #include <cstdlib>

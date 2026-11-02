@@ -1,4 +1,4 @@
-// test_poldisc.cpp -- the link between the filter and the exact test (pdfilter_chains.tex, Proposition "What the exact test
+// test_poldisc.cpp -- the link between the filter and the exact test (docs/whitepaper.tex, Proposition "What the exact test
 // computes"): upstream's compiled polDiscTest_cpu against Definition "Passing" computed with PARI (poldisc, the primes of S
 // removed, issquare), on families of polynomials; and the filter against both.
 //   EXTRA_CXX=<GetDecicsSrc>/polDiscTest_cpu.cpp LIBS_EXTRA=-lgmp TEST=test_poldisc.cpp bash build-linux.sh

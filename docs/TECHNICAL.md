@@ -12,7 +12,7 @@ The value upstream tests differs from Disc(A) only by rational square factors
 (the content of B contributes c^10, the last sub-resultant step (B0/h)^(2k)), so the
 question is the same for Disc(A). This holds whenever upstream's first two sub-resultant
 iterations, which it does in int64 before switching to GMP, do not overflow; when they do,
-the number wraps around and upstream's result can be wrong (`pdfilter_Test/pdfilter_chains.tex`,
+the number wraps around and upstream's result can be wrong (`docs/whitepaper.tex`,
 Proposition "What the exact test computes", measured by `pdfilter_Test/poldisc_checks.sh`;
 see "The int64 numbers of the exact test" below). Take a prime q ≡ 1 (mod 4) such that every p in S
 is a quadratic residue mod q. If the polynomial passed, Disc(A) would be
@@ -45,7 +45,7 @@ only inside the proved limits of the arithmetic (q ≤ 8385 small, q ≤ 1,097,0
 q ≥ 11; any other usable prime is skipped with a line on stderr), and at the end checks the
 compiled arithmetic on known inputs; if that check fails it uses no prime, so every flag is
 1 and the exact test alone decides. The proofs (exactness, ranges, limits, the start-up
-check, the masked loop of the general path) are in `pdfilter_Test/pdfilter_chains.tex`.
+check, the masked loop of the general path) are in `docs/whitepaper.tex`.
 The CPU build contains an AVX2 copy (compiled with `-mavx2`; used when the CPU has AVX2
 and FMA) and a baseline (SSE2) copy and picks one at run time.
 
@@ -92,7 +92,7 @@ Passiflora's CPU code walks only the outer loops and queues a *node* per fixed
 (node, m2): the complete m1 loop, the bb4…bb9 bound tests in the original order, and an
 integer version of the filter above (unsigned 32-bit Montgomery arithmetic with R = 2^16,
 residues kept in [0, 2q)) with up to 24 small primes (14 for S = {2, 5}); it is exact like the CPU filter
-(`pdfilter_chains.tex`, Theorem E). It counts every
+(`docs/whitepaper.tex`, Theorem E). It counts every
 polynomial of the original enumeration (the application reports that number) and returns
 only the ~1 in 10^5 that survive the filter. The CPU then finishes those exactly as
 before: the Fortran filter with large primes, the GMP test, PARI's irreducibility test and

@@ -40,7 +40,7 @@ static bool isPrime(long long n)
 
 // The kernel's row for an odd prime q < 8192: q; 2^16, 2^32, 2^48, 2^64 mod q (the loading weights; 2^16 mod q is also R mod q,
 // the Montgomery one); (q-1)/2; qneg = -1/q mod 2^32 (the bits of an unsigned 32-bit value); negr = -R mod q
-// (pdfilter_chains.tex, Theorem E).
+// (docs/whitepaper.tex, Theorem E).
 static void primeRow(long long q, int row[8])
 {
   unsigned inv = (unsigned)q;                          // Newton: q*inv = 1 mod 2^k doubles k (q*q = 1 mod 8)
@@ -91,7 +91,7 @@ bool nfGpuRefSurvives(const long long *bb)
 
 // chi(Res(f, f')) for f = x^10 + c[1] x^9 + ... + c[10] over F_q: 1, -1, or 0 when the resultant vanishes; by Euclid with
 // inverses (the recursion Res(A, B) = (-1)^(ab) lc(B)^(a - deg R) Res(B, R), R = A mod B), not by the kernel's chain.  As
-// q = 1 (mod 4), it is chi(disc f), and the kernel must reject at q exactly when it is -1 (pdfilter_chains.tex, Theorem E).
+// q = 1 (mod 4), it is chi(disc f), and the kernel must reject at q exactly when it is -1 (docs/whitepaper.tex, Theorem E).
 static int exactChi(const long long *c, long long q)
 {
   long long A[11], B[11], R[11];

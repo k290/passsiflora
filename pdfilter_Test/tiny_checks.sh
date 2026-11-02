@@ -1,5 +1,5 @@
-# The compiled filter on complete sets of polynomials at tiny primes (pdfilter_chains.tex, Section "The compiled code at tiny
-# primes").  For each tiny prime q (= 1 mod 4, not dividing 10) two filters are built from ../src/pdfilter.f90 with build-linux.sh:
+# The compiled filter on complete sets of polynomials at tiny primes (docs/whitepaper.tex, Section 8, "The
+# compiled filter on complete sets at tiny primes").  For each tiny prime q (= 1 mod 4, not dividing 10) two filters are built from ../src/pdfilter.f90 with build-linux.sh:
 # one whose small-prime table holds only q (no large primes), one whose large-prime table holds only q (no small primes).  The
 # only change is the four search constants QS_START, QS_STOP, QL_START, QL_STOP (sed; the guard QMIN = 11 and every other line
 # are as shipped).  test_tiny.cpp then runs every polynomial of a set through the AVX2 and the baseline build, each with the

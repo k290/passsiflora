@@ -6,9 +6,9 @@
    multiples k*q under round-up, with separate operations and with a fused multiply-add for x*qi + MAGIC, and counts the
    results that differ from the lemma.  Stages 1-6 use single precision (q < 2^10, |x| <= 2^19), stages 7-30 double precision
    (q < 2^25, |x| < 2^51), as the filter does.
-   Then the rest of Lemma "Directed rounding in red" of pdfilter_chains.tex for random |x| <= 2^(p-3): (a) red(x) = r - q under round-up
+   Then the rest of the lemma on directed rounding in red for random |x| <= 2^(p-3): (a) red(x) = r - q under round-up
    when q does not divide x; (b) red(x) in [0, q], congruent to x, and = r for non-multiples, under round-down and toward zero.  Finally
-   Lemma "red in 80-bit registers": red evaluated in long double (the x87 format on x86-64 Linux), and the two-step load
+   red in 80-bit registers: red evaluated in long double (the x87 format on x86-64 Linux), and the two-step load
    red(red(hi)*s + lo) of load_block, against L_q (the symmetric residue of 2048*x modulo q, divided by 2048).  Exit status 1 on a difference.
      gcc -O0 -o signtest signtest.c -lm && ./signtest                                                                       */
 #include <stdio.h>

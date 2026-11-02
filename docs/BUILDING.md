@@ -33,8 +33,8 @@ cp ../passiflora/src/* GetDecicsSrc/
 * **gfortran** for `pdfilter.f90`.  Checked: GCC 15.2 (Ubuntu, WSL) and GCC 16.2 (MSYS2 MinGW-w64) with
   `pdfilter_Test/arith_checks.sh` (the compiled reductions against exact models, all three flag sets); GCC 15.2 also with
   `pdfilter_Test/tiny_checks.sh` (the whole filter on complete sets of polynomials at tiny primes; Linux only).  The filter relies on
-  gfortran reducing an out-of-range `int(x, kind)` modulo 2^k and on `shifta` being arithmetic (`pdfilter_chains.tex`,
-  Section 8.1); with another compiler or version run those two scripts first.  At run time `pdf_init` checks the compiled
+  gfortran reducing an out-of-range `int(x, kind)` modulo 2^k and on `shifta` being arithmetic (`docs/whitepaper.tex`,
+  Section 4); with another compiler or version run those two scripts first.  At run time `pdf_init` checks the compiled
   arithmetic on known inputs and switches the filter off (every polynomial goes to the exact test) if it disagrees.
 
 ## 3. Compile (Linux)

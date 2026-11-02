@@ -1,8 +1,8 @@
 # Changes to Eric's test, and why
 
 > Written for the floating-point filter (commit 327b04f): its line numbers and the fault counts below are of that version.  The integer
-> filter has the same algorithms and routing at different lines (`pdfilter_chains.tex`, Appendix A); its fault table, with the oracle test
-> `test_pdfilter_oracle.cpp`, is in `README.md` and in Section 13 of `pdfilter_chains.tex`.
+> filter has the same algorithms and routing at different lines (its proofs are in `docs/whitepaper.tex`); its fault table, with the oracle test
+> `test_pdfilter_oracle.cpp`, is in `README.md`.
 
 Eric's second `test_pdfilter.cpp` (f = g(x^2), g a random quintic) against `test_pdfilter_linux.cpp`; `git diff pdfilter_Test/test_pdfilter_linux.cpp`
 shows every line.  Numbers are valid polynomials wrongly rejected by a deliberately broken filter, per 1,000,000 polynomials, AVX2 / baseline build

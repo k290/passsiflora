@@ -1,6 +1,6 @@
 #!/bin/bash
-# repro.sh -- runs every step of the fault guide (the section "When the floating-point assumptions fail" of pdfilter_chains.tex)
-# on Linux (Ubuntu, or WSL), and compares what each step prints with the verbatim output in the guide (expected/<part>.txt).
+# repro.sh -- runs every step of the fault guide ("When the floating-point assumptions fail", for the floating-point filter of
+# commit 327b04f) on Linux (Ubuntu, or WSL), and compares what each step prints with the guide's verbatim output (expected/<part>.txt).
 #
 #   R=<this repository> W=<an empty work directory> bash repro.sh <part>...       exit status 1 if any output differs
 #

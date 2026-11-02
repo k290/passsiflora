@@ -44,7 +44,7 @@
 ! (mod those primes) continue with the six large primes.  All inner loops
 ! vectorise across polynomials (BLK lanes).
 !
-! Contract (pdfilter_chains.tex, Section "The interface contract"):
+! Contract (docs/whitepaper.tex, Section "The contract with the application"):
 !  * pdf_init(numP, pSet): pSet(1:numP) is the set S of primes that the exact
 !    test divides out (upstream's testPolys allows at most 3).  It chooses the
 !    filter primes.  Before the first call no prime is chosen: every flag is 1.
@@ -81,7 +81,7 @@ module PDF_MOD
   ! At most MAXS small and MAXQ large primes, 30 stages in all.  A 16-bit stage has twice the lanes per register of a
   ! 32-bit one and cheaper reductions, so the small primes do the work and the large ones see few polynomials.
   integer, parameter :: MAXQ = 6, MAXS = 24, BLK = 64
-  ! The limits the proofs need (pdfilter_chains.tex, Proposition "Every value is in range" and Theorem "The limits of the
+  ! The limits the proofs need (docs/whitepaper.tex, Proposition "Ranges" and Theorem "The limits of the
   ! whole filter"): QMIN <= q <= QS_MAX for a small prime, QMIN <= q <= QL_MAX for a large one.  pdf_init skips any other
   ! prime (function chosen).  pdf_init searches the usable primes below QS_START down to QS_STOP (exclusive), then below
   ! QL_START down to QL_STOP; these ranges lie inside the limits.
@@ -274,7 +274,7 @@ contains
   ! (x - m*q)/2^16 = hi(x) - hi(m*q) exactly (hi = 16-bit multiply-high, the
   ! low halves of x and m*q are equal).  It is congruent to a*b*2^-16 and lies
   ! in (-q, q) when |x| < 2^15*q: for all |a|, |b| < 2q if q < 2^13, and for the
-  ! values of the chains up to q = 8385 (pdfilter_chains.tex, Theorem "The
+  ! values of the chains up to q = 8385 (docs/whitepaper.tex, Theorem "The
   ! limits of the whole filter").  The truncations to 16 bits are conversions
   ! (gfortran reduces them modulo 2^16; checked at start-up by arith_ok), not
   ! overflows.
@@ -342,7 +342,7 @@ contains
     end select
   end function kat_val
 
-  ! Start-up check of the compiled arithmetic (pdfilter_chains.tex, Proposition "The start-up check").  For every chosen
+  ! Start-up check of the compiled arithmetic (docs/whitepaper.tex, Proposition "Start-up check").  For every chosen
   ! prime: mont (small primes), sredc and ldres (both, with the stored constants) and the 21-bit split, called
   ! elementally on arrays as in the chains, and the loads themselves (load_block_s or load_block: gather, split, ldres) on a
   ! block of the same coefficients, on extreme and pseudo-random inputs, against values computed with MODULO and exact

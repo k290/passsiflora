@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # checks.py -- exact-integer checks of the statements about resultants, discriminants and the two
-# Euclidean chains that are proved in pdfilter_chains.tex (Appendix B lists what is checked).
+# Euclidean chains that docs/whitepaper.tex proves (Sections 2-4).
 # Independent of chain_trace.cpp: own polynomial arithmetic, own models of chain_block and
 # chain_general, resultants as Sylvester determinants (a quoted standard result), checked against
 # the root definition for split polynomials.  Python 3 standard library only, fixed seed.
@@ -9,10 +9,9 @@
 #   quick      a tenth of the cases (a few seconds; the full run takes about a minute)
 #   --gp FILE  also write a PARI/GP script that compares 300 of the discriminants with poldisc():
 #              gp -q FILE < /dev/null   prints "gp: disc samples checked" and nothing else if all agree
-# Exit status 1 if any check fails.  Section C8 prints the numbers of the worked example (q = 41);
-# section C9 checks Section 10 of the document (zeroing the x^8 coefficient) with its own random generator;
-# section C10 checks Section 8.8 (the size limits of the integer arithmetic) with another one; C11 checks the source-line citations
-# and C12 the form of the ledger (python3 checks.py --cites / --ledger run one of them alone; see below).
+# Exit status 1 if any check fails.  Section C8 prints the numbers of a worked example (q = 41);
+# section C9 checks the statements about zeroing the x^8 coefficient (the route into chain_general) with its own random
+# generator; section C10 checks the size limits of the integer arithmetic (whitepaper, Section 4.4) with another one.
 import random, sys
 from math import comb
 
@@ -26,191 +25,6 @@ def check(cond, what):
         FAIL.append(what)
         if len(FAIL) < 20:
             print("FAILED:", what)
-
-# ---------- C11, defined here so that it can also run alone:
-#   python3 checks.py --cites [--upstream DIR]          only the citation check (C11)
-#   python3 checks.py --fix-cites [REV] [--upstream DIR] renumber the citations after a source edit: REV (default HEAD) is the
-#                                                        version the citations were last right for; then run --cites
-# pdfilter_chains.tex cites source lines as \Lc{file}{n}{anchor} and \Lcr{file}{n}{m}{anchor n}{anchor m}; an anchor is a text
-# that must occur on the cited line (BLANK: an empty line, RBRACE: a line "}").  The pasted listings (lstlisting with firstnumber)
-# must equal the cited range of the source.  DIR is a patched upstream GetDecicsSrc (for the citations of TgtMartinet.cpp).
-import os, re, subprocess, difflib
-CITE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CITE_TEX = os.path.join(CITE_ROOT, "pdfilter_Test", "pdfilter_chains.tex")
-CITE_FILES = {"F": "src/pdfilter.f90", "I": "src/chain_general.inc", "FP": "327b04f:src/pdfilter.f90",
-              "FPI": "327b04f:src/chain_general.inc", "TL": "pdfilter_Test/test_pdfilter_linux.cpp",
-              "TT": "pdfilter_Test/test_pdfilter_tschirnhaus.cpp", "CT": "pdfilter_Test/chain_trace.cpp",
-              "BL": "build/build-linux.sh", "BLFP": "327b04f:build/build-linux.sh", "OCL": "src/nf_gpu_opencl.cpp", "TGT": "upstream:TgtMartinet.cpp",
-              "PD": "upstream:polDiscTest_cpu.cpp", "K": "src/nf_kernel.h", "GC": "src/nf_gpu_common.cpp"}
-CITE_UPSTREAM = sys.argv[sys.argv.index("--upstream") + 1] if "--upstream" in sys.argv[1:-1] else os.environ.get("NF_UPSTREAM_SRC")
-RE_LC = re.compile(r"\\Lc\{(\w+)\}\{(\d+)\}\{([^{}]*)\}")
-RE_LCR = re.compile(r"\\Lcr\{(\w+)\}\{(\d+)\}\{(\d+)\}\{([^{}]*)\}\{([^{}]*)\}")
-RE_LST = re.compile(r"\\begin\{lstlisting\}\[style=fortran,firstnumber=(\d+),caption=\{\\code\{src/([^}]*)\}, lines (\d+)--(\d+):")
-
-def cite_source(key, rev=None):
-    spec = CITE_FILES[key]
-    try:
-        if spec.startswith("upstream:"):
-            if not CITE_UPSTREAM: return None
-            return open(os.path.join(CITE_UPSTREAM, spec[9:])).read().split("\n")
-        if ":" in spec or rev:
-            r, p = spec.split(":") if ":" in spec else (rev, spec)
-            out = subprocess.run(["git", "-C", CITE_ROOT, "show", f"{r}:{p}"], capture_output=True, text=True)
-            return out.stdout.split("\n") if out.returncode == 0 else None
-        return open(os.path.join(CITE_ROOT, spec)).read().split("\n")
-    except OSError:
-        return None
-
-def anchor_on(lines, n, a):
-    if not (1 <= n <= len(lines)): return False
-    t = lines[n - 1]
-    return t.strip() == "" if a == "BLANK" else t.strip() == "}" if a == "RBRACE" else a in t
-
-def listings(tex):
-    """(firstnumber, source key, caption first, caption last, body lines, start offset) of every pasted Fortran listing"""
-    out = []
-    for m in RE_LST.finditer(tex):
-        key = {"pdfilter.f90": "F", "chain\\_general.inc": "I"}[m.group(2)]
-        b0 = tex.index("\n", m.end()) + 1
-        body = tex[b0:tex.index("\\end{lstlisting}", b0)].rstrip("\n").split("\n")
-        out.append((int(m.group(1)), key, int(m.group(3)), int(m.group(4)), body, m.start()))
-    return out
-
-def check_cites():
-    tex = open(CITE_TEX, encoding="utf-8").read()
-    src = {k: cite_source(k) for k in CITE_FILES}
-    n1 = n2 = nl = 0; skipped = set()
-    for m in RE_LC.finditer(tex):
-        k, n, a = m.group(1), int(m.group(2)), m.group(3)
-        if src[k] is None: skipped.add(k); continue
-        n1 += 1; check(anchor_on(src[k], n, a), f"C11 citation {CITE_FILES[k]} line {n}: '{a}' is not on it")
-    for m in RE_LCR.finditer(tex):
-        k, n, e, a, b = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4), m.group(5)
-        if src[k] is None: skipped.add(k); continue
-        n2 += 1
-        check(n < e and anchor_on(src[k], n, a) and anchor_on(src[k], e, b), f"C11 citation {CITE_FILES[k]} lines {n}--{e}: anchors '{a}' / '{b}'")
-    for (first, k, c0, c1, body, _) in listings(tex):
-        nl += 1
-        check(c0 == first and c1 == first + len(body) - 1, f"C11 listing at line {first} of {CITE_FILES[k]}: caption {c0}--{c1}")
-        check(src[k][first - 1:first - 1 + len(body)] == body, f"C11 listing {CITE_FILES[k]} {c0}--{c1} differs from the source")
-    return n1, n2, nl, skipped
-
-def auto_anchor(line):
-    """the longest piece of the line without TeX-special characters, at most 48 characters"""
-    t = line.strip()
-    if not t: return "BLANK"
-    if t == "}": return "RBRACE"
-    best = max((s.strip() for s in re.split(r"[%#\\{}&~$^]", t)), key=len)
-    if len(best) > 48:
-        cut = best[:48]
-        best = (cut[:cut.rfind(" ")] if " " in cut[20:] else cut).strip()
-    return best
-
-def fix_cites(base):
-    tex = open(CITE_TEX, encoding="utf-8").read()
-    maps, new = {}, {}
-    for k, spec in CITE_FILES.items():
-        if ":" in spec: continue                       # a fixed commit, or the upstream source: never renumbered
-        old = open(os.path.join(base, spec)).read().split("\n") if os.path.isdir(base) else cite_source(k, base)
-        cur = cite_source(k)
-        if old is None or cur is None: continue
-        mp = {}
-        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, cur, autojunk=False).get_opcodes():
-            for d in range(i2 - i1):                   # equal lines map one to one; a rewritten block maps by position
-                mp[i1 + d + 1] = (j1 + min(d, max(j2 - j1 - 1, 0)) + 1, tag == "equal")
-        maps[k], new[k] = mp, cur
-    changed, review = [], []
-    def place(k, n, a):
-        """(new line number, anchor) for the old line n with anchor a"""
-        if k not in maps: return n, a
-        cand, same = maps[k].get(n, (n, False))
-        if anchor_on(new[k], cand, a): return cand, a
-        if not same and cand <= len(new[k]):        # the cited line itself was rewritten: new anchor, to be reviewed
-            a2 = auto_anchor(new[k][cand - 1])
-            review.append(f"{CITE_FILES[k]} line {n} -> {cand}: '{a}' -> '{a2}'")
-            return cand, a2
-        hits = [i + 1 for i in range(len(new[k])) if anchor_on(new[k], i + 1, a)]
-        if not hits: raise SystemExit(f"fix-cites: anchor '{a}' ({CITE_FILES[k]} line {n}) no longer occurs")
-        return min(hits, key=lambda h: abs(h - cand)), a
-    def one(m):
-        k, n, a = m.group(1), int(m.group(2)), m.group(3)
-        n2, a2 = place(k, n, a)
-        if n2 != n: changed.append((k, n, n2))
-        return f"\\Lc{{{k}}}{{{n2}}}{{{a2}}}"
-    def rng(m):
-        k, n, e, a, b = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4), m.group(5)
-        (n2, a2), (e2, b2) = place(k, n, a), place(k, e, b)
-        if (n2, e2) != (n, e): changed.append((k, f"{n}--{e}", f"{n2}--{e2}"))
-        return f"\\Lcr{{{k}}}{{{n2}}}{{{e2}}}{{{a2}}}{{{b2}}}"
-    tex = RE_LCR.sub(rng, RE_LC.sub(one, tex))
-    for (first, k, c0, c1, body, pos) in reversed(listings(tex)):
-        cur = new.get(k)
-        if cur is None: continue
-        hits = [i + 1 for i in range(len(cur) - len(body) + 1) if cur[i:i + len(body)] == body]
-        if len(hits) != 1: raise SystemExit(f"fix-cites: the listing {CITE_FILES[k]} {c0}--{c1} occurs {len(hits)} times in the source")
-        f2 = hits[0]
-        if f2 != first:
-            head = tex[pos:tex.index("\n", pos)]
-            head2 = head.replace(f"firstnumber={first},", f"firstnumber={f2},").replace(f"lines {c0}--{c1}:", f"lines {f2}--{f2 + len(body) - 1}:")
-            tex = tex[:pos] + head2 + tex[pos + len(head):]
-            changed.append((k, f"listing {c0}--{c1}", f"{f2}--{f2 + len(body) - 1}"))
-    open(CITE_TEX, "w", encoding="utf-8").write(tex)
-    print(f"fix-cites (base {base}): {len(changed)} citations renumbered")
-    for c in changed: print("  ", c)
-    for r in review: print("   REVIEW (the cited line was rewritten; does the text still mean it?):", r)
-
-# ---------- C12, the ledger (appendix "The ledger"):  python3 checks.py --ledger   prints it as text; every run checks its form:
-# four cells per row, a status macro of the legend in the second, no unfilled placeholder anywhere in the document.
-LEDGER_STATUS = {"\\stproved": "proved", "\\stquoted": "quoted", "\\stnum": "checked numerically", "\\streport": "reported",
-                 "\\stassume": "named assumption"}
-PLACEHOLDERS = ("POLDISCLEDGER", "TINYLEDGER", "WULEDGER", "GPULEDGER", "POLDISCROWS", "POLDISCTEXT", "GPUSHIM", "TINYROWS",
-                "TINYTEXT", "GPURESULTS", "CPUSPEED")   # the markers used while the document was written, before the runs had finished
-
-def ledger_rows():
-    tex = open(CITE_TEX, encoding="utf-8").read()
-    body = tex[tex.index("% LEDGER-BEGIN") + len("% LEDGER-BEGIN"):tex.index("% LEDGER-END")]
-    return [[c.strip() for c in re.split(r"(?<!\\)&", r)] for r in body.split("\\\\\n") if r.strip()]
-
-def detex(s):
-    for m, w in LEDGER_STATUS.items(): s = s.replace(m + "{}", "[" + w + "]").replace(m, "[" + w + "]")
-    s = re.sub(r"\\(?:ref|label)\{([^}]*)\}", r"\1", s)
-    s = re.sub(r"\\cite(?:\[([^]]*)\])?\{([^}]*)\}", lambda m: "[" + m.group(2) + (", " + m.group(1) if m.group(1) else "") + "]", s)
-    for _ in range(3): s = re.sub(r"\\(?:code|textbf|emph|texttt)\{([^{}]*)\}", r"\1", s)
-    s = s.replace("~", " ").replace("\\_", "_").replace("{,}", ",").replace("\\ ", " ").replace("\\,", " ")
-    s = re.sub(r"\\(le|ge|equiv|cdot|nmid|pmod|bmod|dots|chi|mid)(?![a-zA-Z])", lambda m: {"le": "<=", "ge": ">=", "equiv": "=", "cdot": "*", "dots": "..."}.get(m.group(1), m.group(1)), s)
-    s = re.sub(r"\\[a-zA-Z]+", "", s)
-    return re.sub(r"\s+", " ", s.replace("$", "").replace("{", "").replace("}", "")).strip()
-
-def check_ledger():
-    rows = ledger_rows()
-    for i, r in enumerate(rows):
-        check(len(r) == 4, f"C12 ledger row {i + 1}: {len(r)} cells")
-        check(any(m in r[1] for m in LEDGER_STATUS), f"C12 ledger row {i + 1}: no status macro in '{r[1]}'")
-    tex = open(CITE_TEX, encoding="utf-8").read()
-    for p in PLACEHOLDERS:
-        check(re.search(r"\b" + p + r"\b", tex) is None, f"C12 placeholder {p} left in the document")
-    count = {}
-    for r in rows:
-        for m, w in LEDGER_STATUS.items():
-            if m in r[1]: count[w] = count.get(w, 0) + 1
-    return rows, count
-
-if "--ledger" in sys.argv[1:]:
-    rows, count = check_ledger()
-    for i, r in enumerate(rows):
-        print(f"[{i + 1}] {detex(r[0])}\n      status:   {detex(r[1])}\n      checked:  {detex(r[2])}\n      rests on: {detex(r[3])}")
-    print(f"C12 ledger: {len(rows)} rows; " + ", ".join(f"{w} {n}" for w, n in sorted(count.items())))
-    print("FAILURES:", len(FAIL))
-    sys.exit(1 if FAIL else 0)
-
-if "--fix-cites" in sys.argv[1:]:
-    i = sys.argv.index("--fix-cites")
-    fix_cites(sys.argv[i + 1] if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("-") else "HEAD")
-if "--cites" in sys.argv[1:] or "--fix-cites" in sys.argv[1:]:
-    c1, c2, cl, sk = check_cites()
-    print(f"C11 citations: {c1} lines and {c2} ranges with their anchors, {cl} listings; files not available: {sorted(sk) or 'none'}")
-    print("FAILURES:", len(FAIL))
-    sys.exit(1 if FAIL else 0)
 
 # ---------- polynomials: ascending coefficient lists, trimmed (zero polynomial = [])
 def trim(p):
@@ -343,7 +157,7 @@ def res_int(V, P):
     if deg(V) + deg(P) == 0: return 1
     return det_int(sylvester(V, P))
 def res_rec(V, P, q):
-    """The recursion of the lemma "The resultant is computed inside F" (Section 3)."""
+    """The resultant by recursion on degrees: the rules (R1)-(R3) of the whitepaper, Section 2."""
     V = red(V, q); P = red(P, q)
     if deg(V) == 0: return powm(V[0], deg(P), q)
     if deg(P) == 0: return powm(P[0], deg(V), q)
@@ -402,7 +216,7 @@ for q in PR1 + PR3:
         check(res(V, P, q) == rootdef, f"C0 root definition q={q} V={V} P={P}")
         check(res_rec(V, P, q) == rootdef, f"C0 recursion q={q}")
         cnt += 1
-print(f"C0 Res = det Syl = root definition (split V) and = the recursion of Section 3: {cnt} cases")
+print(f"C0 Res = det Syl = root definition (split V) and = the recursion (R1)-(R3): {cnt} cases")
 
 # ---------- C1: swap, constant cases, P mod V, multiplicativity, L1
 cnt = cntz = 0
@@ -695,7 +509,7 @@ while len(large) < 6 and q > 2 ** 24:
 FP = small + large
 print("filter primes: small", small, "large", large[:3], "...", large[-1], "count", len(FP), "all 1 or 9 mod 40:", all(p % 40 in (1, 9) for p in FP))
 # The sets S of the project's searches (decic fields with S = {2,5}; finished ones with {2,11} and {5,11}; batch status pages
-# of NumberFields@home, read 2026-10-30): the small range has at least the 24 primes the filter takes (Section "The prime split").
+# of NumberFields@home, read 2026-10-30): the small range has at least the 24 primes the filter takes (whitepaper, Section 9, "Why 24+6").
 for S in ((2, 5), (2, 11), (5, 11)):
     use = lambda q: q % 4 == 1 and is_prime(q) and all(pow(p, (q - 1) // 2, q) == 1 for p in S)
     u13 = [q for q in range(2 ** 13 - 1, 256, -2) if use(q)]
@@ -838,13 +652,13 @@ for b0 in (8, -14, 5):
 print("squares mod 41:", sorted({x * x % 41 for x in range(1, 41)}))
 print("-disc(f2) = 27*2^4 - 256*8^3 =", 27 * 2 ** 4 - 256 * 8 ** 3)
 
-# ---------- C9: Section 10, zeroing the x^8 coefficient
+# ---------- C9: zeroing the x^8 coefficient
 # Its own random generator, so the counts of C0-C8 do not change; the same cases in quick and full runs.
-# The draws follow the order used for the numbers quoted in Section 10 of pdfilter_chains.tex.
-print("\n===== C9: zeroing the x^8 coefficient (Section 10) =====")
+# The draws follow a fixed order, so that the numbers printed stay the same from run to run.
+print("\n===== C9: zeroing the x^8 coefficient =====")
 RNG = random.Random(8)        # rand_poly() and rand_pair() use this name
 def x8_deriv(f, q): return red([k * f[k] for k in range(1, len(f))], q)
-def x8_defect(f):              # n f - x f' = sum (n-k) a_k x^k  (Lemma "the Euler defect")
+def x8_defect(f):              # n f - x f' = sum (n-k) a_k x^k  (the Euler defect)
     n = deg(f); return trim([(n - k) * f[k] for k in range(n + 1)])
 def x8_remseq(f, q):
     r = [red(f, q), x8_deriv(f, q)]
@@ -912,7 +726,7 @@ print("C9.2 parity of the remainders and of the elementary steps:", cnt, "even p
 
 # C9.3 degree sequences of the generator's polynomials, and accidental failures of later checks (observations, not theorems)
 for q in (761, 41):
-    RNG.random()               # one draw, kept so that the counts quoted in Section 10 stay reproducible
+    RNG.random()               # one draw, kept so that the counts printed stay reproducible
     for label, c4z, shiftit in (("c4=0 unshifted", True, False), ("c4=0 shifted", True, True), ("c4 random, shifted", None, True)):
         rows = []; later = 0; firstok = 0
         for _ in range(3000):
@@ -1013,7 +827,7 @@ for s in (1, 7, 63, 64, 65, 127, 255, 1000):
     P = sum(Fraction(comb(s, k)) * p**k * (1 - p)**(s - k) for k in range(s + 1) if 2 * k > s)
     print(f"C9.7 s = {s:5d}: P(Bin(s, {float(p):.4f}) > s/2) = {float(P):.3g}")
 
-# C9.8 Tschirnhaus transforms of h = H(x^r) by g of degree d: pi = 0 when 2d < r (Proposition "Tschirnhaus transforms").
+# C9.8 Tschirnhaus transforms of h = H(x^r) by g of degree d: pi = 0 when 2d < r.
 # Power sums of h by Newton's identities (exact integers); then p1(f) = sum g_j p_j, p2(f) = sum g_j g_k p_(j+k), pi = p1^2 - n p2.
 def x8_powersums(h, K):
     n = deg(h); p = [n]
@@ -1047,8 +861,8 @@ for _ in range(2000):
 print(f"C9.8 Tschirnhaus: seed power sums, the 192 substitutions and x^3+x^2+1 checked; {zero} random (h = H(x^r), 2d < r) with pi = 0, "
       f"and pi != 0 in {nonzero} of {2000 - zero} cases with 2d >= r")
 
-# ---------- C10: Section 8.8, the size limits of the integer arithmetic (own random generator; C0-C9 output unchanged)
-print("\n===== C10: size limits of the integer arithmetic (Section 8.8) =====")
+# ---------- C10: the size limits of the integer arithmetic (whitepaper, Section 4.4) (own random generator; C0-C9 output unchanged)
+print("\n===== C10: size limits of the integer arithmetic =====")
 RNG10 = random.Random(20261026)
 
 def s_k(v, k):
@@ -1056,7 +870,7 @@ def s_k(v, k):
     return v - (1 << k) if v >= 1 << (k - 1) else v
 
 def mred(x, q, k):
-    """signed Montgomery reduction with R = 2^k as defined in Lemma 8.1: m = s_k(x q'), u = (x - m q) / R"""
+    """signed Montgomery reduction with R = 2^k as in the whitepaper, Lemma "Montgomery reduction": m = s_k(x q'), u = (x - m q) / R"""
     R = 1 << k
     m = s_k(x * pow(q, -1, R), k)
     assert (x - m * q) % R == 0
@@ -1070,7 +884,7 @@ def mont16(a, b, q):
     h1 = s_k(x >> 16, 16); h2 = s_k((m * q) >> 16, 16)
     return s_k(h1 - h2, 16)
 
-# C10.1 the characterisation (Lemma "When the result leaves (-q,q)", Section 8.2): u >= q iff x = (R+m)q + Rt (t >= 0); every (m', t) gives u = q + t; same for u <= -q
+# C10.1 when the result leaves (-q,q): u >= q iff x = (R+m)q + Rt (t >= 0); every (m', t) gives u = q + t; same for u <= -q
 cnt = 0
 for k in (16, 32):
     R = 1 << k
@@ -1127,7 +941,7 @@ check(clean == list(range(8193, 8240, 2)) + [8243, 8247, 8251, 8253, 8255, 8257,
 check(min(q for q in range(8193, 8301, 2) if q not in clean) == 8241, "C10.2 first failing odd q = 8241")
 print(f"C10.2 mont: counterexample at q = 8241 replayed; odd q in [8193, 8300] without a counterexample: {len(clean)} (8193..8239, 8243, 8247, 8251..8259)")
 
-# C10.3 sredc on differences (Lemma "Where sredc can fail on a difference", Section 8.8): the reduction, the bound 2(delta-1)^2 >= 2^30, and the complete search of the remaining range
+# C10.3 sredc on differences, where it can fail: the reduction, the bound 2(delta-1)^2 >= 2^30, and the complete search of the remaining range
 def sredc_fail_search(delta, neg=False):
     """all solutions of U + V + 2 + 4 t delta = L q, mu = 2 delta - 4 - U + L - 4t >= (1 if neg else 0), V = ij + i'j', i+j+i'+j' = U"""
     q = (1 << 30) + delta
@@ -1184,7 +998,7 @@ print(f"C10.3 sredc: no failure for odd q = 2^30 + delta, delta <= 23171 (bound)
       f"first at delta = 23279: a,b,c,d = {a}, {b}, {c}, {dd}, sredc = q + {u - q}; first prime delta = 23293 (= 1 mod 4), "
       f"first usable 23377; {len(failing)} of the {len(range(23279, 23379, 2))} odd delta in [23279, 23377] fail; 4 counterexamples replayed")
 
-# C10.4 the bound propagation of Section 8.8 (Theorem "The limits of the whole filter"): small stage for every odd q <= 9001, large stage at its limit
+# C10.4 the bound propagation (whitepaper, Lemma "Bound propagation" and Theorem "The limits of the whole filter"): small stage for every odd q <= 9001, large stage at its limit
 def red_bound(X, q, R): return (X + q * (R // 2)) // R
 def load_bound(q): return red_bound(2 * ((1 << 21) - 1) * (q - 1) + (1 << 21) * (q - 1), q, 1 << 32)
 def bounds_ok(q, small):
@@ -1242,16 +1056,6 @@ lo = max(qq for qq in range(1676704560, 1676704570) if 2 * (qq - 1) ** 2 + (1 <<
 check(lo == 1676704566, "C10.5 sredc: no 64-bit overflow for q <= 1676704566")
 print(f"C10.5 max - min of mont over |a|,|b| <= 2q-1: {sum(e1)} at q = 12799, {sum(e2)} at q = 12801 (16-bit overflow of a "
       f"difference from 32768); sredc stays within 64 bits for q <= {lo}")
-
-# ---------- C11: the source-line citations and the pasted listings of pdfilter_chains.tex (the functions are at the top)
-print("\n===== C11: source-line citations of the document =====")
-c1, c2, cl, sk = check_cites()
-print(f"C11 citations: {c1} lines and {c2} ranges with their anchors, {cl} listings; files not available: {sorted(sk) or 'none'}")
-
-# ---------- C12: the ledger (the functions are at the top; --ledger prints it)
-print("\n===== C12: the ledger of the document =====")
-rows, count = check_ledger()
-print(f"C12 ledger: {len(rows)} rows; " + ", ".join(f"{w} {n}" for w, n in sorted(count.items())))
 
 print("\nFAILURES:", len(FAIL))
 sys.exit(1 if FAIL else 0)

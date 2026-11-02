@@ -31,7 +31,7 @@ NF_INLINE i64 d2l(double x)
   return (i64)x;
 }
 
-// The filter is integer-only (pdfilter_chains.tex, Theorem E): unsigned 32-bit arithmetic, which wraps modulo 2^32 by the definition
+// The filter is integer-only (docs/whitepaper.tex, Theorem E): unsigned 32-bit arithmetic, which wraps modulo 2^32 by the definition
 // of OpenCL C and CUDA, for an odd prime q < 8192 (the table's primes are below 8192).  Residues are kept in [0, 2q): a value is 0 mod q
 // exactly when it is 0 or q.  Montgomery reduction with R = 2^16: for 0 <= t < 8q^2, m = t*qneg mod 2^16 (qneg = -1/q mod 2^32, whose
 // low 16 bits are -1/q mod 2^16) makes t + m*q (< 2^30, no wrap) divisible by 2^16, and (t + m*q) / 2^16 < t/2^16 + q < 2q is
