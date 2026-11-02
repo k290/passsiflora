@@ -13,8 +13,8 @@ and which other options were measured.
 * **The source says it** where a reader needs it.  There is a comment above upstream's first int64 iteration in
   `polDiscTest_cpu.cpp`, added through the patch, and a comment at both calls of the pre-filter (`testPolys`, `nfGpuFlushBatch` in
   `TgtMartinet.cpp`).
-* **The documents say it.**  The whitepaper now names the assumption in Section 1 ("The one assumption about the data") as well as in
-  Section 3, the contract and the ledger.  `docs/TECHNICAL.md` has a short subsection on it.
+* **The documents say it.**  The whitepaper names the assumption in Section 1 ("One assumption about the data") as well as in
+  Section 6 ("What the exact test of GetDecics computes"), the contract and the ledger.  `docs/TECHNICAL.md` has a short subsection on it.
 * **`-fwrapv`** for `polDiscTest_cpu.cpp` in every build, and in `poldisc_checks.sh`.  An overflow is then defined behaviour: it
   wraps modulo 2^64, as it does in practice anyway.  It is a compile flag, not code, and it changed no flag on 319,488 polynomials,
   143,411 of which overflow.
