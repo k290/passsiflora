@@ -5,9 +5,7 @@ diff -U0 -r a/GetDecicsSrc/GetDecics.cpp b/GetDecicsSrc/GetDecics.cpp
 +extern int nfArgc;
 +extern char **nfArgv;
 +
-@@ -125,0 +129 @@
-+  fprintf(stderr, "Passiflora - Coded By Alperen Yavuz - https://github.com/alplix/passiflora\n");  fflush(stderr);
-@@ -135,0 +140,2 @@
+@@ -135,0 +139,2 @@
 +
 +  nfArgc = argc;  nfArgv = argv;
 diff -U0 -r a/GetDecicsSrc/TgtMartinet.cpp b/GetDecicsSrc/TgtMartinet.cpp

@@ -535,7 +535,10 @@ point carries it in its name (\code{nf\_enum\_t2}), and the MUSA library reports
 an old fat binary stops at start-up; a MUSA program refuses an old library and runs on the CPU; an old program with a new library stops \stnum.  After any change of
 the kernel the CUDA fat binary and the MUSA library must be rebuilt.
 
-\paragraph{Run-time checks on the device.}  At start-up every back end runs a self-test kernel of the same source once: \code{redc}, the loading, the verdict at
+\paragraph{Run-time checks on the device.}  The kernel was tested on one card, an NVIDIA GTX~1650 (Section~\ref{sec:evidence}).  Under OpenCL its source is
+compiled at start-up by the graphics driver of each machine, and the CUDA and MUSA kernels run on cards the tests did not use, so the code a device runs has in
+general not been tested.  Unlike the CPU's start-up check (Proposition~\ref{prop:kat}), which stands in for tests of the release builds, these checks remain
+necessary however many builds are tested.  At start-up every back end runs a self-test kernel of the same source once: \code{redc}, the loading, the verdict at
 every table prime for $240$ polynomials and the full filter, $7{,}920$ values for $S=\{2,5\}$, which the host computes without the kernel's code (exact arithmetic
 modulo $q$, the symbol from the resultant).  On a difference, or with device code that has no self-test, the task runs on the CPU.  In the window at the start of a
 task, where CPU loops run next to the GPU, the program compares polynomial counts; with \code{NF\_GPUCHECK=1} the CPU also applies the kernel's filter, compiled for

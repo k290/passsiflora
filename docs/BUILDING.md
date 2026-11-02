@@ -15,7 +15,7 @@ git checkout 638ca4e                        # the commit Passiflora was built fr
 git sparse-checkout init --cone
 git sparse-checkout set GetDecicsSrc Test Pari/pari-2.8-1711-ge5c317c
 git checkout
-patch -p1 < ../passiflora/patches/passiflora.patch   # changes TgtMartinet.cpp/.h and GetDecics.cpp
+patch -p1 < ../passiflora/patches/passiflora.patch   # changes TgtMartinet.cpp/.h, GetDecics.cpp and polDiscTest_cpu.cpp
 cp ../passiflora/src/* GetDecicsSrc/
 ```
 
