@@ -51,7 +51,7 @@
 \begin{center}
 {\LARGE An exact integer pre-filter for the NumberFields@home discriminant test}\\[8pt]
 {\large The Passiflora polDisc pre-filter: what it computes, why it is correct, and how that was checked}\\[6pt]
-2 November 2026
+3 November 2026
 \end{center}
 
 \begin{abstract}
@@ -63,8 +63,9 @@ reduction on the CPU, unsigned Montgomery reduction on the GPU) and proves that 
 independently of the floating-point environment.  It states the contract between the filter and the application and reports the evidence: an exhaustive test of
 the compiled filter on $25.5$ billion polynomials at tiny primes, an exact oracle with deliberate faults, a differential test of GetDecics' own exact test, the
 $31$ test work units in every build, and the GPU kernel on the CPU and on a device.  It also proves what GetDecics' exact test computes, under one condition on the
-data that the search regions are designed to meet: the test's first $64$-bit steps do not overflow.  Every result carries its status: proved, checked
-numerically, quoted, or assumed.
+data that the search regions are designed to meet: the test's first $64$-bit steps do not overflow.  The integer filter is also faster than the floating-point
+filter it replaces: in the application the CPU filter with the exact test behind it takes $4$ to $58\%$ less time, depending on the work unit and the instruction
+set, and the GPU kernel $9$ to $12\%$ less device time.  Every result carries its status: proved, checked numerically, quoted, or assumed.
 \end{abstract}
 
 \tableofcontents
@@ -101,8 +102,9 @@ environment of a volunteer's machine cannot be proved correct for the program th
 and proves them exact over $\Fq$ (Theorems A, B, C).  Section~\ref{sec:integer} proves that the integer program computes exactly those decisions, for every input
 (Theorem D), and derives the size limits of its primes.  Section~\ref{sec:gpu} does the same for the GPU kernel (Theorem E).  Section~\ref{sec:poldisc} proves
 what GetDecics' exact test computes.  Section~\ref{sec:contract} states the contract with the application, Section~\ref{sec:evidence} the evidence, and
-Section~\ref{sec:speed} the performance.  Section~\ref{sec:ledger} lists what everything rests on.  Each result is marked \stproved, \stnum (by a complete or
-stated finite computation, or by tests), \stquoted, \streport or \stassume.
+Section~\ref{sec:speed} the performance.  Section~\ref{sec:ledger} lists what everything rests on and what is still open.  Appendix~\ref{app:reproduce} gives the
+commands that reproduce the checks, and Appendix~\ref{app:stack} a remedy, not in the patch, for a speed effect that only the Windows programs show.  Each result
+is marked \stproved, \stnum (by a complete or stated finite computation, or by tests), \stquoted, \streport or \stassume.
 
 \paragraph{One assumption about the data.}  Everything is proved for every input except one link: that GetDecics' exact test computes the definition of
 passing.  It does so only while its first two iterations, which it runs in $64$-bit integers without overflow checks, stay in range: hypothesis (H) of
@@ -457,7 +459,8 @@ every odd $q\le9001$ and around the large limit.
 
 \paragraph{The guard.}  \code{pdf\_init} chooses a usable prime only inside $[11,8385]$ (small) or $[11,1{,}097{,}010{,}265]$ (large), and writes a line on standard error
 for any it skips.  The shipped primes are below $2^{13}$ and $2^{25}$, far inside these limits; the guard ensures that no future change of the prime search can
-leave the proved region silently.
+leave the proved region silently.  The repository's \code{checks.py} compares the guard's constants with the limits it computes, so a change of the guard itself
+fails there until the limits are proved anew.
 
 \paragraph{How sharp the limits are} \stnum.  The limits are those of the worst case, in which every reduction errs by the largest amount in the unfavourable
 direction.  One iteration of \code{chain\_general} then turns a bound $b$ into about $2b^2/R+q$ at a small stage and $2b^2/R+q/2$ at a large one, which has a fixed
@@ -767,6 +770,13 @@ failure, on fewer polynomials than for $\{2,5\}$.
 %======================================================================
 \section{Performance}\label{sec:speed}
 
+The integer filter replaced the floating-point one for exactness, not for speed, so this section first asks whether the change costs speed.  It does not: the
+integer filter is faster everywhere, by $4$ to $20\%$ on the work units where almost every polynomial takes \code{chain\_block}, by $48$ to $58\%$ on one where every polynomial takes
+\code{chain\_general}, and by $9$ to $12\%$ in device time on the GPU.  Section~\ref{sec:timings} gives the timings in the application and shows where the CPU
+filter's time goes, and what of the gain belongs to the arithmetic; Section~\ref{sec:split} shows that the division of the CPU filter's $30$ stages between small
+and large primes is as good as any.  All results are measurements \stnum on one machine, a laptop with an Intel i5-12500H and an NVIDIA GTX~1650; the CPU timings
+were made on Linux (WSL2) unless stated.
+
 \subsection{Timings}\label{sec:timings}
 
 \paragraph{CPU} \stnum.  Table~\ref{tab:speed} gives the application's own timing split (\code{NF\_PROFILE}) over the first $60{,}006{,}400$ polynomials of three
@@ -795,16 +805,54 @@ work unit & build & floating point & Barrett & $6+24$ primes & $6+24$ primes & $
 \end{tabular}
 \end{table}
 
-\emph{Loading.}  With scalar loads the small-prime stages gathered three arrays of $21$-bit pieces through the block's indices, a loop the compiler does not
-vectorise; cycle counters in the application showed these loads ($114$ cycles per polynomial on \code{sf5}, against $61$ in the floating-point filter) to account for
-the whole gap with AVX2.  The vectorised loads copy each polynomial's ten coefficients into a block buffer and split and reduce them on contiguous lanes ($44$ cycles).
-The arithmetic and the compiled chains are the same in both.  \emph{The prime split.}  With $24$ small primes almost no polynomial reaches the large stages, which cost
-about twice as much as in the floating-point filter ($0.4$ instead of $30.7$ cycles per polynomial there, $6.2$ more in the small stages, the filter $8.6\%$ faster);
+The resulting filter is faster than the floating-point one in every row of Table~\ref{tab:speed}: by $14\%$ and $4\%$ with AVX2 on \code{sf5} and \code{sf3} (the
+$4\%$ is less than the spread of the runs, $5$--$31\%$ between the fastest and the slowest run of one filter), by $19$--$20\%$ with the baseline build, and by
+$48$--$58\%$ on \code{sf4}.  Barrett reduction is the slowest throughout: AVX2 has no $64$-bit vector multiplication, and a $32$-bit lane holds half as many residues
+per register as the $16$-bit lanes of the Montgomery stage.  Timings of different series differ by up to about $10\%$, so only filters of one series are compared.
+
+\begin{table}[ht]
+\centering\footnotesize\setlength{\tabcolsep}{4pt}
+\caption{Where the filter's time goes: time-stamp-counter ticks (``cycles'') per polynomial in each part of \code{pdf\_filter}, AVX2 build, \code{sf5}, the first
+$20{,}008{,}960$ polynomials in the application, median of three runs for each part (so the parts add up only approximately).  The counters sit around every load,
+every chain call, the split of the coefficients in advance and the whole filter, in instrumented copies of the filters.  Two series, the column ``vectorised loads,
+$6+24$'' in both, which shows how far the series differ.  Floating point: \code{327b04f}; scalar loads: \code{27d917f}; $24+6$: \code{4094af4}; the vectorised loads
+with $6+24$ primes were not committed (on 28 October an earlier copy of the same loads, which the start-up check did not yet run).}\label{tab:cycles}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+& \multicolumn{3}{c}{28 October 2026} & \multicolumn{2}{c}{29 October 2026} \\ \cmidrule(lr){2-4}\cmidrule(l){5-6}
+& floating point & \multicolumn{4}{c}{Montgomery} \\ \cmidrule(l){3-6}
+& & scalar loads & vectorised loads & vectorised loads & vectorised loads \\
+part & $6+24$ & $6+24$ & $6+24$ & $6+24$ & $24+6$ \\ \midrule
+split of every coefficient in advance & $53.6$  & $43.6$  & $0.4$   & $0.3$   & $0.3$ \\
+small stages: loads                   & $61.3$  & $113.7$ & $103.7$ & $93.1$  & $95.9$ \\
+small stages: \code{chain\_block}     & $130.6$ & $122.4$ & $121.0$ & $116.4$ & $119.7$ \\
+small stages: \code{chain\_general}   & $19.8$  & $8.2$   & $8.2$   & $7.5$   & $7.6$ \\
+large stages (loads and chains)       & $16.0$  & $32.7$  & $32.7$  & $30.7$  & $0.4$ \\
+rest of \code{pdf\_filter}            & $37.5$  & $43.2$  & $42.6$  & $39.7$  & $38.5$ \\ \midrule
+whole filter                          & $318.9$ & $363.9$ & $308.6$ & $287.3$ & $262.5$ \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\emph{Where the time goes} \stnum.  Table~\ref{tab:cycles} divides the filter's time on \code{sf5} into its parts.  The first Montgomery filter was $45$ cycles per
+polynomial slower than the floating-point one, and not because of its arithmetic: the chains of the small stages, where almost all the work is, were already $20$
+cycles cheaper ($131$ against $150$).  It lost $42$ cycles in loading, where it gathered three arrays of $21$-bit pieces through the block's indices, a loop the
+compiler does not vectorise ($114$ cycles, against $61$), after splitting every coefficient of the call into these pieces in advance ($44$, against $54$ for the
+two doubles of the floating-point filter); $17$ in the large stages, which cost twice as much as in the floating-point filter ($33$ against $16$: AVX2 has no
+$64$-bit vector multiplication, so the large primes need $64$-bit products of $32$-bit lanes); and $6$ in the rest of the filter.  \emph{The vectorised loads} copy
+each polynomial's ten coefficients into a block buffer and split and reduce them on contiguous lanes, so the split in advance is gone: $104$ cycles for loading
+instead of $114+44$, and the whole filter $55$ cycles faster, with the arithmetic and the compiled chains unchanged.  \emph{The prime split}: with $24$ small
+primes almost no polynomial reaches the large stages ($0.4$ instead of $30.7$ cycles), for $6.2$ more in the small stages, and the filter is $8.6\%$ faster;
 Section~\ref{sec:split} shows why $24+6$ is as good as any split.
-The resulting filter is faster than the floating-point one in every row: by $14\%$ and $4\%$ with AVX2 on \code{sf5} and \code{sf3} (the $4\%$ is less than the
-spread of the runs, $5$--$31\%$ between the fastest and the slowest run of one filter), by $19$--$20\%$ with the baseline build, and by $48$--$58\%$ on \code{sf4}.
-Barrett reduction is the slowest throughout: AVX2 has no $64$-bit vector multiplication, and a $32$-bit lane holds half as many residues per register as the $16$-bit
-lanes of the Montgomery stage.  Timings of different series differ by up to about $10\%$, so only filters of one series are compared.
+
+\emph{What the floating-point filter could share.}  Neither step changes the arithmetic, so on \code{sf5} and \code{sf3} part of the lead is not the integer
+arithmetic's.  The floating-point filter has the same loading structure (a split in advance, $54$ cycles, then a gather through the block's indices, $61$), and its
+loads could be rebuilt the same way; but AVX2 has no vector conversion from $64$-bit integers to doubles, so a split inside the loads would first have to cut each
+coefficient into pieces of at most $32$ bits, as the integer filter does.  This was not tried, and what it would save is not known.  It would gain less from the
+prime split.  Its small stage runs in single precision, and its error argument covers only primes below $2^{10}$, of which $S=\{2,5\}$ has $14$ usable ones (more
+would need a new bound); and its large stages cost $16$ cycles, half as much as the Montgomery ones, so a split could save at most these $16$ cycles ($5\%$), less
+what the extra small stages cost.  What belongs to the integer arithmetic is the cheaper chains of the small stages and, on \code{sf4}, of \code{chain\_general},
+where the first Montgomery filter, with scalar loads and $6+24$ primes, was already $36\%$ (AVX2) and $49\%$ (baseline) faster than the floating-point one; against
+it stand the dearer large stages.
 
 \paragraph{GPU} \stnum.  Table~\ref{tab:gpuspeed} gives one series of the kernel in four versions: the floating-point kernel, and the integer kernel in three
 steps, each with one change more than the step before (the integer arithmetic with $14$ primes below $2^{10}$; the table of $24$ primes below $2^{13}$; the start-up
@@ -891,7 +939,8 @@ work unit & time & floating point & integer \\ \midrule
 \subsection{The prime split}\label{sec:split}
 
 The CPU filter can divide its stages between small primes ($16$-bit lanes) and large primes ($64$-bit products) in any proportion; it uses $24$ small and six large,
-written $24+6$.  This section gives a model of the cost, proves which orders and splits the model favours, and measures it.
+written $24+6$.  This section gives a model of the cost, proves which orders and splits the model favours, and measures it, stage by stage and in the
+application.
 
 \paragraph{Which primes there are} \stnum.  The batch status pages of NumberFields@home (read on 30~October~2026) list seven searches for decic fields, all with
 $S=\{2,5\}$; earlier, smaller searches used $S=\{2,11\}$ and $\{5,11\}$.  For these three sets the rule of \code{pdf\_init} (Proposition~\ref{prop:rule}) leaves
@@ -1012,9 +1061,74 @@ $17.9$ and $15.1$ on \code{sf5} (AVX2, baseline; the model's best $T$ is $18$ an
 every unit and build $T=30$ costs at most $0.10\%$ more than the model's best $T$; the measured totals for $16$ to $40$ small stages agree within the scatter, while
 $12$ stages cost $0.2$ to $1.8\%$ more.
 
+\paragraph{In the application} \stnum.  The splits were also timed in the Windows application itself, with the procedure of Table~\ref{tab:speed} changed as
+follows.  Seven programs, which differ only in the line of constants of the split, had the filter compiled as in \code{build-windows-gpu.sh} and were linked
+as that script's CPU application (the GPU part replaced by its stub): $6+24$, $12+18$, $18+12$, $24+6$ and $30+0$, and $24+0$ and $40+0$ for fewer and more
+stages.  Every run was pinned to one thread of a
+performance core at high priority, since a run that lands on an efficiency core takes about $2.5$ times as long.  There were nine rounds, each with all seven
+programs on every unit and build, the order of the programs rotated from round to round: $378$ runs on 2~November~2026.  Before the series every program gave the
+truth file of a whole work unit in both builds.  Table~\ref{tab:splitapp} gives the results.  Apart from \code{sf4} with AVX2 (below), $6+24$ costs $7.8$ to
+$11.1\%$ more than $24+6$ and $12+18$ $1.6$ to $3.1\%$ more, as in Table~\ref{tab:split} ($6.8$ to $11.5\%$ and $1.4$ to $3.2\%$ on these units).  The other four splits lie between $-1.3$ and $+1.6\%$ of
+$24+6$.  The runs of one program spread by $4$ to $10.5\%$ and the middle half of the paired ratios of one split covers up to $4$ percentage points, so the timing
+does not order these four.  On \code{sf4} with the baseline build $30+0$, $24+0$ and $40+0$ all come out $1.3$ to $1.6\%$ slower, with both quartiles above zero,
+where Table~\ref{tab:split}, which times the stages themselves, puts them within $0.2\%$ of $24+6$; the time of the whole application does not resolve a difference
+of this size.  With AVX2 the runs on \code{sf4} spread by $15$ to $31\%$ even when pinned.
+
+\emph{The alignment of the stack} \stnum.  The chains keep their arrays and spilled registers on the stack and read and write them $32$ bytes at a time.  On 64-bit
+Windows GCC aligns the stack to $16$ bytes only and cannot realign it, so the compiled chains use unaligned moves, and depending on where address randomisation
+puts the stack in a run, every other such access crosses a cache line or none does.  (The Linux build aligns these frames to $32$ bytes and uses aligned moves.)  In
+one fixed memory layout, moving the filter's stack by $16$ bytes changed its time on \code{sf4} with AVX2 from $7.87$ to $9.11$\,s (medians of six runs each, $+8$
+to $+19\%$ in every pair), on \code{sf5} by $2.5\%$, and with the baseline build, whose $16$-byte vectors never cross a line, not at all.  On \code{sf4}, where every
+block takes \code{chain\_general}, this outweighs the split, and only $6+24$ is separated there.  It affects the Windows programs with the AVX2 build; the CPU timings of
+Tables~\ref{tab:speed}, \ref{tab:repeat} and~\ref{tab:split} were made on Linux.  Compiling the AVX2 filter for $16$-byte vectors removes the dependence but costs $26\%$ on
+\code{sf4} and $29\%$ on \code{sf5}; giving the chains' arrays static storage, which the compiler aligns, removes it too but makes the filter $46\%$ slower on
+\code{sf4}, in the baseline build as well.
+
+\emph{Why Tables~\ref{tab:speed} and~\ref{tab:splitapp} differ on \code{sf4}.}  They do not contradict each other.  Table~\ref{tab:speed}, made on Linux, compares
+the integer filter with the floating-point one, and on \code{sf4} its lead of $48$ to $58\%$ comes from the cheaper arithmetic of \code{chain\_general}, far more than
+the stack can take away.  Table~\ref{tab:splitapp}, made on Windows, compares splits of one and the same filter, which differ by a few per cent; on \code{sf4} with
+AVX2 the stack moves the time by up to about $16\%$ from run to run and hides these differences.  The filter is not slow there: the median of $24+6$, $7.76$\,s, is
+of the order of the $6.99$\,s of Table~\ref{tab:speed}, against $13.37$\,s for the floating-point filter.
+
+\emph{A remedy, measured but not in the patch.}  The filter can be called, on 64-bit Windows with GCC only, through a short assembly function that puts the
+stack pointer at a fixed offset modulo $32$, $0$ or $16$ (Appendix~\ref{app:stack} gives the code and explains it).  Which offset is faster depends on the compiled
+frames, so the first $24$ pairs of calls with at least $256$ polynomials run one call at each offset, in alternating order, and the offset with the lower median time
+per polynomial is kept.  A Windows program built this way chose $16$ in every run with AVX2 (with the baseline build, where the offset does not matter, either)
+and gave the truth file of a work unit in both builds; the offset changes the speed only, never a result.  Timed as above with address randomisation on, in pairs
+against the program without it, the filter plus exact test on \code{sf4} with AVX2 took $7.17$ to $7.78$\,s instead of $7.11$ to $9.10$\,s: $7.2\%$ less on average
+and $4.6\%$ less in the median of the eight paired ratios.  On \code{sf5} and \code{sf3} with AVX2 and on \code{sf4} with the baseline build the change was $-1.3$,
+$-0.3$ and $-0.6\%$ ($6$, $4$ and $2$ pairs).  Nothing would change on Linux, where the wrapper is not compiled.  It is left out of the patch, which keeps
+calling the filter directly: it would add assembly code and a timing loop to the program for a gain of a few per cent on one kind of work unit.
+
+Splits with the model's best number of stages ($14$ to $18$ small primes) were not timed: the model puts them at most $0.25\%$ below $24+6$, less than
+this timing resolves.
+
+\begin{table}[ht]
+\centering\footnotesize\setlength{\tabcolsep}{3pt}
+\caption{Splits of the CPU filter timed in the Windows application: filter plus exact test (the polDisc time) for the first $60{,}006{,}400$ polynomials, nine
+rounds, every run pinned to one thread of a performance core.  Row $24+6$: the median in seconds.  Other rows: change against $24+6$ in percent, the median over
+the rounds of the ratio to the $24+6$ run of the same round; in brackets the change of the medians.  The runs of one program spread by $4$--$10.5\%$, on
+\code{sf4} with AVX2 by $15$--$31\%$ (the alignment of the stack, see the text).  Work units as in
+Table~\ref{tab:speed}.}\label{tab:splitapp}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+& \multicolumn{2}{c}{\code{sf5}} & \multicolumn{2}{c}{\code{sf3}} & \multicolumn{2}{c}{\code{sf4}} \\ \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(l){6-7}
+split & AVX2 & baseline & AVX2 & baseline & AVX2 & baseline \\ \midrule
+$6+24$  & $+8.1$ ($+7.3$) & $+11.1$ ($+12.1$) & $+7.8$ ($+7.4$) & $+9.3$ ($+10.2$) & $+8.3$ ($+18.5$) & $+10.0$ ($+9.8$) \\
+$12+18$ & $+2.5$ ($+3.0$) & $+3.1$ ($+4.1$)   & $+2.8$ ($+1.5$) & $+2.8$ ($+3.9$)  & $+4.5$ ($+10.4$) & $+1.6$ ($+2.7$) \\
+$18+12$ & $+1.2$ ($+1.3$) & $+1.1$ ($+1.0$)   & $+0.9$ ($+0.2$) & $-0.2$ ($+0.2$)  & $+4.1$ ($+5.6$)  & $+0.7$ ($-0.5$) \\
+$24+6$  & $5.31$\,s       & $7.11$\,s         & $5.24$\,s       & $6.95$\,s        & $7.76$\,s        & $10.19$\,s \\
+$30+0$  & $-0.4$ ($-0.4$) & $-0.9$ ($+0.7$)   & $+0.5$ ($-0.1$) & $+0.6$ ($-0.1$)  & $+14.1$ ($+15.9$) & $+1.6$ ($+1.8$) \\
+$24+0$  & $-1.1$ ($+0.0$) & $-0.2$ ($+0.4$)   & $-1.3$ ($-0.7$) & $+0.5$ ($-0.1$)  & $+2.0$ ($+3.5$)  & $+1.3$ ($+1.3$) \\
+$40+0$  & $+0.8$ ($+0.4$) & $-0.3$ ($-0.3$)   & $+0.4$ ($+0.9$) & $+0.3$ ($+0.1$)  & $-2.1$ ($-1.8$)  & $+1.4$ ($+1.3$) \\ \bottomrule
+\end{tabular}
+\end{table}
+
 \paragraph{The conclusion.}  The shipped $24+6$ is within $0.14\%$ of the best split of $30$ stages and within $0.25\%$ of the model's optimum over all numbers of
-stages (\code{sf5}, baseline, at $16$ stages) in all ten cases, and no measurement separates it from $30+0$.  It was chosen by an earlier, shorter timing of a few splits; the
-model, made afterwards, shows that no split of $30$ stages and no number of stages is measurably faster, so it stays.  Every split is bounded below by the first
+stages (\code{sf5}, baseline, at $16$ stages) in all ten cases, and no measurement separates it from $30+0$: neither the stage times of Table~\ref{tab:split}
+nor the times of the application in Table~\ref{tab:splitapp}, which agree with the model on $6+24$ and $12+18$ and put $18+12$, $30+0$, $24+0$ and $40+0$ within
+$1.6\%$ of $24+6$.  It was chosen by an earlier, shorter timing of a few splits; the model, made afterwards, and the timings show that no split of $30$ stages and
+no number of stages is measurably faster, so it stays.  Every split is bounded below by the first
 stages, which every polynomial or every other polynomial passes through: a faster filter needs a cheaper small stage, not another split.
 
 %======================================================================
@@ -1046,6 +1160,8 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 \item The GPU filter was tested on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested.  The program
   checks the filter on every device at start-up.
 \item The searches use $S=\{2,5\}$; other sets were tested on fewer polynomials.
+\item On 64-bit Windows the speed of the AVX2 filter depends on where the stack lies in a run, by up to about $16\%$ on a work unit where every polynomial takes
+  \code{chain\_general} (Section~\ref{sec:split}).  A remedy is measured but not in the patch (Appendix~\ref{app:stack}).  The program's output is not affected.
 \end{itemize}
 
 \appendix
@@ -1065,7 +1181,8 @@ command & checks \\ \midrule
 \code{UPSTREAM=DIR CAND=... HITS=... bash poldisc\_checks.sh} & Table~\ref{tab:poldisc}; family \code{wrap}: the constructed overflow \\
 \code{TEST=test\_gpu\_filter.cpp bash build-linux.sh}, then \code{build/test\_gpu\_filter 6000000 11 8} & Theorem E at the kernel's primes \\
 \code{gcc -O2 -o limit\_probe limit\_probe.c}; \code{./limit\_probe small Q SEED N climb STEPS x} & the directed search above the size limits \\
-\code{python3 checks.py} & the mathematics (resultants, both chains, the size-limit computation) with independent exact models \\
+\code{python3 checks.py} & the mathematics (resultants, both chains, the size-limit computation) with independent exact models; the limits in the source
+against the computed ones; every citation of this paper in the repository \\
 \code{build/test-suite-unix.sh PROGRAM DATADIR} (repository root) & the $31$ test work units against their truth files \\
 \bottomrule
 \end{tabularx}
@@ -1075,8 +1192,94 @@ command & checks \\ \midrule
 and scalar loads: \code{27d917f}; with vectorised loads and $24+6$ primes: \code{4094af4}.  GPU kernel with $14$ primes: \code{e758190}; with the wider table:
 \code{0f874dc}; with the start-up self-test: \code{2c351c1}.
 
-\paragraph{Not in the repository.}  The captured candidates, the Linux build recipe of the application with BOINC replaced by stand-ins, the Windows harness of the
-GPU runs, the Barrett version, and the instrumented copies and scripts used for the timings and for the overflow census of the test work units.
+\paragraph{Not in the repository.}  The captured candidates, the Linux build recipe of the application with BOINC replaced by stand-ins, the Windows harnesses of the
+GPU runs and of the Windows timings, the Barrett version, and the instrumented copies and scripts used for the timings and for the overflow census of the test work
+units.
+
+%======================================================================
+\section{The stack-offset call on Windows}\label{app:stack}
+
+This is the remedy of Section~\ref{sec:split} (``The alignment of the stack''), which is not in the patch.  It changes how the program calls the filter on
+64-bit Windows, nothing else.
+
+\paragraph{Why it helps.}  The chains keep blocks of $32$ bytes on the stack.  A block whose address is a multiple of $32$ lies inside one cache line of $64$ bytes;
+a block at $16$ modulo $32$ crosses a line every other time, and a crossing access is slower.  The compiler places the blocks at fixed distances from the stack
+pointer that the filter receives, so where they fall depends only on that stack pointer modulo $32$.  On Linux GCC rounds it down to a multiple of $32$ at the
+start of each chain; on Windows it cannot, and the value is $0$ or $16$ depending on where the system put the stack in that run.  The remedy fixes the value
+itself.
+
+\paragraph{The three parts.}  Part~1 is a function of ten instructions, \code{nfPdfCallAt(pol, n, flag, filter, off)}, which calls
+\code{filter(pol, n, flag)} with the stack pointer at $-\mathit{off}$ modulo $32$: it saves the old stack pointer, rounds the stack pointer down to a multiple of
+$32$, subtracts the offset and the $32$ bytes that Windows reserves for every callee, calls the filter, and restores the old stack pointer.  The \code{.seh}
+lines describe this to Windows, so that debuggers and crash reports can walk through the function.  Part~2 decides the offset: the first $24$ pairs of calls with at
+least $256$ polynomials run one call at each offset, in alternating order, and time them; after the last pair the offset with the lower median of the ratios of
+the times is kept for all later calls.  Part~3 connects them: after the filter is set up, the program's pointer to the filter is pointed at Part~2.  The filter
+gets the same arguments at either offset, so the results cannot change.
+
+\paragraph{The code.}  For the patched \code{TgtMartinet.cpp}: Parts~1 and~2 after the definition of \code{nfNow}, Part~3 at the end of \code{nfPdfSetup},
+each inside \code{\#if defined(\_WIN64) \&\& defined(\_\_GNUC\_\_) \&\& defined(\_\_x86\_64\_\_)} \dots\ \code{\#endif}, and \code{\#include <algorithm>} with the other
+includes.  The program that was timed made the same calls and the same decision; it also read an environment variable that fixes the offset and timed
+itself for the analysis, both left out here.
+
+{\footnotesize
+\begin{verbatim}
+// Part 1: call filter(pol, n, flag) with the stack pointer at -off modulo 32 (off = 0 or 16).
+extern "C" void nfPdfCallAt(const long long*, int, signed char*,
+                            void (*)(const long long*, int, signed char*), long long);
+asm(".text\n"
+    "  .p2align 4\n"
+    "  .globl nfPdfCallAt\n"
+    "  .def nfPdfCallAt; .scl 2; .type 32; .endef\n"
+    "  .seh_proc nfPdfCallAt\n"
+    "nfPdfCallAt:\n"
+    "  pushq %rbp\n"              // save rbp, then keep the old stack pointer in it
+    "  .seh_pushreg %rbp\n"
+    "  movq %rsp, %rbp\n"
+    "  .seh_setframe %rbp, 0\n"
+    "  .seh_endprologue\n"
+    "  movq 48(%rbp), %rax\n"     // the 5th argument, off
+    "  andq $-32, %rsp\n"         // round the stack pointer down to a multiple of 32,
+    "  subq %rax, %rsp\n"         // subtract off
+    "  subq $32, %rsp\n"          // and the 32 bytes Windows reserves for the callee
+    "  call *%r9\n"               // filter(pol, n, flag): rcx, rdx, r8 are passed on unchanged
+    "  movq %rbp, %rsp\n"         // restore the stack pointer and rbp
+    "  popq %rbp\n"
+    "  ret\n"
+    "  .seh_endproc\n");
+
+// Part 2: the first PAIRS pairs of calls with n >= 256 time both offsets; then the faster is kept.
+enum { PAIRS = 24 };
+static void (*nfPdfImpl)(const long long*, int, signed char*);    // the filter itself
+static long long nfPdfOff = 16;                                   // the offset in use
+static int nfPdfPairs = 0;                                        // pairs done; PAIRS: decided
+
+static void nfPdfAligned(const long long *pol, int n, signed char *flag)
+{
+  static int half = 0;
+  static double t0[PAIRS], t16[PAIRS];               // time per polynomial at offset 0 and 16
+  if(nfPdfPairs == PAIRS || n < 256) { nfPdfCallAt(pol, n, flag, nfPdfImpl, nfPdfOff);  return; }
+  long long o = ((nfPdfPairs + half) % 2) ? 16 : 0;  // pair k: 0 then 16, or 16 then 0
+  double t = nfNow();
+  nfPdfCallAt(pol, n, flag, nfPdfImpl, o);
+  t = (nfNow() - t) / n;
+  if(o == 0) t0[nfPdfPairs] = t; else t16[nfPdfPairs] = t;
+  if(++half < 2) return;
+  half = 0;
+  if(++nfPdfPairs < PAIRS) return;
+  double r[PAIRS];                                   // decide by the median of t0/t16
+  for(int k = 0; k < PAIRS; ++k)  r[k] = t0[k] / t16[k];
+  std::sort(r, r + PAIRS);
+  nfPdfOff = (0.5*(r[PAIRS/2 - 1] + r[PAIRS/2]) > 1) ? 16 : 0;
+}
+
+// Part 3: at the end of nfPdfSetup, after pdfInit(numPrimes, pSet):
+  nfPdfImpl = nfPdfFilter;  nfPdfFilter = nfPdfAligned;
+\end{verbatim}}
+
+\paragraph{What was checked.}  The function's unwind entry (\code{objdump -x}) covers all of it, with frame register \code{rbp} and the push of \code{rbp}, and
+the filter is called only through it.  Printing the chosen offset on \code{stderr} from inside a timed call added up to $0.3$\,s to the measured filter time in
+the Windows timing runs, so a program that reports the offset should print it after the call.  The Linux program built from a patch with this code (inside the
+\code{\#if}) was identical byte for byte to the one without it.
 
 {\small
 \begin{thebibliography}{9}

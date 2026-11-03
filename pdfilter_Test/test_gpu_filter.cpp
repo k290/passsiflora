@@ -35,7 +35,8 @@ struct Rng { u64 s; u64 next() { s += 0x9E3779B97F4A7C15ull; u64 z = s; z = (z ^
 
 static i64 pw(i64 b, i64 e, i64 m) { i64 r = 1; b %= m; if (b < 0) b += m; while (e) { if (e & 1) r = r * b % m; b = b * b % m; e >>= 1; } return r; }
 
-// Res(A, B) over F_q by Euclid with inverses (the recursion (R1)-(R3) of docs/whitepaper.tex, Section 2); A, B coefficient vectors, index = degree.
+// Res(A, B) over F_q by Euclid with inverses (the recursion (R1)-(R3) of docs/whitepaper.tex, Section 2 "The rejection rule");
+// A, B coefficient vectors, index = degree.
 static i64 resq(std::vector<i64> A, std::vector<i64> B, i64 q)
 {
   auto deg = [](const std::vector<i64> &P) { int d = (int)P.size() - 1; while (d >= 0 && P[d] == 0) d--; return d; };

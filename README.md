@@ -60,7 +60,7 @@ polynomial; a GPU task runs on the CPU or stops.  `NF_GPUCHECK=1` compares the G
 
 ## How fast?
 
-The integer filter against the earlier floating-point filter (one series per table, medians; whitepaper, Section 9):
+The integer filter against the earlier floating-point filter (one series per table, medians; whitepaper, Section 9 "Performance"):
 
 | time saved | AVX2 build | baseline build |
 |---|---|---|

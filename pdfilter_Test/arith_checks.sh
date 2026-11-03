@@ -1,5 +1,6 @@
 # Checks the compiled integer arithmetic of the pre-filter (mont, sredc, ldres, inv32, signedmod of ../src/pdfilter.f90) against
-# exact models, and the prime-size limits of docs/whitepaper.tex, Section 4.4.  Linux, or Windows with MSYS2 / MinGW-w64.
+# exact models, and the prime-size limits of docs/whitepaper.tex, Section 4.4 "The size limits, and the guard".  Linux, or
+# Windows with MSYS2 / MinGW-w64.
 #   bash arith_checks.sh            all checks (about 10 minutes on 16 logical CPUs; bounds-large alone is about 5 CPU minutes)
 #   QUICK=1 bash arith_checks.sh    a reduced set (about a minute)
 # Environment: FC (default gfortran), OUT (default arith_build), JOBS (default: the number of CPUs).

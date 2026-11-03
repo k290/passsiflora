@@ -38,7 +38,7 @@ Outside the int64 range upstream's verdict can be wrong in either direction.
   `rej-up-ovf`).
 
 **Evidence that the real work units stay inside:**
-* No overflow on 733,855 real candidates and shifts (whitepaper, Table 1).
+* No overflow on 733,855 real candidates and shifts (whitepaper, Table 1, "The compiled `polDiscTest_cpu` of GetDecics against the definition").
 * With a temporary copy of the application that checked every polynomial (built outside the repository), none of the
   14,846,153,955 polynomials of the 31 test work units overflows, and all 31 gave their truth files.
 

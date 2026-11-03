@@ -16,7 +16,8 @@
 !                          a b - c d with a,b,c,d at and near +-(q-1); model in 128-bit integers
 !   ldres                  the loading on extreme and random coefficients for 6,169 moduli (with 200 random odd q < 2^31)
 !   inv32                  q q^-1 = 1 mod 2^32 and the signed 16/32-bit forms, for many q
-!   bounds-small Q0 Q1     the bound propagation of the small-prime stage (whitepaper, Section 4.4) for every odd q in [Q0,Q1]
+!   bounds-small Q0 Q1     the bound propagation of the small-prime stage for every odd q in [Q0,Q1] (whitepaper, Section 4.4
+!                          "The size limits, and the guard")
 !   bounds-large Q0 Q1     the same for the large-prime stage
 ! The exact models use integer(16) (128 bits) where a value can exceed 64 bits, and integer(8) where it provably cannot.
 
@@ -197,8 +198,9 @@ contains
     end do
   end subroutine sredc_vec
 
-  ! bound propagation (whitepaper, Section 4.4): returns 0 if every reduction of the four chains satisfies its lemma for prime size q
-  ! and every 16-bit value fits; otherwise a code naming the first call site that may fail
+  ! bound propagation (whitepaper, Section 4.4 "The size limits, and the guard"): returns 0 if every reduction of the four
+  ! chains satisfies its lemma for prime size q and every 16-bit value fits; otherwise a code naming the first call site that
+  ! may fail
   integer function bounds_small(q) result(site)
     integer(i8), intent(in) :: q
     integer(i16), parameter :: R = 65536

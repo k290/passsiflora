@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # checks.py -- exact-integer checks of the statements about resultants, discriminants and the two
-# Euclidean chains that docs/whitepaper.tex proves (Sections 2-4).
+# Euclidean chains that docs/whitepaper.tex proves (Section 2 "The rejection rule", Section 3 "Two Euclidean chains for
+# one Legendre symbol", Section 4 "Exact integer arithmetic").
 # Independent of chain_trace.cpp: own polynomial arithmetic, own models of chain_block and
 # chain_general, resultants as Sylvester determinants (a quoted standard result), checked against
 # the root definition for split polynomials.  Python 3 standard library only, fixed seed.
@@ -9,8 +10,10 @@
 #   quick      a tenth of the cases (a few seconds; the full run takes about a minute)
 #   --gp FILE  also write a PARI/GP script that compares 300 of the discriminants with poldisc():
 #              gp -q FILE < /dev/null   prints "gp: disc samples checked" and nothing else if all agree
-# Exit status 1 if any check fails.  Section C10 checks the size limits of the integer arithmetic (whitepaper, Section 4.4)
-# with its own random generator.
+# Exit status 1 if any check fails.  Section C10 checks the size limits of the integer arithmetic (whitepaper, Section 4.4
+# "The size limits, and the guard") with its own random generator.  Two checks tie the documents to the code: C11 that the
+# limits in src/pdfilter.f90 and src/nf_gpu_common.cpp are the proved ones, C12 that every citation of the whitepaper in the
+# repository resolves, with the title of every section or table it cites by number.
 import random, sys
 from math import comb
 
@@ -156,7 +159,7 @@ def res_int(V, P):
     if deg(V) + deg(P) == 0: return 1
     return det_int(sylvester(V, P))
 def res_rec(V, P, q):
-    """The resultant by recursion on degrees: the rules (R1)-(R3) of the whitepaper, Section 2."""
+    """The resultant by recursion on degrees: the rules (R1)-(R3) of the whitepaper, Section 2 "The rejection rule"."""
     V = red(V, q); P = red(P, q)
     if deg(V) == 0: return powm(V[0], deg(P), q)
     if deg(P) == 0: return powm(P[0], deg(V), q)
@@ -608,7 +611,8 @@ for cc in (3, 0):
     D = -res_int(f, deriv_int(f))
     print(f"  c = {cc}: model chain_block ok at {sum(oks)} of 30 filter primes; kept at all: {all(keeps)}; disc passes: {passes(D)}")
 
-# ---------- C10: the size limits of the integer arithmetic (whitepaper, Section 4.4) (own random generator, so the output of C0-C7 does not depend on it)
+# ---------- C10: the size limits of the integer arithmetic (whitepaper, Section 4.4 "The size limits, and the guard"; own
+# random generator, so the output of C0-C7 does not depend on it)
 print("\n===== C10: size limits of the integer arithmetic =====")
 RNG10 = random.Random(20261026)
 
@@ -803,6 +807,144 @@ lo = max(qq for qq in range(1676704560, 1676704570) if 2 * (qq - 1) ** 2 + (1 <<
 check(lo == 1676704566, "C10.5 sredc: no 64-bit overflow for q <= 1676704566")
 print(f"C10.5 max - min of mont over |a|,|b| <= 2q-1: {sum(e1)} at q = 12799, {sum(e2)} at q = 12801 (16-bit overflow of a "
       f"difference from 32768); sredc stays within 64 bits for q <= {lo}")
+
+# ---------- C11: the limits in the source are the proved ones.  pdf_init's guard (QMIN, QS_MAX, QL_MAX in src/pdfilter.f90) must
+# be the limits C10.4 derives, its prime searches (QS_START/QS_STOP, QL_START/QL_STOP) must lie inside the guard, and the GPU
+# table's range (buildPrimeTable in src/nf_gpu_common.cpp) inside the 11 <= q < 8192 of the kernel's proof.  A changed constant
+# fails here until the proof is redone.
+import os, re
+print("\n===== C11: the limits in the source =====")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def src_text(rel): return open(os.path.join(ROOT, rel), encoding="utf-8", errors="replace").read()
+F90 = src_text("src/pdfilter.f90")
+def f90_const(name):   # the value of an integer parameter, e.g. "QS_START = 2_i8**13 - 1"
+    m = re.search(r"parameter\s*::.*?\b" + name + r"\s*=\s*([0-9_i8*+\- ]+?)\s*(?:,|!|$)", F90, re.M)
+    check(m is not None, f"C11 parameter {name} not found in src/pdfilter.f90")
+    expr = m.group(1).replace("_i8", "") if m else "0"
+    return eval(expr, {"__builtins__": {}}) if re.fullmatch(r"[0-9*+\- ]+", expr) else 0
+K = {n: f90_const(n) for n in ("QMIN", "QS_MAX", "QL_MAX", "QS_START", "QS_STOP", "QL_START", "QL_STOP", "MAXS", "MAXQ")}
+small_limit = fails[0] - 2                      # C10.4: every odd q up to here passes, the next fails
+check(K["QS_MAX"] == small_limit, f"C11 QS_MAX = {K['QS_MAX']} is not the proved small limit {small_limit}")
+check(bounds_ok(K["QL_MAX"], False) and not bounds_ok(K["QL_MAX"] + 2, False),
+      f"C11 QL_MAX = {K['QL_MAX']} is not the proved large limit (the bound propagation must pass there and fail 2 above)")
+check(K["QMIN"] >= 11, f"C11 QMIN = {K['QMIN']}: the proofs need q >= 11 (q does not divide 10, the constants 1..10 lie below 2q)")
+check(K["QMIN"] <= K["QS_STOP"] < K["QS_START"] <= K["QS_MAX"], f"C11 the small-prime search ({K['QS_STOP']}, {K['QS_START']}] leaves the guard")
+check(K["QMIN"] <= K["QL_STOP"] < K["QL_START"] <= K["QL_MAX"], f"C11 the large-prime search ({K['QL_STOP']}, {K['QL_START']}] leaves the guard")
+gm = re.search(r"for \(long long q = (\d+); q < (\d+)", src_text("src/nf_gpu_common.cpp"))
+check(gm is not None, "C11 the prime loop of buildPrimeTable was not found in src/nf_gpu_common.cpp")
+glo, ghi = (int(gm.group(1)), int(gm.group(2))) if gm else (0, 0)
+check(glo >= 11 and ghi <= 8192, f"C11 the GPU table's range [{glo}, {ghi}) leaves 11 <= q < 8192 (Lemma redc, Theorem E)")
+print(f"C11 guard QMIN = {K['QMIN']}, QS_MAX = {K['QS_MAX']}, QL_MAX = {K['QL_MAX']} (the proved limits); searches "
+      f"({K['QS_STOP']}, {K['QS_START']}] for {K['MAXS']} small and ({K['QL_STOP']}, {K['QL_START']}] for {K['MAXQ']} large primes; "
+      f"GPU table [{glo}, {ghi})")
+
+# ---------- C12: every citation of docs/whitepaper.tex in the comments and documents of the repository names something that
+# exists there: a section or appendix by its number and the quoted title of it or of a subsection or paragraph in it, a section
+# title, a lettered theorem, the quoted title of a theorem, proposition, lemma, definition or corollary, a paragraph title, or a
+# table by its number and the quoted opening words of its caption.  A number without its title fails, since a renumbering can
+# leave it valid but pointing elsewhere.  A citation is looked for in the text around each mention of the whitepaper, with
+# comment markers removed and lines joined, so that citations which wrap are found too; a quoted theorem, proposition, lemma,
+# definition or corollary is looked for anywhere, since the repository cites only the whitepaper's.  This file's own C11 and
+# C12 are not scanned.
+print("\n===== C12: citations of the whitepaper =====")
+TEX = src_text("docs/whitepaper.tex")
+def brace_arg(s, i):   # s[i] is "{": the balanced argument and the index after it
+    depth = 0
+    for j in range(i, len(s)):
+        depth += (s[j] == "{") - (s[j] == "}")
+        if depth == 0: return s[i + 1:j], j + 1
+    return s[i + 1:], len(s)
+def plain(t):          # TeX or cited text -> lower case words: \code{x} -> x, \_ -> _, no $, ~, `, \, or other macros
+    t = re.sub(r"\\(?:code|emph|texttt|textsf|mathrm)\{([^{}]*)\}", r"\1", t)
+    t = t.replace("\\_", "_").replace("~", " ").replace("\\,", " ").replace("$", "").replace("`", "").replace("''", "")
+    t = re.sub(r"\\[a-zA-Z]+\*?", " ", t).replace("{", "").replace("}", "")
+    return " ".join(t.split()).lower()
+heads = {}             # number -> (title, start, end) for every section and subsection
+appendix_at = TEX.find("\\appendix")
+marks = [(m.start(), m.group(1), m.end() - 1) for m in re.finditer(r"\\(section|subsection)\{", TEX)]
+sec = sub = 0; in_app = False
+for k, (pos, kind, brace) in enumerate(marks):
+    title, _ = brace_arg(TEX, brace)
+    if kind == "section":
+        if appendix_at >= 0 and pos > appendix_at and not in_app: in_app, sec = True, 0
+        sec += 1; sub = 0
+        num = chr(ord("A") + sec - 1) if in_app else str(sec)
+        end = next((p for p, kd, _ in marks[k + 1:] if kd == "section"), len(TEX))
+    else:
+        sub += 1
+        num = f"{chr(ord('A') + sec - 1) if in_app else sec}.{sub}"
+        end = marks[k + 1][0] if k + 1 < len(marks) else len(TEX)
+    heads[num] = (plain(title), pos, end)
+envs = []              # (kind, letter or "", plain title)
+for m in re.finditer(r"\\begin\{(proposition|lemma|theorem|corollary|definition|remark|thm([A-E]))\}(?:\[([^\]]*)\])?", TEX):
+    envs.append(("theorem" if m.group(2) else m.group(1), m.group(2) or "", plain(m.group(3) or "")))
+tables = [plain(brace_arg(TEX, m.end() - 1)[0]) for m in re.finditer(r"\\caption\{", TEX)]
+PARA = re.compile(r"\\paragraph\{")
+def titles_in(lo, hi):           # the titles of the sections, subsections and paragraphs that start in TEX[lo:hi], without a final "."
+    return ({h[0] for h in heads.values() if lo <= h[1] < hi}
+            | {plain(brace_arg(TEX, m.end() - 1)[0]).rstrip(".") for m in PARA.finditer(TEX, lo, hi)})
+TITLES = titles_in(0, len(TEX))
+def resolves(kind, a, b=None):   # True if the citation exists
+    if kind in ("section", "appendix"):   # a: number or letter; b: quoted title (optional) of it or of a part of it
+        return a in heads and (b is None or plain(b).rstrip(".") in titles_in(heads[a][1], heads[a][2]))
+    if kind == "sectitle": return any(plain(a) == h[0] for h in heads.values())
+    if kind == "letter": return any(e[1] == a for e in envs)
+    if kind == "named": return any(e[0] == a.lower() and plain(b) in e[2] for e in envs)
+    if kind == "para": return plain(b).rstrip(".") in TITLES
+    if kind == "table":          # a: number; b: quoted opening words of the caption (optional)
+        return 1 <= int(a) <= len(tables) and (b is None or tables[int(a) - 1].startswith(plain(b).rstrip(".")))
+NUM = r"([0-9]+(?:\.[0-9]+)?|[A-Z](?:\.[0-9]+)?)\b"
+DASH = "(?:-|--|–|—|and|to)"
+TITLE = r"(?:[\s,]*\(?\s*\"([^\"]+)\")?"   # the quoted title after a number, if there is one
+PATTERNS = [
+    ("section", re.compile(r"\bSections?\s+" + NUM + r"(?:\s*" + DASH + r"\s*" + NUM + r")?"
+                           r"(?:\s+of\s+`?(?:docs/)?whitepaper(?:\.tex)?`?)?" + TITLE)),
+    ("sectitle", re.compile(r"\bSection\s+\"([^\"]+)\"")),
+    ("letter", re.compile(r"\bTheorems?\s+([A-E])(?:\s*" + DASH + r"\s*([A-E]))?\b")),
+    ("named", re.compile(r"\b(Theorem|Proposition|Lemma|Definition|Corollary)\s+\"([^\"]+)\"")),
+    ("para", re.compile(r"whitepaper(?:\.tex)?`?'s\s+\"([^\"]+)\"")),
+    ("table", re.compile(r"\bTables?\s+([0-9]+)\b" + TITLE)),
+    ("appendix", re.compile(r"\bAppendix\s+([A-Z])\b" + TITLE)),
+]
+SKIP_DIRS = {"dist", "pdfilter_Test/build", "pdfilter_Test/fault_build", "pdfilter_Test/arith_build", "pdfilter_Test/tiny_build",
+             "pdfilter_Test/poldisc_build", "pdfilter_Test/repro/expected"}    # outputs of the build and test scripts
+EXTS = (".f90", ".inc", ".cpp", ".h", ".c", ".cu", ".sh", ".py", ".md", ".ps1")
+cites = []             # (file, kind, cited text, ok, number only)
+for dirpath, dirnames, filenames in os.walk(ROOT):
+    reldir = os.path.relpath(dirpath, ROOT).replace(os.sep, "/")
+    dirnames[:] = [d for d in dirnames if not d.startswith(".") and (d if reldir == "." else f"{reldir}/{d}") not in SKIP_DIRS]
+    for fn in filenames:
+        if not fn.endswith(EXTS): continue
+        path = os.path.join(dirpath, fn); rel = os.path.relpath(path, ROOT).replace(os.sep, "/")
+        text = open(path, encoding="utf-8", errors="replace").read()
+        if rel == "pdfilter_Test/checks.py": text = text[:text.find("# ---------- C11:")]
+        text = " ".join(re.sub(r"^\s*(?://+|/\*+|\*+/?|!+|#+)?\s*", "", ln) for ln in text.splitlines())
+        seen = set()
+        near = [w.start() for w in re.finditer(r"whitepaper", text)]
+        for kind, rx in PATTERNS:
+            for m in rx.finditer(text):
+                if kind != "named" and not any(w - 60 <= m.start() < w + 220 for w in near): continue
+                if (kind, m.group(0)) in seen: continue
+                seen.add((kind, m.group(0)))
+                t = m.group(rx.groups) if kind in ("section", "table", "appendix") else None   # the quoted title
+                if kind == "section":
+                    ok = resolves("section", m.group(1), t) and (m.group(2) is None or resolves("section", m.group(2)))
+                elif kind == "letter":
+                    ok = resolves("letter", m.group(1)) and (m.group(2) is None or resolves("letter", m.group(2)))
+                elif kind == "named": ok = resolves("named", m.group(1), m.group(2))
+                elif kind == "sectitle": ok = resolves(kind, m.group(1))
+                elif kind == "para": ok = resolves("para", None, m.group(1))
+                else: ok = resolves(kind, m.group(1), t)
+                by_number = kind in ("section", "table", "appendix") and (t is None or kind == "section" and m.group(2) is not None)
+                cites.append((rel, kind, m.group(0), ok, by_number))
+                check(ok, f"C12 {rel}: '{m.group(0)}' does not resolve in docs/whitepaper.tex")
+                check(not by_number, f"C12 {rel}: '{m.group(0)}' cites by number; quote the title of each section or table it cites")
+files = sorted({c[0] for c in cites})
+print(f"C12 {len(cites)} citations of the whitepaper in {len(files)} files: "
+      + ", ".join(f"{k} {sum(1 for c in cites if c[1] == k)}" for k, _ in PATTERNS if any(c[1] == k for c in cites))
+      + f"; {sum(c[3] for c in cites)} resolve, {sum(c[4] for c in cites)} give a number without its title; "
+      + f"the whitepaper has {len(heads)} numbered sections, {len(envs)} theorem-like statements, {len(tables)} tables")
+check(len(cites) >= 30, f"C12 only {len(cites)} citations found: the scan is broken")
 
 print("\nFAILURES:", len(FAIL))
 sys.exit(1 if FAIL else 0)
