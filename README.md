@@ -9,7 +9,7 @@ graphics card (OpenCL for NVIDIA, AMD and Intel; CUDA; MUSA).
 > The passion flower has 5 sepals and 5 petals — ten parts. NumberFields@home searches for number fields of degree ten, built as
 > degree-5 extensions of a quadratic field.
 
-[![Latest release](https://img.shields.io/github/v/release/alplix/passiflora?label=latest&color=8e44ad)](https://github.com/alplix/passiflora/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/k290/passsiflora?label=latest&color=8e44ad)](https://github.com/k290/passsiflora/releases/latest)
 [![License: GPL v2+](https://img.shields.io/badge/license-GPLv2%2B-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
 
 ---
@@ -80,8 +80,9 @@ BOINC work running):
 
 ## Downloads
 
-**[Latest release](https://github.com/alplix/passiflora/releases/latest).**  The published releases contain the earlier floating-point
-filter; the integer filter described above is in this repository and not yet released.  The number after the prefix is the version (`030` = v0.3.0).
+**[Latest release](https://github.com/k290/passsiflora/releases/latest).**  Releases from v0.4.0 on contain the integer filter described
+above; v0.1.0 to v0.3.0 ([alplix/passiflora](https://github.com/alplix/passiflora/releases)) contain the earlier floating-point filter.
+The number after the prefix is the version (`040` = v0.4.0).
 
 | starts with | what it is | for |
 |---|---|---|

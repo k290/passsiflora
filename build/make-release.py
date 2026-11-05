@@ -11,13 +11,31 @@
 # Systems: windows_x86-64, linux_x86-64, linux_aarch64, macos_arm64, android_aarch64, freebsd_x86-64, linux_riscv64, linux_ppc64le, linux_s390x, linux_armhf.
 # Set PASSIFLORA_<WIN|LIN|A64|MAC|ANDROID|FBSD|RV64|PPC64|S390X|ARM32>_<CPU|GPU|CUDA|MUSA> to the executables (a package is skipped if one is missing);
 # PASSIFLORA_LIN_MUSA is a directory holding GetDecics_musa, libnf_musa.so and libmusart.so.4.
+# The version is the tag on the checked-out commit (v0.4.0 -> 0.4.0, packages named ..._040_...); PASSIFLORA_VERSION=0.4.0
+# overrides it, e.g. to package before tagging.
 
-import hashlib, io, os, sys, tarfile, time, zipfile
+import hashlib, io, os, re, subprocess, sys, tarfile, time, zipfile
 
-VER = "0.3.0"
-V3 = "030"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, "dist")
+REPO = "https://github.com/k290/passsiflora"
+
+
+def version():
+    v = os.environ.get("PASSIFLORA_VERSION")
+    if not v:
+        try:
+            v = subprocess.check_output(["git", "-C", ROOT, "describe", "--tags", "--exact-match", "HEAD"],
+                                        stderr=subprocess.DEVNULL, text=True).strip()
+        except (OSError, subprocess.CalledProcessError):
+            sys.exit("make-release.py: the checked-out commit has no version tag (vX.Y.Z); tag it or set PASSIFLORA_VERSION")
+    m = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", v)
+    if not m:
+        sys.exit("make-release.py: '%s' is not a version X.Y.Z" % v)
+    return ".".join(m.groups()), "".join(m.groups())
+
+
+VER, V3 = version()
 
 APP = "GetDecics"
 NOW = int(time.time()) - 60
@@ -144,7 +162,7 @@ def readme(sysd, name, gpu, cuda, musa, extra):
         "Passiflora v%s - GetDecics (NumberFields@home) optimized app - %s, %s" % (VER, sysd["system"], name),
         "=" * 70, "",
         "This folder contains the program file(s) and app_info.xml" + (" and app_config.xml." if gpu else "."),
-        "Full instructions: INSTALL.txt on the release page, or https://github.com/alplix/passiflora", "",
+        "Full instructions: INSTALL.txt on the release page, or " + REPO, "",
         "1. In BOINC Manager set NumberFields@home to 'No new tasks' and let the tasks you",
         "   already have finish (or abort them) - tasks of the stock app cannot continue once",
         "   app_info.xml is in place.",
@@ -175,7 +193,7 @@ def readme(sysd, name, gpu, cuda, musa, extra):
                   "driver that provides OpenCL. app_config.xml runs 4 tasks per card (see the comments in it).", ""]
     lines += ["To go back to the stock app: stop BOINC, delete app_info.xml%s and the" % (", app_config.xml" if gpu else ""),
               "Passiflora program files from that folder, start BOINC.", "",
-              "Licence: GPL-2.0-or-later. Source: https://github.com/alplix/passiflora", ""]
+              "Licence: GPL-2.0-or-later. Source: " + REPO, ""]
     return "\n".join(lines)
 
 

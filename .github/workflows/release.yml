@@ -1,0 +1,334 @@
+# Release build.  A tag vX.Y.Z builds every package the scripts in build/ can make on GitHub's runners, runs the CPU programs
+# on the upstream work units against their truth files and makes a draft release with the packages, INSTALL.txt and
+# SHA256SUMS.  A push to release-ci runs the same without the release (packages named 0.0.0, kept as an artifact).
+# Not built here: the Android package (it needs a gfortran for Android that is not in this repository).
+# Not tested here: the GPU programs (no graphics card on the runners); test the draft's packages on a card before publishing.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+    branches: [release-ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  QUICK_WUS: sf5_DS-14x11_Grp16409of705883 sf5_DS-14x11_Grp33043of705883
+
+jobs:
+  cuda-kernel:
+    if: ${{ !contains(github.event.head_commit.message, '[only:') || contains(github.event.head_commit.message, ' cuda-kernel') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: CUDA 12.9 compiler
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cuda-nvcc-12-9 cuda-cudart-dev-12-9 > /dev/null
+      - name: Kernel
+        run: NVCC=/usr/local/cuda-12.9/bin/nvcc OUT=$RUNNER_TEMP bash build/build-cuda-kernel.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cuda-fatbin
+          path: ${{ runner.temp }}/nf_cuda_fatbin.h
+          retention-days: 7
+
+  linux-x86-64:
+    if: ${{ !contains(github.event.head_commit.message, '[only:') || contains(github.event.head_commit.message, ' linux-x86-64') }}
+    needs: cuda-kernel
+    runs-on: ubuntu-24.04
+    container: ubuntu:22.04
+    steps:
+      - name: Tools
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential gfortran libgmp-dev libboinc-app-dev \
+            ocl-icd-opencl-dev opencl-headers bison perl python3 git ca-certificates patch > /dev/null
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cuda-fatbin
+          path: fatbin
+      - name: Upstream source
+        run: |
+          bash build/fetch-upstream.sh /root/upstream
+          UPSTREAM=/root/upstream OUT=/root/build_src OUT_FATBIN=$PWD/fatbin/nf_cuda_fatbin.h bash build/prepare-src.sh
+          mkdir -p /pk/src && cp /root/build_src/GetDecicsSrc/* /pk/src/
+          cp -r /root/upstream/Pari/pari-2.8-1711-ge5c317c /pk/pari28src
+      - name: Build (PARI, CPU, OpenCL, CUDA)
+        run: bash build/build-linux-chroot-inner.sh
+      - name: Logs
+        if: failure()
+        run: tail -30 /root/pari_conf.log /root/pari_make.log || true
+      - name: Test the CPU program on all work units
+        run: |
+          bash build/test-suite-unix.sh /root/pkb/GetDecics_cpu /root/upstream/Test/dataFiles $(nproc) | tee suite.txt
+          grep -q 'SUMMARY: MATCH 31  DIFF 0' suite.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-linux-x86-64
+          path: |
+            /root/pkb/GetDecics_cpu
+            /root/pkb/GetDecics_gpu
+            /root/pkb/GetDecics_cuda
+          retention-days: 7
+
+  windows-x86-64:
+    if: ${{ !contains(github.event.head_commit.message, '[only:') || contains(github.event.head_commit.message, ' windows-x86-64') }}
+    needs: cuda-kernel
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            git make patch bison perl diffutils
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-gcc-fortran mingw-w64-x86_64-gmp
+            mingw-w64-x86_64-opencl-headers mingw-w64-x86_64-python
+      - uses: actions/download-artifact@v4
+        with:
+          name: cuda-fatbin
+          path: fatbin
+      - name: Upstream source
+        run: |
+          set -e
+          bash build/fetch-upstream.sh upstream
+          UPSTREAM=$PWD/upstream OUT=$PWD/build_src OUT_FATBIN=$PWD/fatbin/nf_cuda_fatbin.h bash build/prepare-src.sh
+      - name: PARI
+        run: |
+          PARI_SRC=$PWD/upstream/Pari/pari-2.8-1711-ge5c317c WP=$PWD/wpari GMP=/mingw64 TOOLS=$PWD/tools AR=ar RANLIB=ranlib LOG=- \
+            bash build/build-pari-mingw.sh
+      - name: BOINC libraries
+        run: MINGW=1 B=$PWD/boinc AR=ar RANLIB=ranlib bash build/build-boinc-libs.sh
+      - name: Build (CPU, OpenCL, CUDA)
+        run: |
+          SRC=$PWD/build_src/GetDecicsSrc WP=$PWD/wpari B=$PWD/boinc G=/mingw64 OUT=$PWD/bin CLINC=/mingw64/include WORK=$PWD/wingpu \
+            DLLTOOL=dlltool STRIP=strip PYTHON=python bash build/build-windows-gpu.sh
+      - name: Test the CPU program on all work units
+        run: |
+          set -e
+          bash build/test-suite-unix.sh $PWD/bin/GetDecics_cpu.exe $PWD/upstream/Test/dataFiles $(nproc) | tee suite.txt
+          grep -q 'SUMMARY: MATCH 31  DIFF 0' suite.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-windows-x86-64
+          path: bin/*.exe
+          retention-days: 7
+
+  linux-aarch64:
+    if: ${{ !contains(github.event.head_commit.message, '[only:') || contains(github.event.head_commit.message, ' linux-aarch64') }}
+    runs-on: ubuntu-24.04-arm
+    container: ubuntu:22.04
+    steps:
+      - name: Tools
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential gfortran libgmp-dev libboinc-app-dev \
+            ocl-icd-opencl-dev opencl-headers bison perl python3 git ca-certificates patch > /dev/null
+      - uses: actions/checkout@v4
+      - name: Upstream source
+        run: |
+          bash build/fetch-upstream.sh $HOME/up
+          UPSTREAM=$HOME/up OUT=$HOME/bs bash build/prepare-src.sh
+          mkdir -p $HOME/pk && cp -r $HOME/bs/GetDecicsSrc $HOME/pk/src && cp -r $HOME/up/Pari/pari-2.8-1711-ge5c317c $HOME/pk/pari
+      - name: Build (PARI, CPU, OpenCL)
+        run: bash build/build-linux-aarch64.sh
+      - name: Test the CPU program on all work units
+        run: |
+          bash build/test-suite-unix.sh $HOME/pk/src/GetDecics_cpu $HOME/up/Test/dataFiles $(nproc) | tee suite.txt
+          grep -q 'SUMMARY: MATCH 31  DIFF 0' suite.txt
+      - name: Collect
+        run: mkdir -p out && cp $HOME/pk/src/GetDecics_cpu $HOME/pk/src/GetDecics_gpu out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-linux-aarch64
+          path: out/
+          retention-days: 7
+
+  linux-emulated:
+    if: ${{ !contains(github.event.head_commit.message, '[only:') || contains(github.event.head_commit.message, ' linux-emulated') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [riscv64, ppc64le, s390x, armhf]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - name: Upstream source
+        run: |
+          bash build/fetch-upstream.sh up
+          UPSTREAM=$PWD/up OUT=$PWD/bs bash build/prepare-src.sh
+          mkdir -p pk && cp -r bs/GetDecicsSrc pk/src && cp -r up/Pari/pari-2.8-1711-ge5c317c pk/pari
+      - name: Build and test in an emulated Ubuntu 22.04
+        run: |
+          case ${{ matrix.arch }} in armhf) P=linux/arm/v7 ;; *) P=linux/${{ matrix.arch }} ;; esac
+          docker run --rm --platform $P -v "$PWD":/w -w /w -e HOME=/w -e QUICK_WUS ubuntu:22.04 bash -c '
+            set -e
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential gfortran libgmp-dev libboinc-app-dev bison perl python3 git ca-certificates > /dev/null
+            if [ "$(dpkg --print-architecture)" = riscv64 ]; then bash build/build-boinc-libs.sh; fi
+            bash build/build-linux-cpu-generic.sh
+            bash build/test-suite-unix.sh /w/pk/src/GetDecics_cpu /w/up/Test/dataFiles 2 $QUICK_WUS | tee /w/suite.txt'
+          grep -q 'SUMMARY: MATCH 2  DIFF 0' suite.txt
+          mkdir -p out && cp pk/src/GetDecics_cpu out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-linux-${{ matrix.arch }}
+          path: out/
+          retention-days: 7
+
+  macos-arm64:
+    if: ${{ !contains(github.event.head_commit.message, '[only:') || contains(github.event.head_commit.message, ' macos-arm64') }}
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: brew install gcc gmp autoconf automake libtool
+      - name: Upstream source and PARI
+        run: |
+          W=$HOME/passiflora-work && mkdir -p $W
+          bash build/fetch-upstream.sh $HOME/up
+          UPSTREAM=$HOME/up OUT=$W/bs bash build/prepare-src.sh
+          mv $W/bs/GetDecicsSrc $W/src
+          cp -r $HOME/up/Pari/pari-2.8-1711-ge5c317c $W/pari
+          cd $W/pari && ./Configure --static --with-gmp=/opt/homebrew --without-readline > $W/pari_conf.log
+          cd O* && PERL5LIB=$W/pari/src/desc:$W/pari/src/desc/PARI make -j3 lib-sta > $W/pari_make.log
+      - name: BOINC libraries
+        run: PREFIX=$HOME/boinc-install bash build/build-boinc-libs.sh
+      - name: Build
+        run: W=$HOME/passiflora-work BOINC=$HOME/boinc-install bash build/build-macos-arm64.sh
+      - name: Logs
+        if: failure()
+        run: tail -30 $HOME/passiflora-work/pari_conf.log $HOME/passiflora-work/pari_make.log || true
+      - name: Test the CPU program on all work units
+        run: |
+          bash build/test-suite-unix.sh $HOME/passiflora-work/src/GetDecics_cpu $HOME/up/Test/dataFiles 3 | tee suite.txt
+          grep -q 'SUMMARY: MATCH 31  DIFF 0' suite.txt
+      - name: Collect
+        run: mkdir -p out && cp $HOME/passiflora-work/src/GetDecics_cpu out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-macos-arm64
+          path: out/
+          retention-days: 7
+
+  freebsd-x86-64:
+    if: ${{ !contains(github.event.head_commit.message, '[only:') || contains(github.event.head_commit.message, ' freebsd-x86-64') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upstream source
+        run: |
+          bash build/fetch-upstream.sh up
+          UPSTREAM=$PWD/up OUT=$PWD/bs bash build/prepare-src.sh
+          mkdir -p w && cp -r bs/GetDecicsSrc w/src && cp -r up/Pari/pari-2.8-1711-ge5c317c w/pari
+      - name: Build and test in FreeBSD 14
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: '14.3'
+          usesh: true
+          mem: 8192
+          copyback: true
+          run: |
+            set -e
+            mkdir -p /root/w && cp -R w/src w/pari /root/w/
+            sh build/freebsd/build-freebsd.sh
+            mkdir -p out && cp /root/w/src/GetDecics_cpu out/
+            pkg install -y bash > /dev/null
+            bash build/test-suite-unix.sh /root/w/src/GetDecics_cpu "$PWD/up/Test/dataFiles" 4 | tee suite.txt
+      - name: Check the test
+        run: |
+          cat suite.txt
+          grep -q 'SUMMARY: MATCH 31  DIFF 0' suite.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-freebsd-x86-64
+          path: out/
+          retention-days: 7
+
+  musa:
+    if: ${{ !contains(github.event.head_commit.message, '[only:') || contains(github.event.head_commit.message, ' musa') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upstream source
+        run: |
+          bash build/fetch-upstream.sh up
+          UPSTREAM=$PWD/up OUT=$PWD/bs bash build/prepare-src.sh
+          mkdir -p work && cp -r bs/GetDecicsSrc work/src && cp -r up/Pari/pari-2.8-1711-ge5c317c work/pari
+      - name: Build in the MUSA container (PARI, then build-musa.sh)
+        run: |
+          docker run --rm -v "$PWD/work":/work -v "$PWD/build/build-musa.sh":/b.sh:ro mthreads/musa:rc4.3.0-devel-ubuntu22.04-amd64 bash -c '
+            set -e
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gfortran g++ libgmp-dev bison perl make > /dev/null
+            cd /work/pari && ./Configure --static --with-gmp --without-readline > /dev/null
+            cd Olinux-x86_64 && PERL5LIB=/work/pari/src/desc:/work/pari/src/desc/PARI make -j4 lib-sta > /dev/null
+            bash /b.sh'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-musa
+          path: work/out/
+          retention-days: 7
+
+  package:
+    needs: [linux-x86-64, windows-x86-64, linux-aarch64, linux-emulated, macos-arm64, freebsd-x86-64, musa]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: A release needs every build
+        if: startsWith(github.ref, 'refs/tags/v') && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'skipped'))
+        run: |
+          echo "a build job did not succeed: no release"
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: bins
+      - name: Packages
+        run: |
+          ls -lR bins
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then export PASSIFLORA_VERSION=${GITHUB_REF_NAME#v}; else export PASSIFLORA_VERSION=0.0.0; fi
+          b=$PWD/bins
+          export PASSIFLORA_LIN_CPU=$b/bin-linux-x86-64/GetDecics_cpu PASSIFLORA_LIN_GPU=$b/bin-linux-x86-64/GetDecics_gpu \
+                 PASSIFLORA_LIN_CUDA=$b/bin-linux-x86-64/GetDecics_cuda PASSIFLORA_LIN_MUSA=$b/bin-musa \
+                 PASSIFLORA_WIN_CPU=$b/bin-windows-x86-64/GetDecics_cpu.exe PASSIFLORA_WIN_GPU=$b/bin-windows-x86-64/GetDecics_gpu.exe \
+                 PASSIFLORA_WIN_CUDA=$b/bin-windows-x86-64/GetDecics_cuda.exe \
+                 PASSIFLORA_A64_CPU=$b/bin-linux-aarch64/GetDecics_cpu PASSIFLORA_A64_GPU=$b/bin-linux-aarch64/GetDecics_gpu \
+                 PASSIFLORA_RV64_CPU=$b/bin-linux-riscv64/GetDecics_cpu PASSIFLORA_PPC64_CPU=$b/bin-linux-ppc64le/GetDecics_cpu \
+                 PASSIFLORA_S390X_CPU=$b/bin-linux-s390x/GetDecics_cpu PASSIFLORA_ARM32_CPU=$b/bin-linux-armhf/GetDecics_cpu \
+                 PASSIFLORA_MAC_CPU=$b/bin-macos-arm64/GetDecics_cpu PASSIFLORA_FBSD_CPU=$b/bin-freebsd-x86-64/GetDecics_cpu
+          python3 build/make-release.py
+          cp docs/INSTALL.txt dist/
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: dist/
+          retention-days: 14
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag --title "Passiflora $GITHUB_REF_NAME" \
+            --notes "Built by the release workflow from ${GITHUB_SHA::7}. The GPU programs are not tested on GitHub's runners: test them on a card, write the notes, then publish."

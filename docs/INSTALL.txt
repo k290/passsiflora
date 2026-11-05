@@ -85,5 +85,5 @@ UNINSTALL
 Stop BOINC, delete app_info.xml, app_config.xml and the GetDecics_passiflora* file(s) (and libnf_musa.so,
 libmusart.so.4 for MUSA) from the project folder, start BOINC.
 
-Source and details: https://github.com/alplix/passiflora   (licence GPL-2.0-or-later)
+Source and details: https://github.com/k290/passsiflora   (licence GPL-2.0-or-later)
 Original application: Eric Driver, https://github.com/drivere/get-decics-numberfields

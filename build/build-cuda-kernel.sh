@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds the CUDA kernel into a fat binary and turns it into src/nf_cuda_fatbin.h.
-# Needs the CUDA toolkit (12.x; nvcc).  Set NVCC to its path, SRC to the passiflora src directory.
+# Needs the CUDA toolkit 12.8 or 12.9 (nvcc): 12.8 is the first with sm_100 and sm_120, 13.0 no longer builds sm_50 to sm_72.
+# Set NVCC to its path, SRC to the passiflora src directory, OUT to where the header goes (default: SRC).
 set -e
 NVCC=${NVCC:-nvcc}
 SRC=${SRC:-$(cd "$(dirname "$0")/../src" && pwd)}
