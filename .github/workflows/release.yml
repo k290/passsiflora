@@ -1,6 +1,7 @@
 # Release build.  A tag vX.Y.Z builds every package the scripts in build/ can make on GitHub's runners, runs the CPU programs
 # on the upstream work units against their truth files and makes a draft release with the packages, INSTALL.txt and
-# SHA256SUMS.  A push to release-ci runs the same without the release (packages named 0.0.0, kept as an artifact).
+# SHA256SUMS (title and notes from docs/releases/<tag>.md).  Run by hand (Actions -> Release -> Run workflow) it does the same
+# without the release: the packages, named 0.0.0, are kept as an artifact of the run.
 # Not built here: the Android package (it needs a gfortran for Android that is not in this repository).
 # Not tested here: the GPU programs (no graphics card on the runners); test the draft's packages on a card before publishing.
 name: Release
@@ -8,7 +9,6 @@ name: Release
 on:
   push:
     tags: ['v*']
-    branches: [release-ci]
   workflow_dispatch:
 
 permissions:
