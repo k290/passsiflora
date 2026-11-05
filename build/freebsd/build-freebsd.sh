@@ -9,7 +9,8 @@ V=$(ls /usr/local/bin/gfortran* | head -1 | sed 's/.*gfortran//'); echo "gcc ver
 FC=/usr/local/bin/gfortran$V; CXX=/usr/local/bin/g++$V; CC=/usr/local/bin/gcc$V
 # PARI
 if [ ! -f pari/Ofreebsd-amd64/libpari.a ] && ! ls pari/O*/libpari.a >/dev/null 2>&1; then
-  ( cd pari && env CC=$CC ./Configure --static --with-gmp=/usr/local --without-readline > /root/w/pari_conf.log 2>&1 ) \
+  # gnu11: GCC 15 defaults to C23, where PARI 2.8's calls through ep->value (declared with ()) do not compile
+  ( cd pari && env CC="$CC -std=gnu11" ./Configure --static --with-gmp=/usr/local --without-readline > /root/w/pari_conf.log 2>&1 ) \
     || { tail -30 /root/w/pari_conf.log; exit 1; }
   export PERL5LIB=/root/w/pari/src/desc:/root/w/pari/src/desc/PARI
   ( cd pari/O* && gmake -j4 lib-sta > /root/w/pari_make.log 2>&1 ) || { grep -m15 -i error /root/w/pari_make.log; exit 1; }

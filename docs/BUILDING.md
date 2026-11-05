@@ -3,23 +3,25 @@
 Passiflora is a set of files that you add to the upstream source, plus a small patch.
 Nothing of upstream is copied into this repository.
 
-The quickest route is `build/prepare-src.sh`: it copies the five upstream files that are needed, applies
-`patches/passiflora.patch` and adds `src/` (set `UPSTREAM` to your checkout). The steps below do the same by hand.
+The quickest route is `build/fetch-upstream.sh` (step 1 below) and then `build/prepare-src.sh`: it copies the five upstream
+files that are needed, applies `patches/passiflora.patch` and adds `src/` (set `UPSTREAM` to your checkout). The steps below
+do the same by hand.  The release packages are built by a workflow (section 6).
 
 ## 1. Get the sources
 
 ```bash
 git clone --filter=blob:none --no-checkout https://github.com/drivere/get-decics-numberfields upstream
 cd upstream
-git checkout 638ca4e                        # the commit Passiflora was built from
 git sparse-checkout init --cone
 git sparse-checkout set GetDecicsSrc Test Pari/pari-2.8-1711-ge5c317c
-git checkout
+git checkout 638ca4e                        # the commit Passiflora was built from
 patch -p1 < ../passiflora/patches/passiflora.patch   # changes TgtMartinet.cpp/.h, GetDecics.cpp and polDiscTest_cpu.cpp
 cp ../passiflora/src/* GetDecicsSrc/
 ```
 
-`Test/dataFiles` contains the 31 work units and their `.truth` outputs used for the tests.
+`Test/dataFiles` contains the 31 work units and their `.truth` outputs used for the tests.  Upstream's PARI directory also
+holds a prebuilt `Olinux-x86_64/libpari.a`: delete the `O*` directories before building PARI, or the build scripts take it
+for a finished build (on another system it does not link).
 
 ## 2. Libraries
 
@@ -82,21 +84,37 @@ static). To keep the binary usable on older distributions build in an Ubuntu 22.
 ## 3b. Other systems
 
 * **Linux aarch64:** `build/build-linux-aarch64.sh`, run natively on an Ubuntu 22.04 arm64 machine or VM.
+* **Linux riscv64, ppc64le, s390x, armhf:** `build/build-linux-cpu-generic.sh` in an Ubuntu 22.04 of that architecture
+  (natively or emulated). Ubuntu's BOINC libraries are empty archives on riscv64 and armhf: build them first with
+  `build/build-boinc-libs.sh`.
 * **macOS arm64:** `build/build-macos-arm64.sh` (Xcode tools, Homebrew gcc + gmp, BOINC's libraries, PARI built in place).
+  `PREFIX=<dir> build/build-boinc-libs.sh` builds BOINC's libraries (Homebrew's autoconf, automake and libtool, with
+  libtool's `libexec/gnubin` on the `PATH`).
+* **FreeBSD x86-64:** `build/freebsd/build-freebsd.sh`, run inside FreeBSD 14 as root.
 * **MUSA:** `build/build-musa.sh` inside the `mthreads/musa` container (Ubuntu 22.04); produces the program,
   `libnf_musa.so` and the vendor runtime.
 * The package builder is `build/make-release.py`; tests: `build/test-suite-unix.sh` (any Unix).
 
 ## 4. Windows
 
-Cross-compile with MinGW-w64. PARI's `Configure` must be run on a path the Windows side can
-execute (it runs small test programs) with two wrappers: one that drops the `.exe` suffix from
-the compiler's output and one that strips CRLF from the test programs' output (otherwise PARI
-decides `sizeof(long) = 4`). The GPU build needs an import library for `OpenCL.dll`
-(`dlltool -d OpenCL.def -l libOpenCL.a`).
+MinGW-w64, cross-compiled from Linux or natively in MSYS2 (MINGW64 shell, packages `gcc`, `gcc-fortran`, `gmp`,
+`opencl-headers`, `python`, plus `make`, `patch`, `bison`, `perl`, `git`). PARI's `Configure` runs small test programs, so
+it must run where Windows programs can be executed, with two wrappers: one that drops the `.exe` suffix from the
+compiler's output and one that strips CRLF from the test programs' output (otherwise PARI decides `sizeof(long) = 4`).
+`build/build-pari-mingw.sh` writes both and builds PARI; `MINGW=1 build/build-boinc-libs.sh` builds BOINC's libraries with
+BOINC's `lib/Makefile.mingw`; `build/build-windows-gpu.sh` builds the CPU, OpenCL and CUDA programs (it makes the import
+library for `OpenCL.dll` with `dlltool -d OpenCL.def -l libOpenCL.a`). Each script takes its paths from the environment
+(see its header); the defaults are the original author's machine.
 
-`build/` contains the scripts used for the released binaries. They contain paths from the
-author's machine and are meant as a reference, not as a turnkey build.
+## 6. Releases
+
+`.github/workflows/release.yml` builds the release: pushing a tag `vX.Y.Z` runs the scripts above on GitHub's runners
+(Linux x86-64 in an Ubuntu 22.04 container, Windows with MSYS2, Linux aarch64 natively, riscv64/ppc64le/s390x/armhf in
+emulated Ubuntu 22.04 containers, macOS on Apple silicon, FreeBSD in a VM, MUSA in Moore Threads' container), runs the CPU
+programs on the work units (all 31; two small ones on the emulated systems), packages everything with
+`build/make-release.py` (version from the tag) and makes a **draft** release. Two things it does not do: the Android
+package (`build/android/`, which needs a gfortran for Android that is not in this repository) and testing the GPU
+programs (the runners have no graphics card). Test the draft's GPU packages on a card, then publish it.
 
 ## 5. Test
 
