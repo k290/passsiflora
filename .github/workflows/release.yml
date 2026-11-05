@@ -183,7 +183,8 @@ jobs:
             set -e
             apt-get update -qq
             DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential gfortran libgmp-dev libboinc-app-dev bison perl python3 git ca-certificates > /dev/null
-            if [ "$(dpkg --print-architecture)" = riscv64 ]; then bash build/build-boinc-libs.sh; fi
+            # Ubuntu 22.04 ships empty BOINC libraries on some architectures (riscv64, armhf): build them from source there
+            if ! nm /usr/lib/$(gcc -dumpmachine)/libboinc_api.a 2>/dev/null | grep -q " T boinc_init"; then bash build/build-boinc-libs.sh; fi
             bash build/build-linux-cpu-generic.sh
             bash build/test-suite-unix.sh /w/pk/src/GetDecics_cpu /w/up/Test/dataFiles 2 $QUICK_WUS | tee /w/suite.txt'
           grep -q 'SUMMARY: MATCH 2  DIFF 0' suite.txt
