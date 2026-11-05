@@ -41,8 +41,8 @@ arithmetic is exact for small primes up to 8385 and large primes up to 1,097,010
 * An oracle test that computes every symbol independently and reaches every stage and path of the filter; it detects all seven
   deliberately injected arithmetic faults.
 * GetDecics' exact test against the mathematical definition (PARI) on 10.7 million polynomials.
-* All **31** upstream test work units give their reference outputs in both CPU builds (AVX2 and baseline); on an NVIDIA GPU, 8 of
-  them through OpenCL and 4 through CUDA.
+* All **31** upstream test work units give their reference outputs in both CPU builds (AVX2 and baseline); on an NVIDIA GPU
+  (GTX 1650), all 31 through OpenCL and CUDA on Windows and through CUDA on Linux, with the programs of the release workflow.
 
 **Assumed.**  GetDecics' exact test runs its first two steps in 64-bit integers without overflow checks; Passiflora, like the stock
 program, relies on the search regions keeping them in range (no overflow among the 14.8 billion polynomials of the 31 test work units).
@@ -50,33 +50,18 @@ The compiler must implement two integer conventions the Fortran standard leaves 
 every start (below).
 
 **At run time.**  The start-up checks guard the build, not the machine.  Integer instructions have no rounding modes, so a binary
-computes the same values on every processor of its architecture; what can be wrong is the code its compiler produced.  The tests ran on
-x86-64 with GCC 15.2 and 16.2, but the releases are also built by the MinGW-w64 and Android cross compilers and for ARM Linux, macOS
-and FreeBSD.  Until those builds are run through the tests, the CPU filter's start-up check of its compiled arithmetic is the one test
-of their code.  The GPU kernel was tested on one card, and under OpenCL each machine's graphics driver compiles it, so every GPU task
+computes the same values on every processor of its architecture; what can be wrong is the code its compiler produced.  The filter's
+own tests ran on x86-64 with GCC 15.2 and 16.2, but the releases are also built with MinGW-w64 and for ARM, RISC-V, PowerPC and IBM Z
+Linux, macOS and FreeBSD.  The release workflow runs each of those programs on the upstream work units (all 31, or two small ones where
+the system is emulated); beyond that, the CPU filter's start-up check of its compiled arithmetic is the one test of their code.  The GPU kernel was tested on one card, and under OpenCL each machine's graphics driver compiles it, so every GPU task
 first runs a self-test of the kernel's filter against values computed on the host and compares its polynomial count with the CPU over
 the first 5 million polynomials.  A failed check reports nothing wrong: the CPU filter switches off and the exact test decides every
 polynomial; a GPU task runs on the CPU or stops.  `NF_GPUCHECK=1` compares the GPU's survivors with the CPU for the whole task.
 
 ## How fast?
 
-The integer filter against the earlier floating-point filter (one series per table, medians; whitepaper, Section 9 "Performance"):
-
-| time saved | AVX2 build | baseline build |
-|---|---|---|
-| CPU, filter + exact test, work units where the fast chain dominates | 4–14% | 19–20% |
-| CPU, a work unit that needs the general chain at every prime | 48% | 58% |
-| GPU kernel, device time (GTX 1650) | 9–12% | |
-
-Against the stock application, as reported for the published releases (floating-point filter; i5-13400F and RTX 5070 Ti, with other
-BOINC work running):
-
-| Work unit | stock CPU app | Passiflora CPU (1 core) | stock GPU app | Passiflora GPU |
-|---|---|---|---|---|
-| `sf5_DS-16x12_Grp90of1600000` | ~1700 s | 93 s | 83 s | 5.1 s |
-| `sf3_DS-16x270_Grp74of3932160` | 1727 s | 72 s | – | 5.6 s |
-| `sf3_DS-16x271-1_Grp99of2000000` | 508 s | 45 s | – | 7.2 s |
-| all 31 test work units | ~47 000 s (est.) | 3155 s | – | 439 s (CUDA: 338 s) |
+The integer filter is faster than the floating-point filter it replaced, on the CPU and on the GPU.  The measurements, and where the
+time goes, are in the whitepaper, Section 9 "Performance".
 
 ## Downloads
 
