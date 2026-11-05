@@ -144,6 +144,7 @@ jobs:
           bash build/fetch-upstream.sh $HOME/up
           UPSTREAM=$HOME/up OUT=$HOME/bs bash build/prepare-src.sh
           mkdir -p $HOME/pk && cp -r $HOME/bs/GetDecicsSrc $HOME/pk/src && cp -r $HOME/up/Pari/pari-2.8-1711-ge5c317c $HOME/pk/pari
+          rm -rf $HOME/pk/pari/O*   # upstream commits a prebuilt x86-64 PARI
       - name: Build (PARI, CPU, OpenCL)
         run: bash build/build-linux-aarch64.sh
       - name: Test the CPU program on all work units
@@ -174,6 +175,7 @@ jobs:
           bash build/fetch-upstream.sh up
           UPSTREAM=$PWD/up OUT=$PWD/bs bash build/prepare-src.sh
           mkdir -p pk && cp -r bs/GetDecicsSrc pk/src && cp -r up/Pari/pari-2.8-1711-ge5c317c pk/pari
+          rm -rf pk/pari/O*   # upstream commits a prebuilt x86-64 PARI
       - name: Build and test in an emulated Ubuntu 22.04
         run: |
           case ${{ matrix.arch }} in armhf) P=linux/arm/v7 ;; *) P=linux/${{ matrix.arch }} ;; esac
@@ -198,18 +200,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Tools
-        run: brew install gcc gmp autoconf automake libtool
+        run: brew install gcc gmp autoconf automake libtool pkgconf
       - name: Upstream source and PARI
         run: |
           W=$HOME/passiflora-work && mkdir -p $W
           bash build/fetch-upstream.sh $HOME/up
           UPSTREAM=$HOME/up OUT=$W/bs bash build/prepare-src.sh
           mv $W/bs/GetDecicsSrc $W/src
-          cp -r $HOME/up/Pari/pari-2.8-1711-ge5c317c $W/pari
+          cp -r $HOME/up/Pari/pari-2.8-1711-ge5c317c $W/pari && rm -rf $W/pari/O*   # upstream commits a prebuilt x86-64 PARI
           cd $W/pari && ./Configure --static --with-gmp=/opt/homebrew --without-readline > $W/pari_conf.log
           cd O* && PERL5LIB=$W/pari/src/desc:$W/pari/src/desc/PARI make -j3 lib-sta > $W/pari_make.log
       - name: BOINC libraries
-        run: PREFIX=$HOME/boinc-install bash build/build-boinc-libs.sh
+        run: |
+          export PATH="$(brew --prefix libtool)/libexec/gnubin:$PATH"   # libtoolize (Homebrew names it glibtoolize)
+          PREFIX=$HOME/boinc-install bash build/build-boinc-libs.sh
       - name: Build
         run: W=$HOME/passiflora-work BOINC=$HOME/boinc-install bash build/build-macos-arm64.sh
       - name: Logs
@@ -238,6 +242,7 @@ jobs:
           bash build/fetch-upstream.sh up
           UPSTREAM=$PWD/up OUT=$PWD/bs bash build/prepare-src.sh
           mkdir -p w && cp -r bs/GetDecicsSrc w/src && cp -r up/Pari/pari-2.8-1711-ge5c317c w/pari
+          rm -rf w/pari/O*   # upstream commits a prebuilt x86-64 PARI
       - name: Build and test in FreeBSD 14
         uses: vmactions/freebsd-vm@v1
         with:
@@ -272,6 +277,7 @@ jobs:
           bash build/fetch-upstream.sh up
           UPSTREAM=$PWD/up OUT=$PWD/bs bash build/prepare-src.sh
           mkdir -p work && cp -r bs/GetDecicsSrc work/src && cp -r up/Pari/pari-2.8-1711-ge5c317c work/pari
+          rm -rf work/pari/O*   # upstream commits a prebuilt x86-64 PARI
       - name: Build in the MUSA container (PARI, then build-musa.sh)
         run: |
           docker run --rm -v "$PWD/work":/work -v "$PWD/build/build-musa.sh":/b.sh:ro mthreads/musa:rc4.3.0-devel-ubuntu22.04-amd64 bash -c '
