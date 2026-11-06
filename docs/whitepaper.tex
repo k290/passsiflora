@@ -64,7 +64,7 @@ independently of the floating-point environment.  It states the contract between
 the compiled filter on $25.5$ billion polynomials at tiny primes, an exact oracle with deliberate faults, a differential test of GetDecics' own exact test, the
 $31$ test work units in every build, and the GPU kernel on the CPU and on a device.  It also proves what GetDecics' exact test computes, under one condition on the
 data that the search regions are designed to meet: the test's first $64$-bit steps do not overflow.  The integer filter is also faster than the floating-point
-filter it replaces: in the application the CPU filter with the exact test behind it takes $4$ to $58\%$ less time, depending on the work unit and the instruction
+filter it replaces: in the application the CPU filter with the exact test behind it takes $7$ to $57\%$ less time, depending on the work unit and the instruction
 set, and the GPU kernel $9$ to $12\%$ less device time.  Every result carries its status: proved, checked numerically, quoted, or assumed.
 \end{abstract}
 
@@ -775,45 +775,45 @@ failure, on fewer polynomials than for $\{2,5\}$.
 \section{Performance}\label{sec:speed}
 
 The integer filter replaced the floating-point one for exactness, not for speed, so this section first asks whether the change costs speed.  It does not: the
-integer filter is faster everywhere, by $4$ to $20\%$ on the work units where almost every polynomial takes \code{chain\_block}, by $48$ to $58\%$ on one where every polynomial takes
-\code{chain\_general}, and by $9$ to $12\%$ in device time on the GPU.  Section~\ref{sec:timings} gives the timings in the application and shows where the CPU
+integer filter is faster everywhere, by $7$ to $25\%$ on the work units where almost every polynomial takes \code{chain\_block}, by $50$ to $57\%$ on one where every
+polynomial takes \code{chain\_general}, and by $9$ to $12\%$ in device time on the GPU.  Section~\ref{sec:timings} gives the timings in the application and shows where the CPU
 filter's time goes, and what of the gain belongs to the arithmetic; Section~\ref{sec:split} shows why all $30$ stages of the CPU filter now use primes below
-$2^{13}$: the six stages with larger primes that v0.4.0 still had cost slightly more and gain nothing.  The timings of the CPU filter were made with v0.4.0's
-$24+6$ primes; the filter with $30+0$ is not separated from it by any measurement (Section~\ref{sec:split}).  All results are measurements \stnum on one machine, a laptop with an Intel i5-12500H and an NVIDIA GTX~1650; the CPU timings
+$2^{13}$: the six stages with larger primes that v0.4.0 still had cost slightly more and gain nothing.  All results are measurements \stnum on one machine, a laptop with an Intel i5-12500H and an NVIDIA GTX~1650; the CPU timings
 were made on Linux (WSL2) unless stated.
 
 \subsection{Timings}\label{sec:timings}
 
 \paragraph{CPU} \stnum.  Table~\ref{tab:speed} gives the application's own timing split (\code{NF\_PROFILE}) over the first $60{,}006{,}400$ polynomials of three
-work units, seven runs per filter, the filters alternating, one run at a time on an otherwise idle machine.  The programs differ only in the filter: the earlier
-floating-point filter; an integer filter with Barrett reduction ($32$-bit lanes for the small primes, $64$-bit products for the large ones); and the Montgomery filter
-in three steps, each with one change more than the step before.  On \code{sf5} and \code{sf3} almost every polynomial takes \code{chain\_block}; on \code{sf4} every
-polynomial takes \code{chain\_general} at every prime.
+work units, seven runs per program, the programs alternating, one run at a time on an otherwise idle machine (6 November 2026).  The programs differ only in the
+filter: the earlier floating-point filter and the integer filter described here.  On \code{sf5} and \code{sf3} almost every polynomial takes \code{chain\_block}; on
+\code{sf4} every polynomial takes \code{chain\_general} at every prime.
 
 \begin{table}[ht]
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
-\caption{CPU filter plus exact test (the application's polDisc time) in seconds for the first $60{,}006{,}400$ polynomials, median of seven runs; in brackets the
-change against the floating-point filter.  Montgomery: $6+24$ primes (small $+$ large) with scalar loads; the same primes with vectorised loads; then $24+6$ primes
-with these loads, the filter of v0.4.0 (the filter described here, $30+0$, is within the scatter of it; Section~\ref{sec:split}).  Work units \code{sf5\_DS-14x11\_Grp33043of705883}, \code{sf3\_DS-16x270\_Grp74of3932160},
-\code{sf4\_DS-13x271-25\_Grp98of200000}.}\label{tab:speed}
-\begin{tabular}{@{}llrrrrr@{}}
+\caption{\raggedright CPU filter plus exact test (the application's polDisc time) in seconds for the first $60{,}006{,}400$ polynomials, median of seven runs; in
+brackets the change against the floating-point filter (\code{327b04f}).  Integer: the filter described here, with $30$ primes below $2^{13}$ (\code{ea99f08}).
+Work units \code{sf5\_DS-14x11\_Grp33043of705883}, \code{sf3\_DS-16x270\_Grp74of3932160} and \code{sf4\_DS-13x271-25\_Grp98of200000}.}\label{tab:speed}
+\begin{tabular}{@{}llrr@{}}
 \toprule
-& & & & \multicolumn{3}{c}{Montgomery} \\ \cmidrule(l){5-7}
-& & & & scalar loads & \multicolumn{2}{c}{vectorised loads} \\ \cmidrule(lr){5-5}\cmidrule(l){6-7}
-work unit & build & floating point & Barrett & $6+24$ primes & $6+24$ primes & $24+6$ primes \\ \midrule
-\code{sf5} & AVX2     & $5.84$  & $12.03$ ($+106\%$) & $6.65$ ($+14\%$)  & $5.49$ ($-6\%$)  & $5.03$ ($-14\%$) \\
-           & baseline & $8.86$  & $24.47$ ($+176\%$) & $8.80$ ($-1\%$)   & $7.96$ ($-10\%$) & $7.21$ ($-19\%$) \\
-\code{sf3} & AVX2     & $5.44$  & $11.87$ ($+118\%$) & $6.52$ ($+20\%$)  & $5.65$ ($+4\%$)  & $5.23$ ($-4\%$) \\
-           & baseline & $8.20$  & $22.52$ ($+175\%$) & $7.89$ ($-4\%$)   & $7.33$ ($-11\%$) & $6.59$ ($-20\%$) \\
-\code{sf4} & AVX2     & $13.37$ & $16.09$ ($+20\%$)  & $8.55$ ($-36\%$)  & $7.64$ ($-43\%$) & $6.99$ ($-48\%$) \\
-           & baseline & $21.88$ & $32.81$ ($+50\%$)  & $11.25$ ($-49\%$) & $10.86$ ($-50\%$) & $9.28$ ($-58\%$) \\ \bottomrule
+work unit & build & floating point & integer \\ \midrule
+\code{sf5} & AVX2     & $5.86$  & $5.12$ ($-13\%$) \\
+           & baseline & $9.02$  & $6.74$ ($-25\%$) \\
+\code{sf3} & AVX2     & $5.27$  & $4.89$ ($-7\%$) \\
+           & baseline & $8.30$  & $6.66$ ($-20\%$) \\
+\code{sf4} & AVX2     & $13.74$ & $6.88$ ($-50\%$) \\
+           & baseline & $20.85$ & $8.93$ ($-57\%$) \\ \bottomrule
 \end{tabular}
 \end{table}
 
-The resulting filter is faster than the floating-point one in every row of Table~\ref{tab:speed}: by $14\%$ and $4\%$ with AVX2 on \code{sf5} and \code{sf3} (the
-$4\%$ is less than the spread of the runs, $5$--$31\%$ between the fastest and the slowest run of one filter), by $19$--$20\%$ with the baseline build, and by
-$48$--$58\%$ on \code{sf4}.  Barrett reduction is the slowest throughout: AVX2 has no $64$-bit vector multiplication, and a $32$-bit lane holds half as many residues
-per register as the $16$-bit lanes of the Montgomery stage.  Timings of different series differ by up to about $10\%$, so only filters of one series are compared.
+The integer filter is faster than the floating-point one in every row of Table~\ref{tab:speed}: by $13\%$ and $7\%$ with AVX2 on \code{sf5} and \code{sf3}, by
+$20$--$25\%$ with the baseline build, and by $50$--$57\%$ on \code{sf4}.  The two AVX2 rows of \code{sf5} and \code{sf3} lie within the spread of the runs, up to
+$22\%$ between the fastest and the slowest run of one program (the processor has two kinds of cores, and a run may land on either).  A third program in the same
+series, v0.4.0 with its $24+6$ primes, came within $3\%$ of the integer filter in every row, inside that spread (Section~\ref{sec:split}).  The way there was not
+straight.  An integer filter with Barrett reduction ($32$-bit lanes for the small primes, $64$-bit products for the large ones) was $20$ to $176\%$ slower than the
+floating-point one: AVX2 has no $64$-bit vector multiplication, and a $32$-bit lane holds half as many residues per register as a $16$-bit one.  The first
+Montgomery filter, with $6$ small and $24$ large primes and scalar loads, was up to $20\%$ slower with AVX2 on \code{sf5} and \code{sf3}, and already $36$ to $49\%$
+faster on \code{sf4}; Table~\ref{tab:cycles} shows where the difference went.  Timings of different series differ by up to about $10\%$, so only programs of one
+series are compared.
 
 \begin{table}[ht]
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
@@ -900,30 +900,17 @@ work unit & time & floating point & no self-test & no self-test & self-test \\ \
 \end{tabular}
 \end{table}
 
-\paragraph{A repeat run} \stnum.  On 2 November 2026 the floating-point versions and the program described here were timed again, two versions only, on the
-same machine and by the same procedure; Tables~\ref{tab:speed} and~\ref{tab:gpuspeed} stand as measured.  The two CPU programs differ only in the filter.  The
-two GPU programs both contain the CPU filter described here and differ in the GPU code and the host part of the patch.  Table~\ref{tab:repeat} gives the results.
-The changes agree with the earlier series to within $0.2$ percentage points for the device time and $3$ for the CPU and the whole runs: the CPU filter is $6$--$21\%$ faster on \code{sf5} and \code{sf3} and $50$--$56\%$ on
-\code{sf4}, the kernel takes $9.1$--$11.5\%$ less device time, and a whole GPU run takes $1$--$9\%$ less.  As before, the AVX2 rows of \code{sf5} and \code{sf3},
-the whole runs on \code{sf5} and the CUDA run on \code{sf4} differ by less than the spread of their runs.  Both CPU programs gave the truth file of a whole work unit
-in both builds; all $142$ GPU runs gave their truth files on the GPU (the integer kernel runs there only after its start-up self-test has passed), and the
-GPU core clock stayed at $1785$\,MHz.
+\paragraph{A repeat run} \stnum.  On 2 November 2026 the floating-point GPU versions and the integer GPU programs (the kernel is unchanged since) were timed
+again, two versions only, on the same machine and by the same procedure; Table~\ref{tab:gpuspeed} stands as measured.  The two programs differ in the GPU code and
+the host part of the patch.  Table~\ref{tab:repeat} gives the results.  The changes agree with the earlier series to within $0.2$ percentage points for the device
+time and $3$ for the whole runs: the kernel takes $9.1$--$11.5\%$ less device time, and a whole GPU run takes $1$--$9\%$ less.  As before, the whole runs on
+\code{sf5} and the CUDA run on \code{sf4} differ by less than the spread of their runs.  All $142$ GPU runs gave their truth files on the GPU (the integer kernel
+runs there only after its start-up self-test has passed), and the GPU core clock stayed at $1785$\,MHz.
 
 \begin{table}[ht]
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
-\caption{The repeat run: the floating-point version against the program described here, medians; in brackets the change.  CPU: filter plus exact test in seconds
-for the first $60{,}006{,}400$ polynomials, $7$ runs, spread up to $15\%$.  GPU, GTX~1650: ``device'' as in Table~\ref{tab:gpuspeed}, $7$ runs, spread
-$0.3$--$1.6\%$; ``OpenCL'', ``CUDA'': the whole run, $5$ runs, spread up to $9\%$.}\label{tab:repeat}
-\begin{tabular}[t]{@{}llrr@{}}
-\toprule
-work unit & build & floating point & integer \\ \midrule
-\code{sf5} & AVX2     & $5.94$  & $5.23$ ($-12\%$) \\
-           & baseline & $8.73$  & $6.98$ ($-20\%$) \\
-\code{sf3} & AVX2     & $5.27$  & $4.94$ ($-6\%$) \\
-           & baseline & $8.31$  & $6.55$ ($-21\%$) \\
-\code{sf4} & AVX2     & $13.84$ & $6.89$ ($-50\%$) \\
-           & baseline & $20.66$ & $9.13$ ($-56\%$) \\ \bottomrule
-\end{tabular}\qquad
+\caption{The repeat run of the GPU programs: the floating-point version against the integer one, medians; in brackets the change.  GTX~1650: ``device'' as in
+Table~\ref{tab:gpuspeed}, $7$ runs, spread $0.3$--$1.6\%$; ``OpenCL'', ``CUDA'': the whole run, $5$ runs, spread up to $9\%$.}\label{tab:repeat}
 \begin{tabular}[t]{@{}llrr@{}}
 \toprule
 work unit & time & floating point & integer \\ \midrule
@@ -1094,15 +1081,15 @@ puts the stack in a run, every other such access crosses a cache line or none do
 one fixed memory layout, moving the filter's stack by $16$ bytes changed its time on \code{sf4} with AVX2 from $7.87$ to $9.11$\,s (medians of six runs each, $+8$
 to $+19\%$ in every pair), on \code{sf5} by $2.5\%$, and with the baseline build, whose $16$-byte vectors never cross a line, not at all.  On \code{sf4}, where every
 block takes \code{chain\_general}, this outweighs the split, and only $6+24$ is separated there.  It affects the Windows programs with the AVX2 build; the CPU timings of
-Tables~\ref{tab:speed}, \ref{tab:repeat} and~\ref{tab:split} were made on Linux.  Compiling the AVX2 filter for $16$-byte vectors removes the dependence but costs $26\%$ on
+Tables~\ref{tab:speed} and~\ref{tab:split} were made on Linux.  Compiling the AVX2 filter for $16$-byte vectors removes the dependence but costs $26\%$ on
 \code{sf4} and $29\%$ on \code{sf5}; giving the chains' arrays static storage, which the compiler aligns, removes it too but makes the filter $46\%$ slower on
 \code{sf4}, in the baseline build as well.
 
 \emph{Why Tables~\ref{tab:speed} and~\ref{tab:splitapp} differ on \code{sf4}.}  They do not contradict each other.  Table~\ref{tab:speed}, made on Linux, compares
-the integer filter with the floating-point one, and on \code{sf4} its lead of $48$ to $58\%$ comes from the cheaper arithmetic of \code{chain\_general}, far more than
+the integer filter with the floating-point one, and on \code{sf4} its lead of $50$ to $57\%$ comes from the cheaper arithmetic of \code{chain\_general}, far more than
 the stack can take away.  Table~\ref{tab:splitapp}, made on Windows, compares splits of one and the same filter, which differ by a few per cent; on \code{sf4} with
 AVX2 the stack moves the time by up to about $16\%$ from run to run and hides these differences.  The filter is not slow there: the median of $24+6$, $7.76$\,s, is
-of the order of the $6.99$\,s of Table~\ref{tab:speed}, against $13.37$\,s for the floating-point filter.
+of the order of the $6.88$\,s of Table~\ref{tab:speed}, against $13.74$\,s for the floating-point filter.
 
 \emph{A remedy, measured but not in the patch.}  The filter can be called, on 64-bit Windows with GCC only, through a short assembly function that puts the
 stack pointer at a fixed offset modulo $32$, $0$ or $16$ (Appendix~\ref{app:stack} gives the code and explains it).  Which offset is faster depends on the compiled
@@ -1204,7 +1191,8 @@ against the computed ones; every citation of this paper in the repository \\
 
 \paragraph{Versions measured.}  GetDecics at \code{638ca4e}.  Floating-point filter: CPU \code{327b04f}, GPU \code{718bab1}.  Montgomery CPU filter with $6+24$ primes
 and scalar loads: \code{27d917f}; with vectorised loads and $24+6$ primes: \code{4094af4}.  The filter with $30+0$ primes compiles its loads and chains to the
-same instructions as the small stages of v0.4.0's filter (GCC~15.2, both builds) \stnum.  GPU kernel with $14$ primes: \code{e758190}; with the wider table:
+same instructions as the small stages of v0.4.0's filter (GCC~15.2, both builds) \stnum; Table~\ref{tab:speed} times it as committed in \code{ea99f08}, against
+\code{327b04f} and v0.4.0 in one series.  GPU kernel with $14$ primes: \code{e758190}; with the wider table:
 \code{0f874dc}; with the start-up self-test: \code{2c351c1}.
 
 \paragraph{Not in the repository.}  The captured candidates, the Linux build recipe of the application with BOINC replaced by stand-ins, the Windows harnesses of the
