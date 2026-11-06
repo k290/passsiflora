@@ -430,8 +430,17 @@ lane-dependent control flow, so each lane runs the algorithm; in \code{chain\_ge
 
 \subsection{The size limits, and the guard}\label{sec:limits}
 
-The single-reduction arguments stop at $q\le2^{13}$ (small) and $q\le2^{30}+1$ (large).  Following the actual bounds of the values through the chains gives larger
-limits for the whole filter.  Put $\rho(X)=\lfloor(X+qR/2)/R\rfloor$, the bound of Lemma~\ref{lem:montgen} for the result of a reduction of an argument $|x|\le X$.
+\paragraph{Where the limits come from.}  Every limit of the filter is a consequence of its word sizes.  A Montgomery reduction with $R=2^k$ returns a value of
+size at most $|x|/R+q/2$ (Lemma~\ref{lem:montgen}), so it keeps the residues in $(-q,q)$ only while its argument stays below $qR/2$.  The arguments are products of
+residues, a small multiple of $q^2$, so the prime may only grow to a fixed fraction of $R$.  For one reduction this gives $q\le2^{13}=R/8$ at the small stages
+($R=2^{16}$, operands in $(-2q,2q)$, Lemma~\ref{lem:mont}) and $q\le2^{30}+1$ at the large ones ($R=2^{32}$, a difference $ab-cd$ of products of residues in
+$(-q,q)$, Lemma~\ref{lem:sredc}).  Along a chain the same arithmetic gives a recursion for the bound: in the worst case one iteration of \code{chain\_general} turns a
+bound $b$ into about $2b^2/R+q$ at a small stage and $2b^2/R+q/2$ at a large one.  This recursion has a fixed point, so the values stay bounded however long a chain
+runs, exactly when $q\le R/8=2^{13}$ (small) and $q\le R/4=2^{30}$ (large).  The shipped primes, below $2^{13}$ and $2^{25}$, lie in this region.  Above it the bound
+grows with every iteration, but a chain stops after at most $18$, so a somewhat larger prime still fits.  How much larger has no closed form: Theorem~\ref{thm:limits}
+evaluates the recursion exactly for every odd $q$ of a finite range, a proof by exhaustion rather than a measurement.
+
+Put $\rho(X)=\lfloor(X+qR/2)/R\rfloor$, the bound of Lemma~\ref{lem:montgen} for the result of a reduction of an argument $|x|\le X$.
 
 \begin{lemma}[Bound propagation]\label{lem:propagation}\stproved
 Fix a stage with an odd prime $q>5$.  Define: $L=\lfloor(2(2^{21}-1)(q-1)+2^{21}(q-1)+2^{31}q)/2^{32}\rfloor$ for the loading; for \code{chain\_block},
@@ -463,9 +472,8 @@ leave the proved region silently.  The repository's \code{checks.py} compares th
 fails there until the limits are proved anew.
 
 \paragraph{How sharp the limits are} \stnum.  The limits are those of the worst case, in which every reduction errs by the largest amount in the unfavourable
-direction.  One iteration of \code{chain\_general} then turns a bound $b$ into about $2b^2/R+q$ at a small stage and $2b^2/R+q/2$ at a large one, which has a fixed
-point only for $q\le R/8=2^{13}$ and $q\le R/4=2^{30}$.  Above these the bound grows in every iteration, and the limits exceed them only because a chain stops within
-$18$ iterations: the recursion of \code{chain\_general} gives $8883$ and $1{,}151{,}026{,}981$ for $9$ iterations, $8245$ and $1{,}080{,}369{,}269$ for $36$.  A finer
+direction.  Since the worst-case bound grows above $R/8$ and $R/4$, the limits depend on how many iterations a chain can run: the recursion of \code{chain\_general} gives
+$8883$ and $1{,}151{,}026{,}981$ for $9$ iterations, $8245$ and $1{,}080{,}369{,}269$ for $36$, against $8385$ and $1{,}097{,}010{,}265$ for the actual $18$.  A finer
 analysis of the same kind (exact maxima of single reductions, a bound per coefficient) can therefore gain only a few per cent.  The individual reductions fail earlier
 than the whole filter: \code{mont} with operands in $(-2q,2q)$ first returns a
 value outside $(-q,q)$ at $q=8241$, and \code{sredc} on a difference $ab-cd$ at $q=2^{30}+23279$ (complete searches); the chains never form those operands.  Above the
@@ -938,9 +946,16 @@ work unit & time & floating point & integer \\ \midrule
 
 \subsection{The prime split}\label{sec:split}
 
-The CPU filter can divide its stages between small primes ($16$-bit lanes) and large primes ($64$-bit products) in any proportion; it uses $24$ small and six large,
-written $24+6$.  This section gives a model of the cost, proves which orders and splits the model favours, and measures it, stage by stage and in the
-application.
+\paragraph{Why there are two kinds of prime.}  The CPU filter can divide its stages between small primes ($16$-bit lanes) and large primes ($32$-bit lanes,
+$64$-bit products) in any proportion.  Every stage keeps about half of the polynomials it is given, whatever the size of its prime (below), so the cost of a stage
+is its price per polynomial times the number that reach it, and only the price differs: a small stage holds $16$ residues in a $256$-bit register and multiplies in
+$16$ bits, a large one holds $8$ and multiplies in $64$.  Lemma~\ref{lem:order} below proves what this implies: small stages go first, and replacing a large prime by
+an unused small one never raises the expected cost, so in the model all small, $30+0$, is best.  The large stages are a legacy of the floating-point filter: its
+single-precision small stage was argued exact only for primes below $2^{10}$, of which there are $14$ usable ones for $S=\{2,5\}$, too few for $30$ stages, so it
+took $6$ small and $24$ large.  The integer small stage is exact up to $2^{13}$ (Section~\ref{sec:limits}), where there are $115$, so the reason for the large
+stages is gone.  The filter uses $24$ small and six large, written $24+6$, chosen by an early timing of a few splits; this section shows that it costs at most
+$0.14\%$ more than $30+0$, less than any measurement resolves, because almost all the time is spent in the first stages, which every polynomial, then half of them,
+then a quarter pass through.  It gives a model of the cost, proves which orders and splits the model favours, and measures it, stage by stage and in the application.
 
 \paragraph{Which primes there are} \stnum.  The batch status pages of NumberFields@home (read on 30~October~2026) list seven searches for decic fields, all with
 $S=\{2,5\}$; earlier, smaller searches used $S=\{2,11\}$ and $\{5,11\}$.  For these three sets the rule of \code{pdf\_init} (Proposition~\ref{prop:rule}) leaves
