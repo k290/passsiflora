@@ -12,13 +12,12 @@
 !                          checked with the compiled mont; q without a witness are checked by brute force
 !   mont-extremes Q0 Q1    for every odd q: the largest and smallest result over |a|,|b| <= 2q-1, and the first q at which
 !                          their difference leaves 16 bits
-!   sredc                 windows around x = +-2^31 q, the counterexamples, the extreme classes, random x, differences
-!                          a b - c d with a,b,c,d at and near +-(q-1); model in 128-bit integers
+!   sredc                  windows around x = +-2^31 q, the extreme classes, random x (Lemma sredc: |u| < q for |x| < 2^31 q,
+!                          the loading's case); model in 128-bit integers
 !   ldres                  the loading on extreme and random coefficients for 6,169 moduli (with 200 random odd q < 2^31)
 !   inv32                  q q^-1 = 1 mod 2^32 and the signed 16/32-bit forms, for many q
-!   bounds-small Q0 Q1     the bound propagation of the small-prime stage for every odd q in [Q0,Q1] (whitepaper, Section 4.4
+!   bounds Q0 Q1           the bound propagation of a filter stage for every odd q in [Q0,Q1] (whitepaper, Section 4.4
 !                          "The size limits, and the guard")
-!   bounds-large Q0 Q1     the same for the large-prime stage
 ! The exact models use integer(16) (128 bits) where a value can exceed 64 bits, and integer(8) where it provably cannot.
 
 module arith_checks_mod
@@ -201,7 +200,7 @@ contains
   ! bound propagation (whitepaper, Section 4.4 "The size limits, and the guard"): returns 0 if every reduction of the four
   ! chains satisfies its lemma for prime size q and every 16-bit value fits; otherwise a code naming the first call site that
   ! may fail
-  integer function bounds_small(q) result(site)
+  integer function bounds(q) result(site)
     integer(i8), intent(in) :: q
     integer(i16), parameter :: R = 65536
     integer(i16) :: A(0:10), B(0:10), Rr(0:10), P(0:10), L, lc, top, t, bu, bv, bw, mm, qq
@@ -247,48 +246,7 @@ contains
       if (x + y > 32767 .and. site == 0) site = 100 + where
       df = x + y
     end function df
-  end function bounds_small
-
-  integer function bounds_large(q) result(site)
-    integer(i8), intent(in) :: q
-    integer(i16), parameter :: R = 2_i16**32
-    integer(i16) :: A(0:10), B(0:10), Rr(0:10), P(0:10), L, lc, top, t, bu, bv, bw, qq
-    integer :: k, m, it
-    qq = q; site = 0
-    L = (2*(2_i16**21 - 1)*(qq - 1) + 2_i16**21*(qq - 1) + qq*2_i16**31) / 2_i16**32
-    A(0:9) = L; A(10) = 1
-    B = 0
-    do k = 1, 10
-      B(k-1) = sr(int(k, i16)*A(k), 1)
-    end do
-    do m = 9, 1, -1
-      lc = B(m); top = A(m+1)
-      Rr = 0; P = 0
-      Rr(0) = sr(lc*A(0), 10 + m)
-      do k = 1, m
-        Rr(k) = sr(lc*A(k) + top*B(k-1), 10 + m)
-      end do
-      t = Rr(m)
-      do k = 0, m - 1
-        P(k) = sr(lc*Rr(k) + t*B(k), 20 + m)
-      end do
-      A = B; B = P
-    end do
-    t = sr(B(0)*B(0), 30); t = sr((qq - 1)*(qq - 1), 30)
-    bu = max(L, 1_i16); bv = sr(10*L, 40)
-    do it = 0, 17
-      bw = sr(2*bu*bv, 41 + it)
-      t = sr((qq - 1)*max(bu, bv, bw), 41 + it)
-      bu = max(bu, bv, bw); bv = bu
-    end do
-  contains
-    integer(i16) function sr(x, where)
-      integer(i16), intent(in) :: x
-      integer, intent(in) :: where
-      if (x >= qq*(R/2) .and. site == 0) site = where
-      sr = (x + qq*(R/2)) / R
-    end function sr
-  end function bounds_large
+  end function bounds
 end module arith_checks_mod
 
 program arith_checks
@@ -405,11 +363,11 @@ program arith_checks
   case ('inv32')
     call inv32_checks()
 
-  case ('bounds-small', 'bounds-large')
+  case ('bounds')
     read(s1, *) q0; read(s2, *) q1
     firstodd = 0; nq = 0; nfailq = 0
     do q = ior(q0, 1_i8), q1, 2
-      if (trim(part) == 'bounds-small') then; site = bounds_small(q); else; site = bounds_large(q); end if
+      site = bounds(q)
       if (site == 0) then
         nq = nq + 1
         if (firstodd /= 0) nfailq = nfailq + 1              ! passes again above a failure
@@ -430,15 +388,13 @@ contains
 
   subroutine sredc_checks()
     integer(i8), allocatable :: xv(:)
-    integer(i8) :: qs(9), x0, wnd, j, k, mis, ovf, oin, oall, nwin, rng, qr, lim, nqd
-    integer(i8) :: ca, cb, cc, cd, dd(5)
+    integer(i8) :: qs(9), x0, wnd, j, k, mis, ovf, oin, oall, nwin, rng, qr, lim
     integer(i4) :: q4, qinv4, u
     integer(i16) :: xw
-    integer :: iq, ia, ib, ic, id
-    ! moduli: below 2^30, 2^30 + 1 (the end of the sufficient bound), the smallest failing odd q, prime and usable prime,
-    ! the family x = 2^31 q, the end of the filter-level bound, the first q where an i8 overflow is possible, 2^31 - 1
-    qs = [1073741789_i8, 1073741825_i8, 1073765103_i8, 1073765117_i8, 1073765201_i8, 1073774593_i8, 1097010265_i8, &
-          1676704567_i8, 2147483647_i8]
+    integer :: iq
+    ! moduli: the lower end of the prime search, the largest and smallest filter primes for S = {2,5}, the limit QMAX, and
+    ! across the lemma's range: 2^16 + 1, below 2^30, 2^30 + 1, the first q where an i8 overflow is possible, 2^31 - 1
+    qs = [257_i8, 8161_i8, 5881_i8, 8385_i8, 65537_i8, 1073741789_i8, 1073741825_i8, 1676704567_i8, 2147483647_i8]
     ! (a) windows of 2*2^16 consecutive x around +2^31 q and -2^31 q
     wnd = 65536
     allocate(xv(2*wnd))
@@ -457,12 +413,7 @@ contains
     write(*, '(a,i0,a,i0,a,i0,a,i0,a,i0)') 'sredc windows around +-2^31 q (9 moduli): ', nwin, ' x, model mismatches ', mis, &
       ', not representable ', ovf, ', |u| >= q with |x| < 2^31 q ', oin, ', |u| >= q in all ', oall
     if (mis + oin > 0) error stop 1
-    ! (b) the counterexamples: x = ab - cd formed as in chain_block and GDIFF
-    call replay(1073765103_i8, 1073765102_i8, 1073765101_i8, -1073764896_i8, 1073764888_i8)    ! smallest odd q
-    call replay(1073765117_i8, 1073765111_i8, 1073765111_i8, -1073764914_i8, 1073764866_i8)    ! smallest prime
-    call replay(1073765201_i8, 1073765200_i8, 1073765198_i8, -1073765108_i8, 1073765063_i8)    ! smallest usable prime
-    call replay(1073774593_i8, 1073741825_i8, 1073741824_i8, -1073774592_i8, 1073774592_i8)    ! x = 2^31 q exactly
-    ! (c) the extreme classes of Lemma 8.2: x = (2^31 + mu) q + 2^32 t gives u = q + t, x = -(2^31 + 1 + mu) q - 2^32 t
+    ! (b) the extreme classes of Lemma 8.2: x = (2^31 + mu) q + 2^32 t gives u = q + t, x = -(2^31 + 1 + mu) q - 2^32 t
     !     gives u = -(q + t); just below them (x = 2^31 q - 1 and -(2^31 + 1) q + 1) |u| < q.  Where q + t does not fit 32 bits
     !     (q = 2^31 - 1) the conversion to i4 wraps: the result is q + t - 2^32 (counted as "wrapped")
     mis = 0; ovf = 0
@@ -497,7 +448,7 @@ contains
       '9 moduli: wrong ', mis, &
       ', results that wrap to 32 bits as predicted ', ovf
     if (mis > 0) error stop 1
-    ! (d) random x with |x| < 2^31 q (Lemma 8.3: |u| < q), and with 2^31 q <= |x| <= 2 (q-1)^2, for 2000 random odd q < 2^31
+    ! (c) random x with |x| < 2^31 q (Lemma 8.3: |u| < q), and with 2^31 q <= |x| <= 2 (q-1)^2, for 2000 random odd q < 2^31
     mis = 0; ovf = 0; oin = 0; oall = 0; rng = 88172645463325252_i8; nwin = 0
     do iq = 1, 2000
       qr = ior(modulo(xs(rng), 2_i8**31 - 3) + 3, 1_i8)
@@ -516,50 +467,7 @@ contains
     write(*, '(a,i0,a,i0,a,i0,a,i0,a,i0)') 'sredc random x for 2000 random odd q < 2^31: ', nwin, ' x, model mismatches ', mis, &
       ', not representable ', ovf, ', |u| >= q with |x| < 2^31 q ', oin, ', |u| >= q in all ', oall
     if (mis + oin > 0) error stop 1
-    ! (e) differences a b - c d with a, b, c, d in {+-(q-1), ..., +-(q-5)}, all 10^4 choices, formed as in the code
-    mis = 0; ovf = 0; oin = 0; oall = 0; nwin = 0
-    deallocate(xv); allocate(xv(10**4))
-    do iq = 1, size(qs)
-      q = qs(iq)
-      dd = [q - 1, q - 2, q - 3, q - 4, q - 5]
-      j = 0
-      do ia = -5, 5
-        do ib = -5, 5
-          do ic = -5, 5
-            do id = -5, 5
-              if (ia*ib*ic*id == 0) cycle
-              ca = sign(dd(abs(ia)), int(ia, i8)); cb = sign(dd(abs(ib)), int(ib, i8))
-              cc = sign(dd(abs(ic)), int(ic, i8)); cd = sign(dd(abs(id)), int(id, i8))
-              j = j + 1
-              xv(j) = int(int(ca, i4), i8)*int(int(cb, i4), i8) - int(int(cc, i4), i8)*int(int(cd, i4), i8)
-            end do
-          end do
-        end do
-      end do
-      nqd = oall
-      call sredc_vec(xv(1:j), q, mis, ovf, oin, oall)
-      nwin = nwin + j
-      write(*, '(a,i0,a,i0)') 'sredc differences at +-(q-1)..+-(q-5), q = ', q, ': |u| >= q in ', oall - nqd
-    end do
-    write(*, '(a,i0,a,i0,a,i0,a,i0)') 'sredc differences of products at +-(q-1)..+-(q-5), 9 moduli: ', nwin, &
-      ' x, model mismatches ', mis, &
-      ', not representable ', ovf, ', |u| >= q with |x| < 2^31 q ', oin
-    if (mis + oin > 0) error stop 1
   end subroutine sredc_checks
-
-  subroutine replay(qq, ca, cb, cc, cd)
-    integer(i8), intent(in) :: qq, ca, cb, cc, cd
-    integer(i8) :: xv(1), m0, v0, i0, o0
-    integer(i4) :: u
-    xv(1) = int(int(ca, i4), i8)*int(int(cb, i4), i8) - int(int(cc, i4), i8)*int(int(cd, i4), i8)
-    m0 = 0; v0 = 0; i0 = 0; o0 = 0
-    call sredc_vec(xv, qq, m0, v0, i0, o0)
-    u = sredc(xv(1), int(qq, i4), int(signedmod(inv32(qq), 32), i4))
-    write(*, '(a,i0,a,i0,a,i0,a,i0,a,i0,a,i0,a,i0,a,i0,a)') 'sredc counterexample q = ', qq, ': a = ', ca, ', b = ', cb, &
-      ', c = ', cc, &
-      ', d = ', cd, ', x = a b - c d = ', xv(1), ', sredc = q + ', int(u, i8) - qq, '  (model mismatches ', m0, ')'
-    if (o0 /= 1 .or. m0 /= 0) error stop 1
-  end subroutine replay
 
   integer(i8) function xs(r)                   ! xorshift
     integer(i8), intent(inout) :: r

@@ -21,28 +21,27 @@
 ! All arithmetic is integer arithmetic with signed Montgomery multiplication:
 ! no floating point is used, so the results do not depend on the rounding
 ! mode, on x87 or SSE arithmetic, or on flags such as -ffast-math.
-!  * Small primes 2^8 < q < 2^13: 16-bit lanes (sixteen per AVX2 register),
+!  * The primes are 2^8 < q < 2^13: 16-bit lanes (sixteen per AVX2 register),
 !    R = 2^16 (mont).  Values are kept in (-2q, 2q), a difference of two
 !    Montgomery products; a value is 0 mod q iff it is 0 or +-q.
-!  * Large primes 2^24 < q < 2^25: 32-bit lanes, R = 2^32 (sredc), products
-!    formed as 64-bit widening products.  A difference a*b - c*d is reduced
-!    once; values are in (-q, q), where 0 is the only multiple of q.
-!  * Every Montgomery product carries a factor R^-1, and R = 2^16 = (2^8)^2
-!    and R = 2^32 = (2^16)^2 are squares, so the factors never change a
-!    Legendre symbol.  Each polynomial of a chain is its exact counterpart
-!    times a power of R^-1 (both terms of every difference carry the same
-!    power), so the zero tests are exact.  Euler's criterion runs in the
-!    Montgomery domain: acc starts at R mod q and ends at chi*R mod q, so -1
-!    is the residue -R, i.e. negr or negr - q with negr = -R mod q in [0, q).
+!  * Every Montgomery product carries a factor R^-1, and R = 2^16 = (2^8)^2 is
+!    a square, so the factors never change a Legendre symbol.  Each polynomial
+!    of a chain is its exact counterpart times a power of R^-1 (both terms of
+!    every difference carry the same power), so the zero tests are exact.
+!    Euler's criterion runs in the Montgomery domain: acc starts at R mod q and
+!    ends at chi*R mod q, so -1 is the residue -R, i.e. negr or negr - q with
+!    negr = -R mod q in [0, q).
 !  * Loading: per prime and block, the coefficients of the block's polynomials
 !    are gathered from pol (gather), and every coefficient c is split as
 !    c = p0 + p1*2^21 + p2*2^42 (p0, p1 in [0, 2^21), p2 = floor(c/2^42) in
 !    [-2^21, 2^21)); p0*d0 + p1*d1 + p2*d2 with d_i = 2^(21i)*2^32 mod q is
-!    reduced once by sredc, which gives c mod q itself, in (-q, q) (ldcoef).
-! The first 24 stages use the small primes; each prime rejects about half of
-! the candidates, so almost only polynomials whose discriminant is a square
-! (mod those primes) continue with the six large primes.  All inner loops
-! vectorise across polynomials (BLK lanes).
+!    reduced once by sredc (R = 2^32, 64-bit products), which gives c mod q
+!    itself, in (-q, q) (ldcoef).
+! Each of the 30 stages rejects about half of the candidates it is given.
+! All inner loops vectorise across polynomials (BLK lanes).  Earlier versions
+! ran the last six stages with primes 2^24 < q < 2^25 in 32-bit lanes, a
+! legacy of the floating-point filter, whose cheap single-precision stage
+! covered only q < 2^10 (docs/whitepaper.tex, Section 9.2, "The prime split").
 !
 ! Contract (docs/whitepaper.tex, Section "The contract with the application"):
 !  * pdf_init(numP, pSet): pSet(1:numP) is the set S of primes that the exact
@@ -78,24 +77,17 @@ module PDF_MOD
 #endif
 
   integer, parameter :: i2 = c_int16_t, i4 = c_int32_t, i8 = c_int64_t
-  ! At most MAXS small and MAXQ large primes, 30 stages in all.  A 16-bit stage has twice the lanes per register of a
-  ! 32-bit one and cheaper reductions, so the small primes do the work and the large ones see few polynomials.
-  integer, parameter :: MAXQ = 6, MAXS = 24, BLK = 64
+  ! At most MAXS primes, one stage each.
+  integer, parameter :: MAXS = 30, BLK = 64
   ! The limits the proofs need (docs/whitepaper.tex, Proposition "Ranges" and Theorem "The limits of the
-  ! whole filter"): QMIN <= q <= QS_MAX for a small prime, QMIN <= q <= QL_MAX for a large one.  pdf_init skips any other
-  ! prime (function chosen).  pdf_init searches the usable primes below QS_START down to QS_STOP (exclusive), then below
-  ! QL_START down to QL_STOP; these ranges lie inside the limits.
-  integer(i8), parameter :: QMIN = 11, QS_MAX = 8385, QL_MAX = 1097010265
-  integer(i8), parameter :: QS_START = 2_i8**13 - 1, QS_STOP = 256
-  integer(i8), parameter :: QL_START = 2_i8**25 - 1, QL_STOP = 2_i8**24
+  ! whole filter"): QMIN <= q <= QMAX.  pdf_init skips any other prime (function chosen).  pdf_init searches the usable
+  ! primes below QSTART down to QSTOP (exclusive); this range lies inside the limits.
+  integer(i8), parameter :: QMIN = 11, QMAX = 8385
+  integer(i8), parameter :: QSTART = 2_i8**13 - 1, QSTOP = 256
 
-  ! Large primes (32-bit stage, R = 2^32): qinv = q^-1 mod 2^32 as a signed
-  ! 32-bit value, one = R mod q, negr = -R mod q, ld(i) = 2^(21i)*R mod q.
-  integer :: nq = 0
-  integer(i4) :: qv(MAXQ), qinvv(MAXQ), onev(MAXQ), negrv(MAXQ), ldv(0:2, MAXQ)
-  integer(i8) :: qexp(MAXQ)
-  ! Small primes (16-bit stage, R = 2^16): the same constants for R = 2^16;
-  ! qsl, qinvsl, lds are the 32-bit constants for loading (sredc, R = 2^32).
+  ! The primes (16-bit stage, R = 2^16): qinv = q^-1 mod 2^16 as a signed 16-bit value, one = R mod q,
+  ! negr = -R mod q, exp = (q-1)/2; qsl, qinvsl, lds(i) = 2^(21i)*2^32 mod q are the 32-bit constants for
+  ! loading (sredc, R = 2^32).
   integer :: ns = 0
   integer(i2) :: qs(MAXS), qinvs(MAXS), ones(MAXS), negrs(MAXS)
   integer(i4) :: qsl(MAXS), qinvsl(MAXS), lds(0:2, MAXS)
@@ -105,7 +97,7 @@ module PDF_MOD
   logical, save :: debug = .false., allgen = .false.
   ! Per prime stage: go straight to chain_general when most lanes of the last
   ! probe left the generic chain (structurally degenerate families).
-  logical, save :: prefgen(MAXS + MAXQ) = .false.
+  logical, save :: prefgen(MAXS) = .false.
   integer, save :: ncall = 0
 #ifdef PDF_STAGES_NAME
   ! Test aid, compiled only when the build defines PDF_STAGES_NAME (the test build scripts do, the
@@ -113,7 +105,7 @@ module PDF_MOD
   ! and per stage, summed over calls: lanes in, through chain_block in pass 1, through chain_general
   ! in pass 1, retried in pass 2, kept, and iterations of chain_general's lockstep and masked branches.
   integer(c_int), allocatable, save :: rstage(:)
-  integer(c_long_long), save :: cnt(7, MAXS + MAXQ) = 0
+  integer(c_long_long), save :: cnt(7, MAXS) = 0
 #endif
 
 contains
@@ -165,15 +157,15 @@ contains
     usable = .true.
   end function usable
 
-  ! The guard of the proofs: a usable prime is chosen only if QMIN <= q <= qmax; otherwise it is skipped, with one line
+  ! The guard of the proofs: a usable prime is chosen only if QMIN <= q <= QMAX; otherwise it is skipped, with one line
   ! on stderr.  Test builds may define PDF_NO_LIMITS to switch the guard off (never the application's build).
-  logical function chosen(q, qmax, numP, pSet)
-    integer(i8), intent(in) :: q, qmax
+  logical function chosen(q, numP, pSet)
+    integer(i8), intent(in) :: q
     integer(c_int), intent(in) :: numP
     integer(c_int), intent(in) :: pSet(*)
     chosen = usable(q, numP, pSet)
 #ifndef PDF_NO_LIMITS
-    if (chosen .and. (q < QMIN .or. q > qmax)) then
+    if (chosen .and. (q < QMIN .or. q > QMAX)) then
       write(0, '(a,i0,a)') 'pdf_init: usable prime ', q, ' skipped: outside the proved limits of the integer arithmetic'
       chosen = .false.
     end if
@@ -220,9 +212,9 @@ contains
     ncall = 0
 
     ns = 0
-    q = QS_START
-    do while (ns < MAXS .and. q > QS_STOP)
-      if (chosen(q, QS_MAX, numP, pSet)) then
+    q = QSTART
+    do while (ns < MAXS .and. q > QSTOP)
+      if (chosen(q, numP, pSet)) then
         ns = ns + 1
         qi = inv32(q)
         qs(ns)     = int(q, i2)
@@ -241,34 +233,14 @@ contains
       q = q - 2
     end do
 
-    nq = 0
-    q = QL_START
-    do while (nq < MAXQ .and. q > QL_STOP)
-      if (chosen(q, QL_MAX, numP, pSet)) then
-        nq = nq + 1
-        qv(nq)    = int(q, i4)
-        qinvv(nq) = int(signedmod(inv32(q), 32), i4)
-        onev(nq)  = int(modulo(2_i8**32, q), i4)
-        negrv(nq) = int(modulo(-2_i8**32, q), i4)
-        r = modulo(2_i8**32, q)
-        do i = 0, 2
-          ldv(i, nq) = int(r, i4)
-          r = modulo(r*2_i8**21, q)
-        end do
-        qexp(nq) = (q - 1) / 2
-      end if
-      q = q - 2
-    end do
-
     ! The start-up check: if the compiled arithmetic disagrees with the exact values, use no prime (every flag is 1).
     if (.not. arith_ok()) then
       write(0, '(a)') 'pdf_init: the integer arithmetic failed its start-up check; the pre-filter is off (every flag 1)'
       ns = 0
-      nq = 0
     end if
   end subroutine pdf_init
 
-  ! Signed Montgomery multiplication, R = 2^16, for the small primes and
+  ! Signed Montgomery multiplication, R = 2^16, for the filter primes and
   ! qinv = q^-1 mod 2^16 as a signed 16-bit value.  With x = a*b and
   ! m = (x*qinv) mod 2^16 in [-2^15, 2^15), x - m*q is divisible by 2^16, so
   ! (x - m*q)/2^16 = hi(x) - hi(m*q) exactly (hi = 16-bit multiply-high, the
@@ -293,8 +265,8 @@ contains
   ! signed 32-bit value (the 64-bit product of the signed low half of x and
   ! qinv is exact, below 2^62, and is truncated), x - m*q is divisible by 2^32,
   ! and u = (x - m*q)/2^32 lies in (-q, q), since |x| + 2^31*q < 2^32*q; u is
-  ! congruent to x*2^-32 mod q.  Callers form x from 64-bit products of 32-bit
-  ! values, which gfortran vectorises as widening multiplies.
+  ! congruent to x*2^-32 mod q.  Its one caller, ldres, forms x from 64-bit
+  ! products of 32-bit values, which gfortran vectorises as widening multiplies.
   elemental integer(i4) function sredc(x, q, qinv)
     integer(i8), intent(in) :: x
     integer(i4), intent(in) :: q, qinv
@@ -343,39 +315,32 @@ contains
   end function kat_val
 
   ! Start-up check of the compiled arithmetic (docs/whitepaper.tex, Proposition "Start-up check").  For every chosen
-  ! prime: mont (small primes), sredc and ldres (both, with the stored constants) and the 21-bit split, called
-  ! elementally on arrays as in the chains, and the loads themselves (load_block_s or load_block: gather, split, ldres) on a
-  ! block of the same coefficients, on extreme and pseudo-random inputs, against values computed with MODULO and exact
-  ! division only (no conversion out of range, no bit operation on a negative value).  .false. on any mismatch.
+  ! prime: mont, sredc and ldres with the stored constants and the 21-bit split, called elementally on arrays as in the
+  ! chains, and the loads themselves (load_block: gather, split, ldres) on a block of the same coefficients, on extreme
+  ! and pseudo-random inputs, against values computed with MODULO and exact division only (no conversion out of range,
+  ! no bit operation on a negative value).  .false. on any mismatch.
   logical function arith_ok()
     integer(i2) :: a2(BLK), b2(BLK), u2(BLK), as(BLK, 0:10)
-    integer(i4) :: u4(BLK), p0(BLK), p1(BLK), p2(BLK), q4, qi4, d(0:2), al(BLK, 0:10)
+    integer(i4) :: u4(BLK), p0(BLK), p1(BLK), p2(BLK), q4, qi4, d(0:2)
     integer(i8) :: x(BLK), c(BLK), q, lo, m, t, rng, pk(11, BLK), v
-    integer :: j, l, k, stage, ids(BLK)
+    integer :: j, l, k, ids(BLK)
     arith_ok = .true.
     rng = 88172645463325252_i8
-    do stage = 1, ns + nq
-      if (stage <= ns) then
-        j = stage
-        q = qs(j)
-        do l = 1, BLK
-          a2(l) = int(kat_val(l, 2*q - 1, rng), i2)
-          b2(l) = int(kat_val(BLK + 1 - l, 2*q - 1, rng), i2)
-        end do
-        u2 = mont(a2, b2, qs(j), qinvs(j))
-        do l = 1, BLK
-          x(l) = int(a2(l), i8)*int(b2(l), i8)
-          lo = modulo(x(l) + 32768, 65536_i8) - 32768
-          m = modulo(lo*int(qinvs(j), i8) + 32768, 65536_i8) - 32768
-          if (int(u2(l), i8)*65536 /= x(l) - m*q) arith_ok = .false.
-        end do
-        if (modulo(q*int(qinvs(j), i8) - 1, 65536_i8) /= 0) arith_ok = .false.
-        q4 = qsl(j); qi4 = qinvsl(j); d = lds(:, j)
-      else
-        j = stage - ns
-        q = qv(j)
-        q4 = qv(j); qi4 = qinvv(j); d = ldv(:, j)
-      end if
+    do j = 1, ns
+      q = qs(j)
+      do l = 1, BLK
+        a2(l) = int(kat_val(l, 2*q - 1, rng), i2)
+        b2(l) = int(kat_val(BLK + 1 - l, 2*q - 1, rng), i2)
+      end do
+      u2 = mont(a2, b2, qs(j), qinvs(j))
+      do l = 1, BLK
+        x(l) = int(a2(l), i8)*int(b2(l), i8)
+        lo = modulo(x(l) + 32768, 65536_i8) - 32768
+        m = modulo(lo*int(qinvs(j), i8) + 32768, 65536_i8) - 32768
+        if (int(u2(l), i8)*65536 /= x(l) - m*q) arith_ok = .false.
+      end do
+      if (modulo(q*int(qinvs(j), i8) - 1, 65536_i8) /= 0) arith_ok = .false.
+      q4 = qsl(j); qi4 = qinvsl(j); d = lds(:, j)
       if (modulo(q*int(qi4, i8) - 1, 2_i8**32) /= 0) arith_ok = .false.
       do l = 1, BLK                                    ! sredc on |x| < 2^31 q
         x(l) = kat_val(l, 2_i8**31*q - 1, rng)
@@ -409,18 +374,13 @@ contains
         end do
         ids(l) = BLK + 1 - l
       end do
-      if (stage <= ns) then
-        call load_block_s(pk, ids, BLK, j, as)
-        al = int(as, i4)
-      else
-        call load_block(pk, ids, BLK, j, al)
-      end if
+      call load_block(pk, ids, BLK, j, as)
       do l = 1, BLK
         do k = 0, 9
-          v = int(al(l, k), i8)
+          v = int(as(l, k), i8)
           if (abs(v) >= q .or. modulo(v, q) /= modulo(pk(11-k, ids(l)), q)) arith_ok = .false.
         end do
-        if (al(l, 10) /= 1) arith_ok = .false.
+        if (as(l, 10) /= 1) arith_ok = .false.
       end do
     end do
   end function arith_ok
@@ -442,8 +402,10 @@ contains
     x(c+1:BLK, :) = 0
   end subroutine gather
 
-  ! Small-prime versions of load_block / chain_block (same algorithm).
-  subroutine load_block_s(pol, ids, c, j, a)
+  ! Load and reduce a block of polynomials into F_q.
+  ! a(l,k) = coefficient of x^k of polynomial ids(l), k = 0..10, in (-q, q);
+  ! the lanes c+1..BLK are 0 (and 1 at k = 10).
+  subroutine load_block(pol, ids, c, j, a)
     integer(i8), intent(in) :: pol(11, *)
     integer, intent(in) :: c, j
     integer, intent(in) :: ids(c)
@@ -458,12 +420,17 @@ contains
       a(:, k) = int(ldcoef(x(:, k), d0, d1, d2, q, qinv), i2)
     end do
     a(:, 10) = 1
-  end subroutine load_block_s
+  end subroutine load_block
 
-  subroutine chain_block_s(a, j, keep, ok)
+  ! keep(l) = .false. only when Disc(A_l) is proven to be a non-residue mod q.
+  ! ok(l) = .false. when the chain left the generic path (some leading
+  ! coefficient vanished mod q); pdf_filter then reruns that lane through
+  ! chain_general, which follows any degree sequence.
+  subroutine chain_block(a, j, keep, ok)
     integer(i2), intent(in) :: a(BLK, 0:10)
     integer, intent(in) :: j
     logical, intent(out) :: keep(BLK), ok(BLK)
+    ! Three polynomial slots rotate roles (A, B, R) instead of being copied.
     integer(i2) :: p(BLK, 0:10, 0:2)
     integer(i2) :: lc(BLK), top(BLK), t(BLK), base(BLK), acc(BLK)
     integer(i2) :: q, qinv, negr
@@ -479,14 +446,17 @@ contains
     ok = .true.
 
     do m = 9, 1, -1
+      ! A = slot ia (degree m+1), B = slot ib (degree m).
       lc  = p(:, m, ib)
       top = p(:, m+1, ia)
+      ! Round 1: R = lc*A - top*x*B, degree <= m.
       p(:, 0, ir) = mont(lc, p(:, 0, ia), q, qinv)
       do k = 1, m
         do l = 1, BLK
           p(l, k, ir) = mont(lc(l), p(l, k, ia), q, qinv) - mont(top(l), p(l, k-1, ib), q, qinv)
         end do
       end do
+      ! Round 2: R2 = lc*R - R_m*B, degree <= m-1 (in place).
       t = p(:, m, ir)
       do k = 0, m-1
         do l = 1, BLK
@@ -494,9 +464,11 @@ contains
         end do
       end do
       if (m >= 2) ok = ok .and. (p(:, m-1, ir) /= 0 .and. abs(p(:, m-1, ir)) /= q)
+      ! Next step: A = B, B = R2; the old A slot becomes scratch.
       tmp = ia; ia = ib; ib = ir; ir = tmp
     end do
 
+    ! Euler criterion on the final constant, in the Montgomery domain.
     base = p(:, 0, ib)
     acc = ones(j)
     e = qsexp(j)
@@ -507,89 +479,10 @@ contains
     end do
 
     keep = .not. (ok .and. (acc == negr .or. acc == negr - q))
-  end subroutine chain_block_s
-
-  ! Load and reduce a block of polynomials into F_q.
-  ! a(l,k) = coefficient of x^k of polynomial ids(l), k = 0..10, in (-q, q);
-  ! the lanes c+1..BLK are 0 (and 1 at k = 10).
-  subroutine load_block(pol, ids, c, j, a)
-    integer(i8), intent(in) :: pol(11, *)
-    integer, intent(in) :: c, j
-    integer, intent(in) :: ids(c)
-    integer(i4), intent(out) :: a(BLK, 0:10)
-    integer(i4) :: q, qinv, d0, d1, d2
-    integer(i8) :: x(BLK, 0:9)
-    integer :: k
-
-    q = qv(j); qinv = qinvv(j); d0 = ldv(0, j); d1 = ldv(1, j); d2 = ldv(2, j)
-    call gather(pol, ids, c, x)
-    do k = 0, 9
-      a(:, k) = ldcoef(x(:, k), d0, d1, d2, q, qinv)
-    end do
-    a(:, 10) = 1
-  end subroutine load_block
-
-  ! keep(l) = .false. only when Disc(A_l) is proven to be a non-residue mod q.
-  ! ok(l) = .false. when the chain left the generic path (some leading
-  ! coefficient vanished mod q); pdf_filter then reruns that lane through
-  ! chain_general, which follows any degree sequence.
-  subroutine chain_block(a, j, keep, ok)
-    integer(i4), intent(in) :: a(BLK, 0:10)
-    integer, intent(in) :: j
-    logical, intent(out) :: keep(BLK), ok(BLK)
-    ! Three polynomial slots rotate roles (A, B, R) instead of being copied.
-    integer(i4) :: p(BLK, 0:10, 0:2)
-    integer(i4) :: lc(BLK), top(BLK), t(BLK), base(BLK), acc(BLK)
-    integer(i4) :: q, qinv, negr
-    integer(i8) :: e
-    integer :: m, k, l, ia, ib, ir, tmp
-
-    q = qv(j); qinv = qinvv(j); negr = negrv(j)
-    ia = 0; ib = 1; ir = 2
-    p(:, :, ia) = a
-    do k = 1, 10
-      p(:, k-1, ib) = sredc(int(k, i8)*int(a(:, k), i8), q, qinv)
-    end do
-    ok = .true.
-
-    do m = 9, 1, -1
-      ! A = slot ia (degree m+1), B = slot ib (degree m).
-      lc  = p(:, m, ib)
-      top = p(:, m+1, ia)
-      ! Round 1: R = lc*A - top*x*B, degree <= m.
-      p(:, 0, ir) = sredc(int(lc, i8)*int(p(:, 0, ia), i8), q, qinv)
-      do k = 1, m
-        do l = 1, BLK
-          p(l, k, ir) = sredc(int(lc(l), i8)*int(p(l, k, ia), i8) - int(top(l), i8)*int(p(l, k-1, ib), i8), q, qinv)
-        end do
-      end do
-      ! Round 2: R2 = lc*R - R_m*B, degree <= m-1 (in place).
-      t = p(:, m, ir)
-      do k = 0, m-1
-        do l = 1, BLK
-          p(l, k, ir) = sredc(int(lc(l), i8)*int(p(l, k, ir), i8) - int(t(l), i8)*int(p(l, k, ib), i8), q, qinv)
-        end do
-      end do
-      if (m >= 2) ok = ok .and. (p(:, m-1, ir) /= 0)
-      ! Next step: A = B, B = R2; the old A slot becomes scratch.
-      tmp = ia; ia = ib; ib = ir; ir = tmp
-    end do
-
-    ! Euler criterion on the final constant, in the Montgomery domain.
-    base = p(:, 0, ib)
-    acc = onev(j)
-    e = qexp(j)
-    do while (e > 0)
-      if (iand(e, 1_i8) == 1) acc = sredc(int(acc, i8)*int(base, i8), q, qinv)
-      base = sredc(int(base, i8)*int(base, i8), q, qinv)
-      e = shiftr(e, 1)
-    end do
-
-    keep = .not. (ok .and. (acc == negr .or. acc == negr - q))
   end subroutine chain_block
 
   ! max over the BLK lanes, 8 lanes at a time.
-  pure integer(i2) function vmax_s(x)
+  pure integer(i2) function vmax(x)
     integer(i2), intent(in) :: x(BLK)
     integer(i2) :: m(8)
     integer :: i
@@ -597,84 +490,150 @@ contains
     do i = 9, BLK, 8
       m = max(m, x(i:i+7))
     end do
-    vmax_s = max(max(max(m(1), m(2)), max(m(3), m(4))), max(max(m(5), m(6)), max(m(7), m(8))))
-  end function vmax_s
+    vmax = max(max(max(m(1), m(2)), max(m(3), m(4))), max(max(m(5), m(6)), max(m(7), m(8))))
+  end function vmax
 
-  pure integer(i4) function vmax_l(x)
-    integer(i4), intent(in) :: x(BLK)
-    integer(i4) :: m(8)
-    integer :: i
-    m = x(1:8)
-    do i = 9, BLK, 8
-      m = max(m, x(i:i+7))
+  ! chain_general: chi(Disc A) mod q for lanes whose Euclid chain is not
+  ! generic (some degree drops by more than one).
+  !
+  ! Polynomials are stored left-aligned (index 0 = leading coefficient, zero
+  ! padded), so one elementary pseudo-division step
+  !     U' = lc(V)*U - lc(U)*x^(deg U - deg V)*V
+  ! is the same formula  U'(i) = lc(V)*U(i+1) - lc(U)*V(i+1)  in every lane,
+  ! whatever the degrees.  Leading zeros of U' are shifted out lane by lane.
+  !
+  ! Bookkeeping, with Res(V,P) = lc(V)^deg(P) * prod_{V(b)=0} P(b):
+  !     Res(V,U') = lc(V)^(deg U' - deg U + deg V) * Res(V,U),
+  ! and swapping U and V only changes the sign (chi(-1) = 1 for q = 1 mod 4).
+  ! The odd powers of lc(V) are multiplied into mm; at the end (V constant c)
+  ! Res = c^deg(U), so chi(Disc A) = chi(mm * c^(deg U mod 2)).  A zero U'
+  ! means Res = 0 mod q: the lane is kept.  The factors R^-1 of the Montgomery
+  ! products are squares and do not change chi.
+  !
+  ! U, V and the new remainder W live in three slots of p.  While all lanes move
+  ! in lockstep (same degrees), "U = W" and "swap U, V" just exchange slot
+  ! indices; lanes that diverge are handled with masked merges.
+  subroutine chain_general(a, j, keep)
+    integer(i2), intent(in) :: a(BLK, 0:10)
+    integer, intent(in) :: j
+    logical, intent(out) :: keep(BLK)
+    integer(i2) :: p(BLK, 0:11, 0:2)
+    integer(i2) :: du(BLK), dv(BLK), dw(BLK), mm(BLK), lu(BLK), lv(BLK), ev(BLK)
+    integer(i2) :: base(BLK), acc(BLK), tmp(BLK)
+    ! Lane flags as 0/1 integers: gfortran does not vectorise logical arrays.
+    integer(i2) :: act(BLK), done(BLK), resz(BLK), zf(BLK), sw(BLK)
+    integer(i2) :: q, qinv, negr
+    integer(i8) :: e
+    integer :: i, it, imax, iu, iv, iw, t
+
+    q = qs(j); qinv = qinvs(j); negr = negrs(j)
+    iu = 0; iv = 1; iw = 2
+    ! U = A (degree 10, monic), V = A' (degree 9, leading coefficient 10).
+    do i = 0, 10
+      p(:, i, iu) = a(:, 10-i)
     end do
-    vmax_l = max(max(max(m(1), m(2)), max(m(3), m(4))), max(max(m(5), m(6)), max(m(7), m(8))))
-  end function vmax_l
+    p(:, 11, iu) = 0
+    do i = 0, 9
+      p(:, i, iv) = mont(int(10-i, i2), a(:, 10-i), q, qinv)
+    end do
+    p(:, 10:11, iv) = 0
+    du = 10; dv = 9
+    mm = 1
+    done = 0; resz = 0
 
-  ! General (non-generic degree sequence) chain, once per stage.
-#define GNAME chain_general_s
-#define GK i2
-#define GQ qs
-#define GQINV qinvs
-#define GONE ones
-#define GNEGR negrs
-#define GEXP qsexp
-#define GVMAX vmax_s
-#define GSTAGE j
-#define GMUL(a, b) mont(a, b, q, qinv)
-#define GDIFF(a, b, c, d) mont(a, b, q, qinv) - mont(c, d, q, qinv)
-#define GZERO(x) (x == 0 .or. abs(x) == q)
-#include "chain_general.inc"
-#undef GNAME
-#undef GK
-#undef GQ
-#undef GQINV
-#undef GONE
-#undef GNEGR
-#undef GEXP
-#undef GVMAX
-#undef GSTAGE
-#undef GMUL
-#undef GDIFF
-#undef GZERO
-#define GNAME chain_general
-#define GK i4
-#define GQ qv
-#define GQINV qinvv
-#define GONE onev
-#define GNEGR negrv
-#define GEXP qexp
-#define GVMAX vmax_l
-#define GSTAGE (ns + j)
-#define GMUL(a, b) sredc(int(a, i8)*int(b, i8), q, qinv)
-#define GDIFF(a, b, c, d) sredc(int(a, i8)*int(b, i8) - int(c, i8)*int(d, i8), q, qinv)
-#define GZERO(x) (x == 0)
-#include "chain_general.inc"
+    do it = 1, 40
+      act = int(1, i2) - done
+      if (vmax(act) == 0) exit
+      imax = int(vmax(du*act))
+      lu = p(:, 0, iu); lv = p(:, 0, iv)
+      do i = 0, imax - 1
+        p(:, i, iw) = mont(lv, p(:, i+1, iu), q, qinv) - mont(lu, p(:, i+1, iv), q, qinv)
+      end do
+      p(:, imax:11, iw) = 0
+      dw = du - int(1, i2)
+      ! Shift out leading zeros (a zero polynomial ends at degree -1).
+      do
+        zf = merge(act, int(0, i2), (p(:, 0, iw) == 0 .or. abs(p(:, 0, iw)) == q) .and. dw >= 0)
+        if (vmax(zf) == 0) exit
+        do i = 0, imax - 1
+          p(:, i, iw) = merge(p(:, i+1, iw), p(:, i, iw), zf > 0)
+        end do
+        p(:, imax, iw) = merge(int(0, i2), p(:, imax, iw), zf > 0)
+        dw = dw - zf
+      end do
+      ! U' = 0: resultant vanishes mod q.
+      tmp = merge(act, int(0, i2), dw < 0)
+      resz = max(resz, tmp)
+      done = max(done, tmp)
+      act = act - tmp
+      ! chi bookkeeping for lc(V)^(deg U' - deg U + deg V).
+      ev = abs(dw - du + dv)
+      tmp = mont(mm, lv, q, qinv)
+      mm = merge(tmp, mm, act > 0 .and. iand(ev, int(1, i2)) /= 0)
+      ! U = U'; swap U and V when deg U < deg V.
+      sw = merge(act, int(0, i2), dw < dv)
+      ! Lockstep: every lane active with the same deg U' and deg V.
+      tmp = (int(1, i2) - act) + abs(dw - dw(1)) + abs(dv - dv(1))
+      if (vmax(tmp) == 0) then
+#ifdef PDF_STAGES_NAME
+        cnt(6, j) = cnt(6, j) + 1
+#endif
+        t = iu; iu = iw; iw = t
+        du = dw
+        if (sw(1) > 0) then
+          t = iu; iu = iv; iv = t
+          tmp = du; du = dv; dv = tmp
+        end if
+      else
+#ifdef PDF_STAGES_NAME
+        cnt(7, j) = cnt(7, j) + 1
+#endif
+        do i = 0, imax
+          p(:, i, iu) = merge(p(:, i, iw), p(:, i, iu), act > 0)
+        end do
+        du = merge(dw, du, act > 0)
+        do i = 0, imax
+          tmp = p(:, i, iu)
+          p(:, i, iu) = merge(p(:, i, iv), p(:, i, iu), sw > 0)
+          p(:, i, iv) = merge(tmp, p(:, i, iv), sw > 0)
+        end do
+        tmp = du
+        du = merge(dv, du, sw > 0)
+        dv = merge(tmp, dv, sw > 0)
+      end if
+      ! V constant c: Res = c^deg U.
+      tmp = mont(mm, p(:, 0, iv), q, qinv)
+      mm = merge(tmp, mm, act > 0 .and. dv == 0 .and. iand(du, int(1, i2)) /= 0)
+      done = max(done, merge(act, int(0, i2), dv == 0))
+    end do
 
-  ! One block through prime stage j (small primes first, then large ones),
-  ! with the fast generic chain or, for lanes that left it, the general one.
+    ! Euler criterion on mm in the Montgomery domain: acc ends at chi*R mod q,
+    ! and chi = -1 is the residue -R (negr or negr - q).
+    base = mm
+    acc = ones(j)
+    e = qsexp(j)
+    do while (e > 0)
+      if (iand(e, 1_i8) == 1) acc = mont(acc, base, q, qinv)
+      base = mont(base, base, q, qinv)
+      e = shiftr(e, 1)
+    end do
+    keep = .not. (done > 0 .and. resz == 0 .and. (acc == negr .or. acc == negr - q))
+  end subroutine chain_general
+
+  ! One block through prime stage j, with the fast generic chain or, for lanes
+  ! that left it, the general one.
   subroutine run_block(pol, ids, c, j, general, keep, ok)
     integer(i8), intent(in) :: pol(11, *)
     integer, intent(in) :: c, j
     integer, intent(in) :: ids(c)
     logical, intent(in) :: general
     logical, intent(out) :: keep(BLK), ok(BLK)
-    integer(i4) :: a(BLK, 0:10)
-    integer(i2) :: as(BLK, 0:10)
-    if (j <= ns) then
-      call load_block_s(pol, ids, c, j, as)
-      if (general) then
-        call chain_general_s(as, j, keep)
-      else
-        call chain_block_s(as, j, keep, ok)
-      end if
+    integer(i2) :: a(BLK, 0:10)
+    call load_block(pol, ids, c, j, a)
+    if (general) then
+      call chain_general(a, j, keep)
     else
-      call load_block(pol, ids, c, j - ns, a)
-      if (general) then
-        call chain_general(a, j - ns, keep)
-      else
-        call chain_block(a, j - ns, keep, ok)
-      end if
+      call chain_block(a, j, keep, ok)
     end if
   end subroutine run_block
 
@@ -704,11 +663,11 @@ contains
     rstage(1:n) = 0
 #endif
     na = n
-    ! Stages 1..ns use the small primes, ns+1..ns+nq the large ones.  Calls are counted modulo 64 (1, ..., 64, 1, ...),
+    ! Stage j uses the j-th prime pdf_init chose.  Calls are counted modulo 64 (1, ..., 64, 1, ...),
     ! so the counter cannot overflow; the probe is calls 1, 65, 129, ...
     ncall = mod(ncall, 64) + 1
     probe = (ncall == 1)
-    do j = 1, ns + nq
+    do j = 1, ns
       nn = 0
       nu = 0
       usegen = allgen .or. (prefgen(j) .and. .not. probe)
@@ -781,19 +740,18 @@ contains
 
 #ifdef PDF_STAGES_NAME
   ! Test aid: st(i) = stage at which polynomial i of the last pdf_filter call was rejected (0: kept;
-  ! stages 1..ns are the small primes, ns+1..ns+nq the large ones, in the order pdf_init chose them);
-  ! counts(:, j) = the counters of stage j (see cnt above), zeroed afterwards when reset /= 0;
-  ! primes(j) = the prime of stage j; nstages = ns + nq.  n = 0 reads only the counters and primes.
+  ! stage j is the j-th prime pdf_init chose); counts(:, j) = the counters of stage j (see cnt above),
+  ! zeroed afterwards when reset /= 0; primes(j) = the prime of stage j; nstages = ns.  n = 0 reads only
+  ! the counters and primes.
   subroutine pdf_stages(n, st, counts, primes, nstages, reset) bind(C, name=PDF_STAGES_NAME)
     integer(c_int), value :: n, reset
     integer(c_int), intent(out) :: st(n), nstages
-    integer(c_long_long), intent(out) :: counts(7, MAXS + MAXQ), primes(MAXS + MAXQ)
+    integer(c_long_long), intent(out) :: counts(7, MAXS), primes(MAXS)
     if (n > 0) st = rstage(1:n)
     counts = cnt
     primes = 0
     primes(1:ns) = qs(1:ns)
-    primes(ns+1:ns+nq) = qv(1:nq)
-    nstages = ns + nq
+    nstages = ns
     if (reset /= 0) cnt = 0
   end subroutine pdf_stages
 #endif

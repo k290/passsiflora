@@ -86,9 +86,9 @@ Almost no polynomial passes, and the stock CPU application spends about $98\%$ o
 Passiflora decides which polynomials reach the test, and its output must be exactly that of the stock program.
 
 \paragraph{The idea.}  If $f$ passes, then modulo a suitable prime $q$ its discriminant is a square or zero (Proposition~\ref{prop:rule}).  So a Legendre
-symbol $\leg{\disc f}{q}=-1$ at one such prime proves that $f$ fails, and the filter computes these symbols.  The CPU filter uses $30$ primes: $24$ \emph{small}
-ones below $2^{13}$ ($8161,8089,\dots,6481$ for $S=\{2,5\}$) and six \emph{large} ones below $2^{25}$ ($33554249,\dots,33553649$).  Each rejects about half of
-the polynomials that reach it; the survivors of all $30$ go to the exact test, which decides them as before.  The GPU kernel applies the same filter at the
+symbol $\leg{\disc f}{q}=-1$ at one such prime proves that $f$ fails, and the filter computes these symbols.  The CPU filter uses the $30$ largest suitable
+primes below $2^{13}$ ($8161,8089,\dots,5881$ for $S=\{2,5\}$).  Each rejects about half of the polynomials that reach it; the survivors of all $30$ go to the
+exact test, which decides them as before.  The GPU kernel applies the same filter at the
 $24$ smallest suitable primes in $(256,8192)$ ($281,\dots,1489$ for $S=\{2,5\}$, none of them the CPU's) before it hands its survivors to the CPU.
 
 \paragraph{Why exactness needs care.}  The filter must never reject a polynomial that passes, or the project loses fields.  An earlier version stored
@@ -277,7 +277,7 @@ cases and $70\%$ of the degree-$10$ cases tested.
 \subsection{The filter}\label{sec:filter}
 
 \code{pdf\_init(numP, pSet)} chooses the primes: a prime is \emph{chosen} if it is usable for $S$ and lies in the proved range (the \emph{guard},
-Section~\ref{sec:limits}): the $24$ largest below $2^{13}$ and the six largest below $2^{25}$.  \code{pdf\_filter} then runs every surviving polynomial, stage by
+Section~\ref{sec:limits}): the $30$ largest below $2^{13}$, one stage each.  \code{pdf\_filter} then runs every surviving polynomial, stage by
 stage, through \code{chain\_block} (pass 1), re-runs the lanes whose check failed through \code{chain\_general} (pass 2), and drops a polynomial as soon as a chain
 rejects it.  A stage at which more than half of the lanes left \code{chain\_block} in the last call sends every lane to \code{chain\_general} directly
 (\code{prefgen}), and every $64$th call probes \code{chain\_block} again.  Survivors of all stages get flag $1$, all others $0$; a polynomial whose leading
@@ -302,9 +302,10 @@ The converse direction, that the filter rejects \emph{every} polynomial with a s
 \section{Exact integer arithmetic}\label{sec:integer}
 
 \paragraph{Representation.}  Elements of $\Fq$ are integers in a small range around $0$.  For $R=2^k$ let $s_k(x)$ be the residue of $x$ modulo $R$ in
-$[-R/2,R/2)$.  The small primes use $R=2^{16}$ in $16$-bit lanes (\code{mont}, $16$ lanes per AVX2 register, compiled to \code{vpmulhw}/\code{vpmullw}); the large
-primes use $R=2^{32}$ with $64$-bit products (\code{sredc}).  Each $64$-bit coefficient is split into three $21$-bit pieces and loaded by one reduction
-(\code{ldcoef}, \code{ldres}).
+$[-R/2,R/2)$.  The chains use $R=2^{16}$ in $16$-bit lanes (\code{mont}, $16$ lanes per AVX2 register, compiled to \code{vpmulhw}/\code{vpmullw}).  Each
+$64$-bit coefficient is split into three $21$-bit pieces and loaded by one reduction with $R=2^{32}$ and $64$-bit products (\code{sredc}, in \code{ldcoef} and
+\code{ldres}).  (Until v0.4.0 the filter also had six stages with primes below $2^{25}$, in $32$-bit lanes with \code{sredc}; Section~\ref{sec:split} explains
+why they were dropped.)
 
 \paragraph{What the language must do.}  The proofs use three rules: (S1) an operation whose exact result fits its kind gives that result; (S2) a conversion to a
 narrower kind reduces modulo $2^k$; (S3) \code{shifta} is an arithmetic shift and \code{iand} with $2^k-1$ keeps the low $k$ bits.  The Fortran standard leaves
@@ -360,18 +361,14 @@ apply Lemma~\ref{lem:sredc}.
 \subsection{Ranges, weights and Euler's criterion}
 
 \begin{proposition}[Ranges]\label{prop:ranges}\stproved
-At a stage whose prime $q$ was chosen (so $11\le q\le8385$ for a small and $11\le q\le1{,}097{,}010{,}265$ for a large stage):
-(a) at a small stage every input coefficient is in $(-q,q)$, every stored coefficient, leading coefficient and \code{base} in $(-2q,2q)$, \code{mm} and \code{acc} in
-$(-q,q)$, every argument of \code{mont} in $(-2q,2q)$, and every difference of two results of \code{mont} in $(-2q,2q)$ without overflow;
-(b) at a large stage every value is in $(-q,q)$ and every argument $x$ of \code{sredc} satisfies $|x|\le2(q-1)^2<2^{31}q$, formed without overflow.
-So the reductions of Lemmas~\ref{lem:mont} and~\ref{lem:sredc} apply everywhere, and a value is $0$ modulo $q$ exactly when it is $0$ or $\pm q$ (small) or $0$ (large).
+At a stage whose prime $q$ was chosen (so $11\le q\le8385$): every input coefficient is in $(-q,q)$, every stored coefficient, leading coefficient and
+\code{base} in $(-2q,2q)$, \code{mm} and \code{acc} in $(-q,q)$, every argument of \code{mont} in $(-2q,2q)$, and every difference of two results of \code{mont} in
+$(-2q,2q)$ without overflow.  So the reduction of Lemma~\ref{lem:mont} applies everywhere, and a value is $0$ modulo $q$ exactly when it is $0$ or $\pm q$.
 \end{proposition}
 \begin{proof}
-For $q\le2^{13}$ (small) and $q\le2^{30}+1$ (large), by induction over the statements: inputs come from Lemma~\ref{lem:ldres}; the constants $1,\dots,10$ are below
-$2q$ as $q\ge11$; \code{mont} of arguments in $(-2q,2q)$ lies in $(-q,q)$ (Lemma~\ref{lem:mont}), so a difference of two results lies in $(-2q,2q)$, below $2^{14}$;
-the large-stage arguments are $ka_k$, products $ab$ and differences $ab-cd$ of values in $(-q,q)$, so $|x|\le2(q-1)^2$, which is below $2^{31}q$ for $q\le2^{30}+1$;
-all other statements copy, move, merge or zero values.  For $8192<q\le8385$ and $2^{30}+1<q\le1{,}097{,}010{,}265$ the claims follow from
-Theorem~\ref{thm:limits}, which bounds every argument by a number below $qR/2$.
+For $q\le2^{13}$, by induction over the statements: inputs come from Lemma~\ref{lem:ldres}; the constants $1,\dots,10$ are below $2q$ as $q\ge11$; \code{mont} of
+arguments in $(-2q,2q)$ lies in $(-q,q)$ (Lemma~\ref{lem:mont}), so a difference of two results lies in $(-2q,2q)$, below $2^{14}$; all other statements copy,
+move, merge or zero values.  For $8192<q\le8385$ the claims follow from Theorem~\ref{thm:limits}, which bounds every argument by a number below $qR/2$.
 \end{proof}
 
 \begin{lemma}[Weights]\label{lem:weights}\stproved
@@ -383,7 +380,8 @@ every zero test, degree, swap and \code{ok} agrees with the exact run, and $\chi
 A reduced product of $a$ and $b$ is $\equiv abR^{-1}$, and a reduced difference of products $\equiv(ab-cd)R^{-1}$.  In every formula of the chains the two terms carry the
 same weight (in \code{chain\_block}, both terms of $\lambda A[k]-\tau B[k-1]$ have weight $w(A)+w(B)$, and both terms of $\lambda R[k]-tB[k]$ weight $w(R)+w(B)$; in
 \code{chain\_general}, both terms of $l_vU(i+1)-l_uV(i+1)$ weight $w(U)+w(V)$), so each result has one weight.  $R^{-w}$ is invertible, so zero tests agree, and the
-branches depend only on zero tests.  $R=2^{16}=(2^8)^2$ and $2^{32}=(2^{16})^2$ are squares, so no symbol changes.
+branches depend only on zero tests.  $R=2^{16}=(2^8)^2$ is a square, so no symbol changes.  (The loading's reduction with $2^{32}$ carries no weight: its
+constants $d_i$ contain the factor $2^{32}$, so it returns $c\bmod q$ itself.)
 \end{proof}
 
 \begin{lemma}[Euler's criterion in the Montgomery domain]\label{lem:eulermont}\stproved
@@ -430,27 +428,26 @@ lane-dependent control flow, so each lane runs the algorithm; in \code{chain\_ge
 
 \subsection{The size limits, and the guard}\label{sec:limits}
 
-\paragraph{Where the limits come from.}  Every limit of the filter is a consequence of its word sizes.  A Montgomery reduction with $R=2^k$ returns a value of
+\paragraph{Where the limits come from.}  Every limit of the filter is a consequence of its word size.  A Montgomery reduction with $R=2^k$ returns a value of
 size at most $|x|/R+q/2$ (Lemma~\ref{lem:montgen}), so it keeps the residues in $(-q,q)$ only while its argument stays below $qR/2$.  The arguments are products of
-residues, a small multiple of $q^2$, so the prime may only grow to a fixed fraction of $R$.  For one reduction this gives $q\le2^{13}=R/8$ at the small stages
-($R=2^{16}$, operands in $(-2q,2q)$, Lemma~\ref{lem:mont}) and $q\le2^{30}+1$ at the large ones ($R=2^{32}$, a difference $ab-cd$ of products of residues in
-$(-q,q)$, Lemma~\ref{lem:sredc}).  Along a chain the same arithmetic gives a recursion for the bound: in the worst case one iteration of \code{chain\_general} turns a
-bound $b$ into about $2b^2/R+q$ at a small stage and $2b^2/R+q/2$ at a large one.  This recursion has a fixed point, so the values stay bounded however long a chain
-runs, exactly when $q\le R/8=2^{13}$ (small) and $q\le R/4=2^{30}$ (large).  The shipped primes, below $2^{13}$ and $2^{25}$, lie in this region.  Above it the bound
-grows with every iteration, but a chain stops after at most $18$, so a somewhat larger prime still fits.  How much larger has no closed form: Theorem~\ref{thm:limits}
-evaluates the recursion exactly for every odd $q$ of a finite range, a proof by exhaustion rather than a measurement.
+residues, a small multiple of $q^2$, so the prime may only grow to a fixed fraction of $R$.  For one reduction with $R=2^{16}$ and operands in $(-2q,2q)$ this gives
+$q\le2^{13}=R/8$ (Lemma~\ref{lem:mont}).  Along a chain the same arithmetic gives a recursion for the bound: in the worst case one iteration of
+\code{chain\_general} turns a bound $b$ into about $2b^2/R+q$.  This recursion has a fixed point, so the values stay bounded however long a chain runs, exactly
+when $q\le R/8=2^{13}$.  The filter's primes, below $2^{13}$, lie in this region.  Above it the bound grows with every iteration, but a chain stops after at most
+$18$, so a somewhat larger prime still fits.  How much larger has no closed form: Theorem~\ref{thm:limits} evaluates the recursion exactly for every odd $q$ of a
+finite range, a proof by exhaustion rather than a measurement.  The loading's reduction with $R=2^{32}$ sets no limit of its own: its argument is below
+$3\cdot2^{21}q$, far under $2^{31}q$, for every $q<2^{31}$ (Lemma~\ref{lem:ldres}).
 
-Put $\rho(X)=\lfloor(X+qR/2)/R\rfloor$, the bound of Lemma~\ref{lem:montgen} for the result of a reduction of an argument $|x|\le X$.
+Put $\rho(X)=\lfloor(X+qR/2)/R\rfloor$, the bound of Lemma~\ref{lem:montgen} for the result of a reduction of an argument $|x|\le X$, with $R=2^{16}$.
 
 \begin{lemma}[Bound propagation]\label{lem:propagation}\stproved
 Fix a stage with an odd prime $q>5$.  Define: $L=\lfloor(2(2^{21}-1)(q-1)+2^{21}(q-1)+2^{31}q)/2^{32}\rfloor$ for the loading; for \code{chain\_block},
-$A_k=L$, $A_{10}=1$, $B_{k-1}=\rho(kA_k)$, and for $m=9,\dots,1$ with $\lambda=B_m$, $\tau=A_{m+1}$: $R_0=\rho(\lambda A_0)$, $R_k=\rho(\lambda A_k)+\rho(\tau B_{k-1})$
-(small) or $\rho(\lambda A_k+\tau B_{k-1})$ (large), $P_k=\rho(\lambda R_k)+\rho(R_mB_k)$ (small) or $\rho(\lambda R_k+R_mB_k)$ (large), then $A:=B$, $B:=P$; Euler's
-loop with the arguments $B_0^2$, $(q-1)B_0$, $(q-1)^2$; for \code{chain\_general}, $b=\max(L,1)$, $v=\rho(10L)$, then $18$ times $w=2\rho(vb)$ (small) or
-$\rho(2bv)$ (large), the argument $(q-1)\max(b,v,w)$, and $b:=v:=\max(b,v,w)$; Euler's loop with $(q-1)^2$.  Call each argument of $\rho$ a \emph{site}, and each
-sum of two values of $\rho$ at a small stage a \emph{difference site}.  If every site is below $qR/2$ and every difference site at most $32767$, then every argument
-of a reduction is bounded by its site, every result lies in $(-q,q)$, every difference fits $16$ bits, and Lemmas~\ref{lem:weights}, \ref{lem:eulermont} and
-Theorem D hold at this stage.
+$A_k=L$, $A_{10}=1$, $B_{k-1}=\rho(kA_k)$, and for $m=9,\dots,1$ with $\lambda=B_m$, $\tau=A_{m+1}$: $R_0=\rho(\lambda A_0)$, $R_k=\rho(\lambda A_k)+\rho(\tau B_{k-1})$,
+$P_k=\rho(\lambda R_k)+\rho(R_mB_k)$, then $A:=B$, $B:=P$; Euler's loop with the arguments $B_0^2$, $(q-1)B_0$, $(q-1)^2$; for \code{chain\_general}, $b=\max(L,1)$,
+$v=\rho(10L)$, then $18$ times $w=2\rho(vb)$, the argument $(q-1)\max(b,v,w)$, and $b:=v:=\max(b,v,w)$; Euler's loop with $(q-1)^2$.  Call each argument of $\rho$ a
+\emph{site}, and each sum of two values of $\rho$ a \emph{difference site}.  If every site is below $qR/2$ and every difference site at most $32767$, then every
+argument of a reduction is bounded by its site, every result lies in $(-q,q)$, every difference fits $16$ bits, and Lemmas~\ref{lem:weights}, \ref{lem:eulermont}
+and Theorem D hold at this stage.
 \end{lemma}
 \begin{proof}
 Induction over the statements, as in Proposition~\ref{prop:ranges}, with the intervals replaced by these numbers: a reduction of an argument with $|x|\le X<qR/2$
@@ -459,30 +456,27 @@ lanes that have stopped; by induction each active lane follows the algorithm and
 \end{proof}
 
 \begin{theorem}[The limits of the whole filter]\label{thm:limits}\stnum
-The conditions of Lemma~\ref{lem:propagation} hold for every odd $q$ with $5<q\le8385$ at a small stage and every odd $q$ with $5<q\le1{,}097{,}010{,}265$ at a large
-stage, and fail for every odd $q$ in $[8387,32767]$ and in $[1{,}097{,}010{,}267,\ 1{,}100{,}000{,}001]$, first at the $18$th iteration of \code{chain\_general}.  So
-Theorem D holds for every choice of small primes $q\equiv1\pmod4$ with $10<q\le8385$ and large primes $q\equiv1\pmod4$ with $10<q\le1{,}097{,}010{,}265$.
+The conditions of Lemma~\ref{lem:propagation} hold for every odd $q$ with $5<q\le8385$, and fail for every odd $q$ in $[8387,32767]$, first at the $18$th iteration
+of \code{chain\_general}.  So Theorem D holds for every choice of primes $q\equiv1\pmod4$ with $10<q\le8385$.
 \end{theorem}
-The computation evaluates the recursion in $128$-bit integers for every odd $q\le32767$ and every odd $q\le1{,}100{,}000{,}001$, and is repeated independently for
-every odd $q\le9001$ and around the large limit.
+The computation evaluates the recursion in $128$-bit integers for every odd $q\le32767$, and is repeated independently for every odd $q\le9001$.
 
-\paragraph{The guard.}  \code{pdf\_init} chooses a usable prime only inside $[11,8385]$ (small) or $[11,1{,}097{,}010{,}265]$ (large), and writes a line on standard error
-for any it skips.  The shipped primes are below $2^{13}$ and $2^{25}$, far inside these limits; the guard ensures that no future change of the prime search can
-leave the proved region silently.  The repository's \code{checks.py} compares the guard's constants with the limits it computes, so a change of the guard itself
-fails there until the limits are proved anew.
+\paragraph{The guard.}  \code{pdf\_init} chooses a usable prime only inside $[11,8385]$, and writes a line on standard error for any it skips.  The filter's
+primes are below $2^{13}$, inside the region where the bound has a fixed point; the guard ensures that no future change of the prime search can leave the proved
+region silently.  The repository's \code{checks.py} compares the guard's constants with the limit it computes, so a change of the guard itself fails there until
+the limit is proved anew.
 
-\paragraph{How sharp the limits are} \stnum.  The limits are those of the worst case, in which every reduction errs by the largest amount in the unfavourable
-direction.  Since the worst-case bound grows above $R/8$ and $R/4$, the limits depend on how many iterations a chain can run: the recursion of \code{chain\_general} gives
-$8883$ and $1{,}151{,}026{,}981$ for $9$ iterations, $8245$ and $1{,}080{,}369{,}269$ for $36$, against $8385$ and $1{,}097{,}010{,}265$ for the actual $18$.  A finer
-analysis of the same kind (exact maxima of single reductions, a bound per coefficient) can therefore gain only a few per cent.  The individual reductions fail earlier
-than the whole filter: \code{mont} with operands in $(-2q,2q)$ first returns a
-value outside $(-q,q)$ at $q=8241$, and \code{sredc} on a difference $ab-cd$ at $q=2^{30}+23279$ (complete searches); the chains never form those operands.  Above the
-filter limits, a directed search on a model of the chains, at every prime $\equiv1\pmod4$ from $8389$ to $19961$ and at $64$ large primes, finds the first results
-outside $(-q,q)$ at $15901$ (small) and $1{,}749{,}999{,}961$ (large), and the first wrong verdicts at $18457$ and $2{,}032{,}588{,}133$; those found at primes
-\code{pdf\_init} could choose make the real filter fail as well.  So the proved limits are at least $0.53$ and $0.63$ of the true thresholds for such failures.
-Limits much closer to the thresholds would need a proof that the reductions of one run cannot all err in the unfavourable direction, a property of the Montgomery
-quotients along a data-dependent chain over about $q^{10}$ inputs for which no method is known.  The search gives only upper bounds: its first failures moved to
-smaller primes as it was given more effort.
+\paragraph{How sharp the limits are} \stnum.  The limit is that of the worst case, in which every reduction errs by the largest amount in the unfavourable
+direction.  Since the worst-case bound grows above $R/8$, the limit depends on how many iterations a chain can run: the recursion of \code{chain\_general} gives
+$8883$ for $9$ iterations and $8245$ for $36$, against $8385$ for the actual $18$.  A finer analysis of the same kind (exact maxima of single reductions, a bound
+per coefficient) can therefore gain only a few per cent.  The individual reduction fails earlier than the whole filter: \code{mont} with operands in $(-2q,2q)$
+first returns a value outside $(-q,q)$ at $q=8241$ (complete search); the chains never form those operands.  Above the filter's limit, a directed search on a model
+of the chains, at every prime $\equiv1\pmod4$ from $8389$ to $19961$, finds the first results outside $(-q,q)$ at $15901$ and the first wrong verdicts at
+$18457$; those found at primes \code{pdf\_init} could choose make the real filter fail as well.  So the proved limit is at least $0.53$ of the true threshold for
+such failures.  A limit much closer to the threshold would need a proof that the reductions of one run cannot all err in the unfavourable direction, a property of
+the Montgomery quotients along a data-dependent chain over about $q^{10}$ inputs for which no method is known.  The search gives only upper bounds: its first
+failures moved to smaller primes as it was given more effort.  (Until v0.4.0 the filter also had stages with primes below $2^{25}$, $R=2^{32}$ and $64$-bit
+products, proved exact up to $1{,}097{,}010{,}265$; Section~\ref{sec:split}.)
 
 \subsection{The start-up check}
 
@@ -499,9 +493,9 @@ With no prime chosen the stage loop does not run, and every flag is set to $1$. 
 \paragraph{What the check is for.}  It does not guard the run-time environment, as a check of a floating-point filter would have to: integer instructions have no
 rounding mode, so a given binary computes the same values on every processor of its architecture.  What (S2) and (S3) depend on is the compiler that built the
 binary, and that is fixed when the program is built.  The release builds use several: the MinGW-w64 cross compiler for Windows, gfortran for x86-64 and aarch64
-Linux, Homebrew's gfortran on macOS (arm64), the Android cross compiler (aarch64) and FreeBSD's gfortran, while the tests of Section~\ref{sec:evidence} ran on x86-64
-with GCC~15.2 and 16.2 only.  For the other builds the start-up check is the one test of their compiled integer code, and for a cross-compiled build the target
-machine is the first place where that code can run at all.  The check costs no measurable time and fails safe: the filter switches itself off and the exact test
+Linux, Homebrew's gfortran on macOS (arm64), the Android cross compiler (aarch64) and FreeBSD's gfortran, while the filter's own tests
+(Section~\ref{sec:evidence}) ran on x86-64 with GCC~15.2 and 16.2 only.  The release workflow runs the other builds on the upstream work units; beyond that, the
+start-up check is the one test of their compiled integer code, and for a cross-compiled build the target machine is the first place where that code can run at all.  The check costs no measurable time and fails safe: the filter switches itself off and the exact test
 decides every polynomial.  It is not a proof.  It runs the compiled loads exactly as the filter does, so a fault in the split (such as the top piece shifted
 logically) fails it, but not the copies of the reductions that the compiler inlines into the chains; (S2) and (S3) therefore remain named assumptions
 (Section~\ref{sec:ledger}).
@@ -547,13 +541,13 @@ allows $|S|\le3$) has at least $24$ there \stnum, while a range below $1024$ wou
 smallest primes come first because Euler's criterion takes one step per bit of $(q-1)/2$: the $24$ largest below $8192$ instead took $1.0$ to $1.3\%$ more device
 time \stnum.
 
-\paragraph{One kind of prime, none of the CPU's.}  The kernel has no large primes.  Its arithmetic is unsigned $32$-bit with $R=2^{16}$; a large prime needs
-$64$-bit products, and an integer kernel with $R=2^{32}$ was $47\%$ slower than the floating-point kernel (Section~\ref{sec:timings}).  Large primes would also gain
-nothing: a stage rejects about half of what reaches it whatever the size of its prime, and on the CPU, where both kinds exist, the cost is lowest with the small
-primes first and does not rise when large primes are replaced by small ones (Section~\ref{sec:split}).  The kernel's survivors then pass through the CPU filter's $30$
-stages before the exact test, where a prime of the kernel's table would reject nothing new.  The CPU takes the largest usable primes below $2^{13}$ and the kernel the
-smallest above $256$; for the sets $S$ of the project's searches, with at least $115$ usable primes in $(256,2^{13})$, the two never share one ($281,\dots,1489$
-against $6481,\dots,8161$ for $S=\{2,5\}$).
+\paragraph{One kind of prime, none of the CPU's.}  The kernel, like the CPU filter, uses only primes below $2^{13}$.  Its arithmetic is unsigned $32$-bit with
+$R=2^{16}$; a larger prime needs $64$-bit products, and an integer kernel with $R=2^{32}$ was $47\%$ slower than the floating-point kernel
+(Section~\ref{sec:timings}).  Larger primes would also gain nothing: a stage rejects about half of what reaches it whatever the size of its prime, and on the CPU,
+where both kinds were measured, the cost is lowest with the small primes first and does not rise when large primes are replaced by small ones
+(Section~\ref{sec:split}).  The kernel's survivors then pass through the CPU filter's $30$ stages before the exact test, where a prime of the kernel's table would
+reject nothing new.  The CPU takes the largest usable primes below $2^{13}$ and the kernel the smallest above $256$; for the sets $S$ of the project's searches,
+with at least $115$ usable primes in $(256,2^{13})$, the two never share one ($281,\dots,1489$ against $5881,\dots,8161$ for $S=\{2,5\}$).
 
 \paragraph{Host and device code must match.}  Theorem E needs the kernel to read the table the program builds.  For OpenCL this holds by construction: the kernel
 source is part of the program.  The CUDA kernel is a fat binary embedded at build time and the MUSA kernel a library loaded at run time, so either could be left over
@@ -720,12 +714,12 @@ The theorems are about the program text and the mathematics; the compiler, the d
 show.  CPU runs are on Linux (WSL2, GCC and gfortran 15.2) unless stated.
 
 \paragraph{The compiled filter on complete sets at tiny primes} \stnum.  The filter was built from the shipped source with its prime search moved to one tiny prime
-$q\in\{13,17,29,37,41\}$ (four constants changed), once in the $16$-bit and once in the $32$-bit stage, and every polynomial of a set was sent through the AVX2 and the
-baseline build, each with the normal routing and with every lane forced through \code{chain\_general}: eight runs per polynomial.  Every flag and every rejection stage was
+$q\in\{13,17,29,37,41\}$ (two constants changed), and every polynomial of a set was sent through the AVX2 and the baseline build, each with the normal routing and
+with every lane forced through \code{chain\_general}: four runs per polynomial.  Every flag and every rejection stage was
 compared with an exact oracle (Euclid with inverses).  The sets: all $13^9$ depressed monic polynomials modulo $13$ (every monic polynomial modulo $13$ is a shift of one
 of them); at $17$ all with $a_9=a_8=0$, at $29$, $37$, $41$ all with $a_9=\dots=a_6=0$ (which send every chain into \code{chain\_general} and its lockstep branch); and at
 each prime $200{,}000$ random polynomials with all their shifts and coefficients lifted by large multiples of $q$.  Altogether $25{,}518{,}310{,}785$ polynomials and
-$204{,}146{,}486{,}280$ verdicts: none wrong.
+$102{,}073{,}243{,}140$ verdicts: none wrong.  (For v0.4.0 the same sets also ran through its $32$-bit stage: $204{,}146{,}486{,}280$ verdicts, none wrong.)
 
 \paragraph{The arithmetic alone} \stnum.  The reductions, cut out of the source (not retyped) and compiled with the filter's flags and at \code{-O0}, against exact
 models: \code{mont} on every pair of operands for every odd prime below $2^{13}$ ($333{,}937{,}622{,}331$ pairs) and every odd $q$ in $[8193,8303]$; \code{sredc} on
@@ -742,35 +736,37 @@ arithmetic, each one changed line, against $1{,}000{,}000$ polynomials (total fa
 \toprule
 fault & oracle test & ``must pass'' test \\ \midrule
 none & 0 & 0 \\
-zero test $\pm q$ in \code{chain\_block\_s} & 360 & 0 \\
-zero test $\pm q$ in \code{chain\_general\_s} & 23,283 & 349 \\
-Euler: $-R$ recognised only as one representative & 57,624 & 0 \\
-top piece of a coefficient shifted logically (start-up check: filter off) & 643,008 missed & 0 \\
-wrong loading constants (start-up check: filter off) & 643,008 missed & 0 \\
-parity of \code{chain\_general} & 236,849 & 161,538 \\
-last stage skipped & 7,280 & 0 \\
+zero test $\pm q$ in \code{chain\_block} & 398 & 0 \\
+zero test $\pm q$ in \code{chain\_general} & 26,171 & 370 \\
+Euler: $-R$ recognised only as one representative & 78,350 & 0 \\
+top piece of a coefficient shifted logically (start-up check: filter off) & 668,550 missed & 0 \\
+wrong loading constants (start-up check: filter off) & 668,550 missed & 0 \\
+parity of \code{chain\_general} & 277,230 & 161,849 \\
+last stage skipped & 9,061 & 0 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 The oracle test sees all seven.  The floating-point faults (x87, rounding up, down, toward zero) give $0$ on the integer filter, as Theorem D says, while on the
 earlier floating-point filter the oracle test saw $66$ false and $296$ missed rejections under x87 and $37{,}329$ false under rounding up.  Primes moved across the size
-limits behave as the proofs predict: no wrong verdict inside them; beyond them wrong verdicts appear, at some primes only for directed inputs.  With $24$ small primes
-the generated polynomials reach the large stages only through constructions that control every symbol; the large-stage code is instruction for instruction
-(\code{objdump}) that of a build with six small primes below $2^{10}$, which the oracle test ran with $788{,}246$ of $1{,}000{,}000$ polynomials reaching the large
-stages and no failure.  The $146{,}771$ candidates captured from seven real work units pass through the filter with the oracle's verdicts.
+limits behave as the proofs predict: no wrong verdict inside them; beyond them wrong verdicts appear, at some primes only for directed inputs.  The oracle test
+reaches all $30$ stages: its \code{target} stratum is rejected about equally often at each.  The $146{,}771$ candidates captured from seven real work units pass
+through the filter with the oracle's verdicts.
 
 \paragraph{The exact test} \stnum.  Table~\ref{tab:poldisc} and Section~\ref{sec:poldisc}.
 
 \paragraph{The GPU filter} \stnum.  The kernel's filter, compiled for the CPU from the kernel source itself, against the exact oracle prime by prime:
 $6{,}000{,}000$ polynomials at the $24$ table primes and $3{,}000{,}000$ at tiny primes and just below the limit $8192$, $228{,}000{,}000$ checks, no false and no
-missed rejection.  On an NVIDIA GTX~1650 (OpenCL, and CUDA with the kernel compiled by NVRTC), the application gave the truth files of $8$ work units through OpenCL
-and $4$ through CUDA, with the start-up self-test passing in each; a full comparison of one unit ($3{,}759$ survivors) found no difference, and injected faults and a
-kernel without the self-test were caught.  The MUSA path was run with a stand-in runtime.
+missed rejection.  On an NVIDIA GTX~1650 the Windows application gave the truth files of all $31$ work units through OpenCL and through CUDA (the CUDA kernel
+compiled by the release workflow's \code{nvcc}~12.9), with the start-up self-test passing in each, and the Linux CUDA program of v0.4.0 all $31$ under WSL; a full
+comparison of one unit ($3{,}759$ survivors) found no difference, and injected faults and a kernel without the self-test were caught.  The MUSA path was run with a
+stand-in runtime.
 
-\paragraph{The work units} \stnum.  The application, built on Linux from GetDecics at \code{638ca4e} with the patch and the repository's compile lines (BOINC replaced
-by stand-ins), gave the \code{.truth} files of all $31$ test work units with the AVX2 build and with the baseline build.  With \code{NF\_VERIFY=1} (the exact test also
-on every polynomial, stopping at the first difference), five units in both builds ran $20{,}008{,}960$ polynomials each without a difference.
+\paragraph{The work units} \stnum.  The application, built from GetDecics at \code{638ca4e} with the patch by the repository's build scripts (Windows, MSYS2, with
+BOINC's own libraries), gave the \code{.truth} files of all $31$ test work units with the AVX2 build and with the baseline build.  With \code{NF\_VERIFY=1} (the exact
+test also on every polynomial, stopping at the first difference), the five smallest units ran whole in both builds without a difference.  The release workflow
+builds the CPU programs for every system and runs them on the work units before a release; for v0.4.0's filter, the same chains with $24+6$ primes, they gave every
+truth file on Linux x86-64, Windows, Linux ARM64, macOS and FreeBSD, and the two units run under emulation on RISC-V, PowerPC, IBM Z and 32-bit ARM.
 
 \paragraph{Other sets $S$} \stnum.  The proofs hold for every $S$.  The tests were also run for $\{2,11\}$, $\{5,11\}$, $\{2,5,11\}$, $\{2,3,5\}$ and $\{3,7\}$ without a
 failure, on fewer polynomials than for $\{2,5\}$.
@@ -781,8 +777,9 @@ failure, on fewer polynomials than for $\{2,5\}$.
 The integer filter replaced the floating-point one for exactness, not for speed, so this section first asks whether the change costs speed.  It does not: the
 integer filter is faster everywhere, by $4$ to $20\%$ on the work units where almost every polynomial takes \code{chain\_block}, by $48$ to $58\%$ on one where every polynomial takes
 \code{chain\_general}, and by $9$ to $12\%$ in device time on the GPU.  Section~\ref{sec:timings} gives the timings in the application and shows where the CPU
-filter's time goes, and what of the gain belongs to the arithmetic; Section~\ref{sec:split} shows that the division of the CPU filter's $30$ stages between small
-and large primes is as good as any.  All results are measurements \stnum on one machine, a laptop with an Intel i5-12500H and an NVIDIA GTX~1650; the CPU timings
+filter's time goes, and what of the gain belongs to the arithmetic; Section~\ref{sec:split} shows why all $30$ stages of the CPU filter now use primes below
+$2^{13}$: the six stages with larger primes that v0.4.0 still had cost slightly more and gain nothing.  The timings of the CPU filter were made with v0.4.0's
+$24+6$ primes; the filter with $30+0$ is not separated from it by any measurement (Section~\ref{sec:split}).  All results are measurements \stnum on one machine, a laptop with an Intel i5-12500H and an NVIDIA GTX~1650; the CPU timings
 were made on Linux (WSL2) unless stated.
 
 \subsection{Timings}\label{sec:timings}
@@ -797,7 +794,7 @@ polynomial takes \code{chain\_general} at every prime.
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
 \caption{CPU filter plus exact test (the application's polDisc time) in seconds for the first $60{,}006{,}400$ polynomials, median of seven runs; in brackets the
 change against the floating-point filter.  Montgomery: $6+24$ primes (small $+$ large) with scalar loads; the same primes with vectorised loads; then $24+6$ primes
-with these loads, the filter described here.  Work units \code{sf5\_DS-14x11\_Grp33043of705883}, \code{sf3\_DS-16x270\_Grp74of3932160},
+with these loads, the filter of v0.4.0 (the filter described here, $30+0$, is within the scatter of it; Section~\ref{sec:split}).  Work units \code{sf5\_DS-14x11\_Grp33043of705883}, \code{sf3\_DS-16x270\_Grp74of3932160},
 \code{sf4\_DS-13x271-25\_Grp98of200000}.}\label{tab:speed}
 \begin{tabular}{@{}llrrrrr@{}}
 \toprule
@@ -849,8 +846,9 @@ two doubles of the floating-point filter); $17$ in the large stages, which cost 
 $64$-bit vector multiplication, so the large primes need $64$-bit products of $32$-bit lanes); and $6$ in the rest of the filter.  \emph{The vectorised loads} copy
 each polynomial's ten coefficients into a block buffer and split and reduce them on contiguous lanes, so the split in advance is gone: $104$ cycles for loading
 instead of $114+44$, and the whole filter $55$ cycles faster, with the arithmetic and the compiled chains unchanged.  \emph{The prime split}: with $24$ small
-primes almost no polynomial reaches the large stages ($0.4$ instead of $30.7$ cycles), for $6.2$ more in the small stages, and the filter is $8.6\%$ faster;
-Section~\ref{sec:split} shows why $24+6$ is as good as any split.
+primes almost no polynomial reaches the large stages ($0.4$ instead of $30.7$ cycles), for $6.2$ more in the small stages, and the filter is $8.6\%$ faster.
+Section~\ref{sec:split} shows that $30+0$, which replaces the six large stages by small ones, is as good again: on \code{sf5} the six small stages take $0.05\%$ of
+the filter's time where the six large ones took $0.17$ to $0.23\%$.
 
 \emph{What the floating-point filter could share.}  Neither step changes the arithmetic, so on \code{sf5} and \code{sf3} part of the lead is not the integer
 arithmetic's.  The floating-point filter has the same loading structure (a split in advance, $54$ cycles, then a gather through the block's indices, $61$), and its
@@ -860,7 +858,7 @@ prime split.  Its small stage runs in single precision, and its error argument c
 would need a new bound); and its large stages cost $16$ cycles, half as much as the Montgomery ones, so a split could save at most these $16$ cycles ($5\%$), less
 what the extra small stages cost.  What belongs to the integer arithmetic is the cheaper chains of the small stages and, on \code{sf4}, of \code{chain\_general},
 where the first Montgomery filter, with scalar loads and $6+24$ primes, was already $36\%$ (AVX2) and $49\%$ (baseline) faster than the floating-point one; against
-it stand the dearer large stages.
+it stood the dearer large stages, which the filter no longer has.
 
 \paragraph{GPU} \stnum.  Table~\ref{tab:gpuspeed} gives one series of the kernel in four versions: the floating-point kernel, and the integer kernel in three
 steps, each with one change more than the step before (the integer arithmetic with $14$ primes below $2^{10}$; the table of $24$ primes below $2^{13}$; the start-up
@@ -946,16 +944,17 @@ work unit & time & floating point & integer \\ \midrule
 
 \subsection{The prime split}\label{sec:split}
 
-\paragraph{Why there are two kinds of prime.}  The CPU filter can divide its stages between small primes ($16$-bit lanes) and large primes ($32$-bit lanes,
-$64$-bit products) in any proportion.  Every stage keeps about half of the polynomials it is given, whatever the size of its prime (below), so the cost of a stage
+\paragraph{Why there were two kinds of prime.}  Until v0.4.0 the CPU filter could divide its stages between small primes ($16$-bit lanes) and large primes
+($32$-bit lanes, $64$-bit products) in any proportion.  Every stage keeps about half of the polynomials it is given, whatever the size of its prime (below), so the cost of a stage
 is its price per polynomial times the number that reach it, and only the price differs: a small stage holds $16$ residues in a $256$-bit register and multiplies in
 $16$ bits, a large one holds $8$ and multiplies in $64$.  Lemma~\ref{lem:order} below proves what this implies: small stages go first, and replacing a large prime by
 an unused small one never raises the expected cost, so in the model all small, $30+0$, is best.  The large stages are a legacy of the floating-point filter: its
 single-precision small stage was argued exact only for primes below $2^{10}$, of which there are $14$ usable ones for $S=\{2,5\}$, too few for $30$ stages, so it
 took $6$ small and $24$ large.  The integer small stage is exact up to $2^{13}$ (Section~\ref{sec:limits}), where there are $115$, so the reason for the large
-stages is gone.  The filter uses $24$ small and six large, written $24+6$, chosen by an early timing of a few splits; this section shows that it costs at most
+stages is gone.  v0.4.0 used $24$ small and six large, written $24+6$, chosen by an early timing of a few splits; this section shows that it costs at most
 $0.14\%$ more than $30+0$, less than any measurement resolves, because almost all the time is spent in the first stages, which every polynomial, then half of them,
-then a quarter pass through.  It gives a model of the cost, proves which orders and splits the model favours, and measures it, stage by stage and in the application.
+then a quarter pass through.  The filter therefore now uses $30+0$, which removes the large stages, their size limit and their tests.  The section gives a model of
+the cost, proves which orders and splits the model favours, and measures it, stage by stage and in the application.
 
 \paragraph{Which primes there are} \stnum.  The batch status pages of NumberFields@home (read on 30~October~2026) list seven searches for decic fields, all with
 $S=\{2,5\}$; earlier, smaller searches used $S=\{2,11\}$ and $\{5,11\}$.  For these three sets the rule of \code{pdf\_init} (Proposition~\ref{prop:rule}) leaves
@@ -1012,7 +1011,7 @@ less than $10^{-4}$ for the primes in question.  The measurements test both assu
 counters around every stage, load and chain and with counters of the polynomials, calls and blocks that enter every stage, were linked into the application (BOINC
 replaced by stand-ins, as for the work units of Section~\ref{sec:evidence}).  They ran the first $20{,}008{,}960$ polynomials of five work units, \code{sf3},
 \code{sf4} and \code{sf5} of Table~\ref{tab:speed} and two from the running searches, \code{sf6\_DS-7x10\_Grp16925of160000} and
-\code{sf7\_DS-12x12\_Grp164787of1000000}, with ten splits ($24+6$ as shipped, $30+0$, $18+12$, $12+18$, $6+24$, and $12$, $16$, $20$, $24$ and $40$ small primes
+\code{sf7\_DS-12x12\_Grp164787of1000000}, with ten splits ($24+6$ as in v0.4.0, $30+0$ as now, $18+12$, $12+18$, $6+24$, and $12$, $16$, $20$, $24$ and $40$ small primes
 alone), both builds, five runs each, the splits alternating: $500$ runs.  Every call had $n=10{,}240$ polynomials, and the counts were the same in all runs and both
 builds.  The processor has two kinds of cores and a run may get either, so the filter's time varies by up to $30.5\%$ between the runs of one split; stage~$1$ does the
 same work in every split (prime $8161$, all polynomials), so every time is divided by the same run's stage-$1$ time, after which the five runs of a split agree to
@@ -1139,12 +1138,13 @@ $40+0$  & $+0.8$ ($+0.4$) & $-0.3$ ($-0.3$)   & $+0.4$ ($+0.9$) & $+0.3$ ($+0.1$
 \end{tabular}
 \end{table}
 
-\paragraph{The conclusion.}  The shipped $24+6$ is within $0.14\%$ of the best split of $30$ stages and within $0.25\%$ of the model's optimum over all numbers of
-stages (\code{sf5}, baseline, at $16$ stages) in all ten cases, and no measurement separates it from $30+0$: neither the stage times of Table~\ref{tab:split}
-nor the times of the application in Table~\ref{tab:splitapp}, which agree with the model on $6+24$ and $12+18$ and put $18+12$, $30+0$, $24+0$ and $40+0$ within
-$1.6\%$ of $24+6$.  It was chosen by an earlier, shorter timing of a few splits; the model, made afterwards, and the timings show that no split of $30$ stages and
-no number of stages is measurably faster, so it stays.  Every split is bounded below by the first
-stages, which every polynomial or every other polynomial passes through: a faster filter needs a cheaper small stage, not another split.
+\paragraph{The conclusion.}  Under the model $30+0$ is the cheapest split of $30$ stages in all ten cases, and v0.4.0's $24+6$ is within $0.14\%$ of it and
+within $0.25\%$ of the model's optimum over all numbers of stages (\code{sf5}, baseline, at $16$ stages); no measurement separates the two: neither the stage times
+of Table~\ref{tab:split} nor the times of the application in Table~\ref{tab:splitapp}, which agree with the model on $6+24$ and $12+18$ and put $18+12$, $30+0$,
+$24+0$ and $40+0$ within $1.6\%$ of $24+6$.  $24+6$ was chosen by an earlier, shorter timing of a few splits.  Since the large stages bring nothing measurable,
+the filter now uses $30+0$: one kind of prime, one reduction in the chains, one size limit, and none of the tests and proofs that only the large stages needed.
+Every split is bounded below by the first stages, which every polynomial or every other polynomial passes through: a faster filter needs a cheaper small stage,
+not another split.
 
 %======================================================================
 \section{What it all rests on}\label{sec:ledger}
@@ -1155,7 +1155,7 @@ stages, which every polynomial or every other polynomial passes through: a faste
 claim & status & rests on \\ \midrule
 (C1) soundness & \stproved & Theorems A--D, Proposition~\ref{prop:poldisc}, the interface; assumes (H), compiler correctness, (S2), (S3) \\
 (C2) safety & \stproved & range proofs, size limits, the masked-loop lemma; assumes (S2), (S3) (start-up check), the CPU's report of AVX2/FMA \\
-(C3) integration & \stproved{} \stnum & the glue proposition; $31$ units in both builds, $12$ on the GPU; assumes (A2) \\
+(C3) integration & \stproved{} \stnum & the glue proposition; $31$ units in both builds and through OpenCL and CUDA; assumes (A2) \\
 GPU filter & \stproved & Theorem E; assumes the device compiler and device correct (tested on the device at start-up), host and device code of one format (checked at start-up) \\ \midrule
 compiler correctness & \stassume & tiny-prime test, arithmetic checks with two GCC versions, oracle test, start-up check; docs/BUILDING.md names the checked compilers \\
 (S2), (S3) & \stassume & as above, on x86-64 with GCC~15.2 and~16.2; in every build the start-up check switches the filter off if the compiled loads or reductions disagree with exact values \\
@@ -1167,13 +1167,12 @@ compiler correctness & \stassume & tiny-prime test, arithmetic checks with two G
 
 \paragraph{Open items.}
 \begin{itemize}
-\item Where the filter first fails above the size limits.  The limits $8385$ and $1{,}097{,}010{,}265$ are, up to the slack of the $18$ iterations, the best a
-  step-by-step worst-case bound can give (Section~\ref{sec:limits}); the first failure for primes $\equiv1\pmod4$ lies in $(8385,15901]$ and
-  $(1{,}097{,}010{,}265,\ 1{,}749{,}999{,}961]$.  Locating it needs an argument about correlated reductions for which no method is known.  The program is not
-  affected: the shipped primes are below $2^{13}$ and $2^{25}$, and the guard keeps every chosen prime inside the limits.
+\item Where the filter first fails above its size limit.  The limit $8385$ is, up to the slack of the $18$ iterations, the best a step-by-step worst-case bound
+  can give (Section~\ref{sec:limits}); the first failure for primes $\equiv1\pmod4$ lies in $(8385,15901]$.  Locating it needs an argument about correlated
+  reductions for which no method is known.  The program is not affected: its primes are below $2^{13}$, and the guard keeps every chosen prime inside the limit.
 \item (H) is measured on real candidates (about $12$ times headroom) and checked on every polynomial of the $31$ test work units, not proved from the search bounds.
-\item The GPU filter was tested on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices, and the CUDA kernel built by \code{nvcc}, were not tested.  The program
-  checks the filter on every device at start-up.
+\item The GPU filter was tested on the CPU and on one NVIDIA card; AMD, Intel and MUSA devices were not tested.  The program checks the filter on every device at
+  start-up.
 \item The searches use $S=\{2,5\}$; other sets were tested on fewer polynomials.
 \item On 64-bit Windows the speed of the AVX2 filter depends on where the stack lies in a run, by up to about $16\%$ on a work unit where every polynomial takes
   \code{chain\_general} (Section~\ref{sec:split}).  A remedy is measured but not in the patch (Appendix~\ref{app:stack}).  The program's output is not affected.
@@ -1195,7 +1194,7 @@ command & checks \\ \midrule
 \code{bash fault\_checks.sh 100 test\_pdfilter\_oracle.cpp} & the oracle test with every deliberate fault and the moved primes \\
 \code{UPSTREAM=DIR CAND=... HITS=... bash poldisc\_checks.sh} & Table~\ref{tab:poldisc}; family \code{wrap}: the constructed overflow \\
 \code{TEST=test\_gpu\_filter.cpp bash build-linux.sh}, then \code{build/test\_gpu\_filter 6000000 11 8} & Theorem E at the kernel's primes \\
-\code{gcc -O2 -o limit\_probe limit\_probe.c}; \code{./limit\_probe small Q SEED N climb STEPS x} & the directed search above the size limits \\
+\code{gcc -O2 -o limit\_probe limit\_probe.c}; \code{./limit\_probe Q SEED N climb STEPS x} & the directed search above the size limit \\
 \code{python3 checks.py} & the mathematics (resultants, both chains, the size-limit computation) with independent exact models; the limits in the source
 against the computed ones; every citation of this paper in the repository \\
 \code{build/test-suite-unix.sh PROGRAM DATADIR} (repository root) & the $31$ test work units against their truth files \\
@@ -1204,7 +1203,8 @@ against the computed ones; every citation of this paper in the repository \\
 \end{center}
 
 \paragraph{Versions measured.}  GetDecics at \code{638ca4e}.  Floating-point filter: CPU \code{327b04f}, GPU \code{718bab1}.  Montgomery CPU filter with $6+24$ primes
-and scalar loads: \code{27d917f}; with vectorised loads and $24+6$ primes: \code{4094af4}.  GPU kernel with $14$ primes: \code{e758190}; with the wider table:
+and scalar loads: \code{27d917f}; with vectorised loads and $24+6$ primes: \code{4094af4}.  The filter with $30+0$ primes compiles its loads and chains to the
+same instructions as the small stages of v0.4.0's filter (GCC~15.2, both builds) \stnum.  GPU kernel with $14$ primes: \code{e758190}; with the wider table:
 \code{0f874dc}; with the start-up self-test: \code{2c351c1}.
 
 \paragraph{Not in the repository.}  The captured candidates, the Linux build recipe of the application with BOINC replaced by stand-ins, the Windows harnesses of the

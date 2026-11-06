@@ -21,7 +21,7 @@ work unit (`{2, 5}` in the current searches), a perfect square.  If a polynomial
 every prime `q ≡ 1 (mod 4)` at which the primes of `S` are squares.  So a Legendre symbol of −1 at one such prime proves that the
 polynomial fails.  The pre-filter computes these symbols:
 
-* **CPU:** at 30 primes (24 below 2^13 in 16-bit SIMD lanes, 6 below 2^25 in 32-bit lanes), each by one of two Euclidean chains on
+* **CPU:** at 30 primes below 2^13, in 16-bit SIMD lanes, each by one of two Euclidean chains on
   `f` and `f'`: a fast one for the usual case and a general one for every other.  Arithmetic is integer-only (signed Montgomery
   reduction); there is no floating point anywhere in the filter.
 * **GPU:** at the 24 smallest suitable primes in (256, 8192), inside the kernel, with unsigned Montgomery arithmetic.
@@ -34,7 +34,7 @@ The full argument, with every proof, is in [docs/whitepaper.pdf](docs/whitepaper
 **Proved.**  The filter rejects a polynomial exactly when its discriminant has symbol −1 at some filter prime, so it never rejects one
 that passes (Theorems A–C).  The program as written makes exactly those decisions for every input, independently of rounding mode,
 x87 or SSE code and compiler flags such as `-ffast-math` (Theorem D); the same holds for the GPU kernel (Theorem E).  The integer
-arithmetic is exact for small primes up to 8385 and large primes up to 1,097,010,265; `pdf_init` refuses any prime outside these limits.
+arithmetic is exact for primes up to 8385; `pdf_init` refuses any prime outside this limit.
 
 **Checked.**
 * The compiled filter on **every** polynomial of complete sets at tiny primes: 25.5 billion polynomials, 204 billion verdicts, none wrong.
@@ -87,7 +87,7 @@ Only code written for Passiflora is here; it is applied on top of the upstream G
 
 | path | what it is |
 |---|---|
-| `src/` | Passiflora's sources, copied next to upstream's: the CPU pre-filter (`pdfilter.f90`, `chain_general.inc`), the GPU kernel (`nf_kernel.h`, `nf_kernel.cu`, `nf_port_*.h`), the GPU host code and back ends (`nf_gpu_common.cpp`, `nf_gpu_opencl.cpp`, `nf_gpu_cuda.cpp`, `nf_gpu_musa.cpp`, `nf_musa_dev.cu`) and the CPU-only stub (`nf_gpu_stub.cpp`). |
+| `src/` | Passiflora's sources, copied next to upstream's: the CPU pre-filter (`pdfilter.f90`), the GPU kernel (`nf_kernel.h`, `nf_kernel.cu`, `nf_port_*.h`), the GPU host code and back ends (`nf_gpu_common.cpp`, `nf_gpu_opencl.cpp`, `nf_gpu_cuda.cpp`, `nf_gpu_musa.cpp`, `nf_musa_dev.cu`) and the CPU-only stub (`nf_gpu_stub.cpp`). |
 | `patches/passiflora.patch` | the changes to four upstream files: `GetDecics.cpp`, `TgtMartinet.cpp`, `TgtMartinet.h` (the calls of the filter and the GPU mode) and `polDiscTest_cpu.cpp` (32-bit `long` support and comments). |
 | `build/` | `prepare-src.sh` assembles a source tree (upstream + patch + `src/`); `test-suite-unix.sh` runs work units against their reference outputs; the `build-*.sh` scripts and `make-release.py` are the release builds, with the paths of the release machine. |
 | `docs/` | `whitepaper.tex`/`.pdf` (algorithms, proofs, evidence), `TECHNICAL.md` (a shorter technical overview), `BUILDING.md` (how to build), `INSTALL.txt` (for users). |

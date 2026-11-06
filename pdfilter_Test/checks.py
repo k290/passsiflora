@@ -500,24 +500,20 @@ def is_prime(n):
 def usable(q):
     if q % 4 != 1 or not is_prime(q): return False
     return all(p % q != 0 and pow(p, (q - 1) // 2, q) == 1 for p in (2, 5))
-small, q = [], 2 ** 13 - 1
-while len(small) < 24 and q > 256:
+small, q = [], 2 ** 13 - 1          # pdf_init's rule: the 30 largest usable primes below 2^13
+while len(small) < 30 and q > 256:
     if usable(q): small.append(q)
     q -= 2
-large, q = [], 2 ** 25 - 1
-while len(large) < 6 and q > 2 ** 24:
-    if usable(q): large.append(q)
-    q -= 2
-FP = small + large
-print("filter primes: small", small, "large", large[:3], "...", large[-1], "count", len(FP), "all 1 or 9 mod 40:", all(p % 40 in (1, 9) for p in FP))
+FP = small
+print("filter primes:", FP[:3], "...", FP[-1], "count", len(FP), "all 1 or 9 mod 40:", all(p % 40 in (1, 9) for p in FP))
 # The sets S of the project's searches (decic fields with S = {2,5}; finished ones with {2,11} and {5,11}; batch status pages
-# of NumberFields@home, read 2026-10-30): the small range has at least the 24 primes the filter takes (whitepaper, Section 9.2, "The prime split").
+# of NumberFields@home, read 2026-10-30): the range has at least the 30 primes the filter takes (whitepaper, Section 9.2, "The prime split").
 for S in ((2, 5), (2, 11), (5, 11)):
     use = lambda q: q % 4 == 1 and is_prime(q) and all(pow(p, (q - 1) // 2, q) == 1 for p in S)
     u13 = [q for q in range(2 ** 13 - 1, 256, -2) if use(q)]
     u10 = [q for q in range(2 ** 10 - 1, 256, -2) if use(q)]
-    check(len(u13) >= 24, f"C7 S={S}: only {len(u13)} usable small primes")
-    print(f"C7 S = {S}: {len(u13)} usable primes in (256, 2^13) ({u13[0]} ... the 24th {u13[23]}, the 30th {u13[29]}), {len(u10)} in (256, 2^10)")
+    check(len(u13) >= 30, f"C7 S={S}: only {len(u13)} usable primes below 2^13")
+    print(f"C7 S = {S}: {len(u13)} usable primes in (256, 2^13) ({u13[0]} ... the 30th {u13[29]}), {len(u10)} in (256, 2^10)")
 # The GPU table (buildPrimeTable of src/nf_gpu_common.cpp): the 24 smallest usable primes in (256, 8192); GPU mode needs at least 8.
 # For every S of one to three primes below 60: how many sets leave fewer than 8, or fewer than 24, in (256, 1024) (the earlier range)
 # and in (256, 8192).
@@ -533,7 +529,7 @@ for k in (1, 2, 3):
             gpu_short[hi][0] += n < 8; gpu_short[hi][1] += n < 24
 check(gpu_short[8192] == [0, 0], f"C7 GPU table: sets with fewer than 8 / 24 usable primes below 8192: {gpu_short[8192]}")
 gpu25 = [q for q in Q4 if pow(2, (q - 1) // 2, q) == 1 and pow(5, (q - 1) // 2, q) == 1][:24]
-print(f"C7 GPU table for S = (2, 5): {gpu25[0]} ... {gpu25[-1]} (24 primes, none of the CPU's small ones: {not set(gpu25) & set(small)});"
+print(f"C7 GPU table for S = (2, 5): {gpu25[0]} ... {gpu25[-1]} (24 primes, none of the CPU's: {not set(gpu25) & set(small)});"
       f" sets of 1-3 primes below 60 with fewer than 8 / 24 usable primes: {gpu_short[1024]} below 1024, {gpu_short[8192]} below 8192")
 
 def filter_stage(f, q, usegen):
@@ -577,7 +573,7 @@ for rep in range(NC):
     D = -res_int(f, deriv_int(f))   # n = 10: (-1)^45 = -1
     ps = passes(D)
     npass += ps
-    for q in (FP if rep < 40 else small + large[:4]):
+    for q in FP:
         for usegen in (False, True):
             keep, how = filter_stage(f, q, usegen)
             stagesC[how] += 1
@@ -692,76 +688,19 @@ check(clean == list(range(8193, 8240, 2)) + [8243, 8247, 8251, 8253, 8255, 8257,
 check(min(q for q in range(8193, 8301, 2) if q not in clean) == 8241, "C10.2 first failing odd q = 8241")
 print(f"C10.2 mont: counterexample at q = 8241 replayed; odd q in [8193, 8300] without a counterexample: {len(clean)} (8193..8239, 8243, 8247, 8251..8259)")
 
-# C10.3 sredc on differences, where it can fail: the reduction, the bound 2(delta-1)^2 >= 2^30, and the complete search of the remaining range
-def sredc_fail_search(delta, neg=False):
-    """all solutions of U + V + 2 + 4 t delta = L q, mu = 2 delta - 4 - U + L - 4t >= (1 if neg else 0), V = ij + i'j', i+j+i'+j' = U"""
-    q = (1 << 30) + delta
-    for L in (1, 2, 3):
-        for U in range(0, 2 * delta - 3 + L):
-            tmax = (2 * delta - 4 + L - U - (1 if neg else 0)) // 4
-            if tmax < 0: break
-            top = L * q - U - 2; vmax = U * U // 4
-            if top < 0: continue
-            tlo = max(0, -(-(top - vmax) // (4 * delta))); thi = min(tmax, top // (4 * delta))
-            for t in range(tlo, thi + 1):
-                V = top - 4 * t * delta
-                if not (0 <= V <= vmax): continue
-                for s in range(U + 1):
-                    s2 = U - s
-                    for i in range(s // 2 + 1):
-                        r = V - i * (s - i)
-                        if r < 0: break
-                        disc = s2 * s2 - 4 * r
-                        if disc < 0: continue
-                        sq = int(disc ** 0.5)
-                        while sq * sq > disc: sq -= 1
-                        while (sq + 1) ** 2 <= disc: sq += 1
-                        if sq * sq == disc and (s2 - sq) % 2 == 0:
-                            return (L, U, t, V, i, s - i, (s2 - sq) // 2, s2 - (s2 - sq) // 2)
-    return None
-
-for d in range(1, 23172, 2):
-    if 2 * (d - 1) ** 2 >= 1 << 30: check(False, "C10.3 the bound 2(delta-1)^2 < 2^30 below 23173"); break
-first = None; failing = []
-for d in range(23173, 23379, 2):
-    w = sredc_fail_search(d)
-    if w:
-        failing.append(d)
-        if first is None: first = (d, w)
-check(first is not None and first[0] == 23279, "C10.3 first failing odd q = 2^30 + 23279")
-fprime = [d for d in failing if is_prime((1 << 30) + d)]
-check(fprime[0] == 23293 and ((1 << 30) + 23293) % 4 == 1, "C10.3 first failing prime 2^30 + 23293, and it is 1 mod 4")
-check([d for d in failing if usable((1 << 30) + d)][0] == 23377, "C10.3 first failing prime usable for S = {2,5}: 2^30 + 23377")
-d, (L, U, t, V, i, j, i2_, j2) = first
-q = (1 << 30) + d; n = q - 1
-a, b, c, dd = n - i, n - j, -(n - i2_), n - j2
-x = a * b - c * dd
-u, m = mred(x, q, 32)
-check(u >= q and x == 2 * n * n - (U * n - V), "C10.3 the witness fails and satisfies the reduction")
-check(sredc_fail_search(d, neg=True) is not None, "C10.3 the negative side fails at the same q")
-reps = [(1073765103, 1073765102, 1073765101, -1073764896, 1073764888), (1073765117, 1073765111, 1073765111, -1073764914, 1073764866),
-        (1073765201, 1073765200, 1073765198, -1073765108, 1073765063), (1073774593, 1073741825, 1073741824, -1073774592, 1073774592)]
-for (qq, a1, b1, c1, d1) in reps:
-    uu, _ = mred(a1 * b1 - c1 * d1, qq, 32)
-    check(uu >= qq and max(abs(a1), abs(b1), abs(c1), abs(d1)) <= qq - 1, f"C10.3 counterexample at q = {qq}")
-check(mred((1 << 31) * 1073774593, 1073774593, 32)[0] == 1073774593, "C10.3 x = 2^31 q returns +q (a true zero)")
-print(f"C10.3 sredc: no failure for odd q = 2^30 + delta, delta <= 23171 (bound), none for delta in [23173, 23277] (search), "
-      f"first at delta = 23279: a,b,c,d = {a}, {b}, {c}, {dd}, sredc = q + {u - q}; first prime delta = 23293 (= 1 mod 4), "
-      f"first usable 23377; {len(failing)} of the {len(range(23279, 23379, 2))} odd delta in [23279, 23377] fail; 4 counterexamples replayed")
-
-# C10.4 the bound propagation (whitepaper, Lemma "Bound propagation" and Theorem "The limits of the whole filter"): small stage for every odd q <= 9001, large stage at its limit
+# C10.3 the bound propagation (whitepaper, Lemma "Bound propagation" and Theorem "The limits of the whole filter") for every odd q <= 9001
 def red_bound(X, q, R): return (X + q * (R // 2)) // R
 def load_bound(q): return red_bound(2 * ((1 << 21) - 1) * (q - 1) + (1 << 21) * (q - 1), q, 1 << 32)
-def bounds_ok(q, small):
-    R = 1 << 16 if small else 1 << 32
+def bounds_ok(q):
+    R = 1 << 16
     def red(X):
         if X >= q * (R // 2): raise ValueError
         return red_bound(X, q, R)
     def mo(x, y): return red(x * y)
     def df(x, y):
-        if small and x + y > 32767: raise ValueError
+        if x + y > 32767: raise ValueError
         return x + y
-    def pr(x1, y1, x2, y2): return df(mo(x1, y1), mo(x2, y2)) if small else red(x1 * y1 + x2 * y2)
+    def pr(x1, y1, x2, y2): return df(mo(x1, y1), mo(x2, y2))
     try:
         L = load_bound(q)
         A = [L] * 10 + [1]; B = [mo(A[k], k) for k in range(1, 11)] + [0]
@@ -783,16 +722,11 @@ def bounds_ok(q, small):
     except ValueError:
         return False
     return True
-fails = [q for q in range(3, 9002, 2) if not bounds_ok(q, True)]
-check(fails[0] == 8387 and fails == list(range(8387, 9002, 2)), "C10.4 small stage: passes exactly for odd q <= 8385 (up to 9001)")
-check(bounds_ok(1097010265, False) and not bounds_ok(1097010267, False), "C10.4 large stage: limit 1097010265")
-samp = [RNG10.randrange(3, 1097010265) | 1 for _ in range(300 if not QUICK else 30)]
-check(all(bounds_ok(qq, False) for qq in samp), "C10.4 large stage: random odd q below the limit pass")
-print(f"C10.4 bound propagation: small stage passes for every odd q <= 8385 and fails for every odd q in [8387, 9001]; "
-      f"large stage passes at 1097010265 and {len(samp)} random odd q below, fails at 1097010267")
+fails = [q for q in range(3, 9002, 2) if not bounds_ok(q)]
+check(fails[0] == 8387 and fails == list(range(8387, 9002, 2)), "C10.3 passes exactly for odd q <= 8385 (up to 9001)")
+print(f"C10.3 bound propagation: passes for every odd q <= 8385 and fails for every odd q in [8387, 9001]")
 
-# C10.5 overflow limits: a difference of two mont results (inputs |a|,|b| <= 2q-1) leaves 16 bits from q = 12801; sredc's x - m q
-# can leave 64 bits only if 2(q-1)^2 + 2^31 q >= 2^63
+# C10.4 overflow limit: a difference of two mont results (inputs |a|,|b| <= 2q-1) leaves 16 bits from q = 12801
 def mont_extremes(q):
     B = 2 * q - 1; best = bestn = 0; R = 1 << 16
     for a in range(B, 0, -1):
@@ -802,14 +736,12 @@ def mont_extremes(q):
             best = max(best, mont16(a, b, q)); bestn = max(bestn, -mont16(a, -b, q))
     return best, bestn
 e1, e2 = mont_extremes(12799), mont_extremes(12801)
-check(sum(e1) < 32768 <= sum(e2), "C10.5 i2 overflow of a difference of two mont results first possible at q = 12801")
-lo = max(qq for qq in range(1676704560, 1676704570) if 2 * (qq - 1) ** 2 + (1 << 31) * qq < 1 << 63)
-check(lo == 1676704566, "C10.5 sredc: no 64-bit overflow for q <= 1676704566")
-print(f"C10.5 max - min of mont over |a|,|b| <= 2q-1: {sum(e1)} at q = 12799, {sum(e2)} at q = 12801 (16-bit overflow of a "
-      f"difference from 32768); sredc stays within 64 bits for q <= {lo}")
+check(sum(e1) < 32768 <= sum(e2), "C10.4 i2 overflow of a difference of two mont results first possible at q = 12801")
+print(f"C10.4 max - min of mont over |a|,|b| <= 2q-1: {sum(e1)} at q = 12799, {sum(e2)} at q = 12801 (16-bit overflow of a "
+      f"difference from 32768)")
 
-# ---------- C11: the limits in the source are the proved ones.  pdf_init's guard (QMIN, QS_MAX, QL_MAX in src/pdfilter.f90) must
-# be the limits C10.4 derives, its prime searches (QS_START/QS_STOP, QL_START/QL_STOP) must lie inside the guard, and the GPU
+# ---------- C11: the limits in the source are the proved ones.  pdf_init's guard (QMIN, QMAX in src/pdfilter.f90) must be the
+# limits C10.3 derives, its prime search (QSTART, QSTOP) must lie inside the guard, and the GPU
 # table's range (buildPrimeTable in src/nf_gpu_common.cpp) inside the 11 <= q < 8192 of the kernel's proof.  A changed constant
 # fails here until the proof is redone.
 import os, re
@@ -817,26 +749,22 @@ print("\n===== C11: the limits in the source =====")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def src_text(rel): return open(os.path.join(ROOT, rel), encoding="utf-8", errors="replace").read()
 F90 = src_text("src/pdfilter.f90")
-def f90_const(name):   # the value of an integer parameter, e.g. "QS_START = 2_i8**13 - 1"
+def f90_const(name):   # the value of an integer parameter, e.g. "QSTART = 2_i8**13 - 1"
     m = re.search(r"parameter\s*::.*?\b" + name + r"\s*=\s*([0-9_i8*+\- ]+?)\s*(?:,|!|$)", F90, re.M)
     check(m is not None, f"C11 parameter {name} not found in src/pdfilter.f90")
     expr = m.group(1).replace("_i8", "") if m else "0"
     return eval(expr, {"__builtins__": {}}) if re.fullmatch(r"[0-9*+\- ]+", expr) else 0
-K = {n: f90_const(n) for n in ("QMIN", "QS_MAX", "QL_MAX", "QS_START", "QS_STOP", "QL_START", "QL_STOP", "MAXS", "MAXQ")}
-small_limit = fails[0] - 2                      # C10.4: every odd q up to here passes, the next fails
-check(K["QS_MAX"] == small_limit, f"C11 QS_MAX = {K['QS_MAX']} is not the proved small limit {small_limit}")
-check(bounds_ok(K["QL_MAX"], False) and not bounds_ok(K["QL_MAX"] + 2, False),
-      f"C11 QL_MAX = {K['QL_MAX']} is not the proved large limit (the bound propagation must pass there and fail 2 above)")
+K = {n: f90_const(n) for n in ("QMIN", "QMAX", "QSTART", "QSTOP", "MAXS")}
+limit = fails[0] - 2                            # C10.3: every odd q up to here passes, the next fails
+check(K["QMAX"] == limit, f"C11 QMAX = {K['QMAX']} is not the proved limit {limit}")
 check(K["QMIN"] >= 11, f"C11 QMIN = {K['QMIN']}: the proofs need q >= 11 (q does not divide 10, the constants 1..10 lie below 2q)")
-check(K["QMIN"] <= K["QS_STOP"] < K["QS_START"] <= K["QS_MAX"], f"C11 the small-prime search ({K['QS_STOP']}, {K['QS_START']}] leaves the guard")
-check(K["QMIN"] <= K["QL_STOP"] < K["QL_START"] <= K["QL_MAX"], f"C11 the large-prime search ({K['QL_STOP']}, {K['QL_START']}] leaves the guard")
+check(K["QMIN"] <= K["QSTOP"] < K["QSTART"] <= K["QMAX"], f"C11 the prime search ({K['QSTOP']}, {K['QSTART']}] leaves the guard")
 gm = re.search(r"for \(long long q = (\d+); q < (\d+)", src_text("src/nf_gpu_common.cpp"))
 check(gm is not None, "C11 the prime loop of buildPrimeTable was not found in src/nf_gpu_common.cpp")
 glo, ghi = (int(gm.group(1)), int(gm.group(2))) if gm else (0, 0)
 check(glo >= 11 and ghi <= 8192, f"C11 the GPU table's range [{glo}, {ghi}) leaves 11 <= q < 8192 (Lemma redc, Theorem E)")
-print(f"C11 guard QMIN = {K['QMIN']}, QS_MAX = {K['QS_MAX']}, QL_MAX = {K['QL_MAX']} (the proved limits); searches "
-      f"({K['QS_STOP']}, {K['QS_START']}] for {K['MAXS']} small and ({K['QL_STOP']}, {K['QL_START']}] for {K['MAXQ']} large primes; "
-      f"GPU table [{glo}, {ghi})")
+print(f"C11 guard QMIN = {K['QMIN']}, QMAX = {K['QMAX']} (the proved limits); search ({K['QSTOP']}, {K['QSTART']}] "
+      f"for {K['MAXS']} primes; GPU table [{glo}, {ghi})")
 
 # ---------- C12: every citation of docs/whitepaper.tex in the comments and documents of the repository names something that
 # exists there: a section or appendix by its number and the quoted title of it or of a subsection or paragraph in it, a section

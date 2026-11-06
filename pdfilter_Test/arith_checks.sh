@@ -1,7 +1,7 @@
 # Checks the compiled integer arithmetic of the pre-filter (mont, sredc, ldres, inv32, signedmod of ../src/pdfilter.f90) against
 # exact models, and the prime-size limits of docs/whitepaper.tex, Section 4.4 "The size limits, and the guard".  Linux, or
 # Windows with MSYS2 / MinGW-w64.
-#   bash arith_checks.sh            all checks (about 10 minutes on 16 logical CPUs; bounds-large alone is about 5 CPU minutes)
+#   bash arith_checks.sh            all checks (about 8 minutes with JOBS=12 of 16 logical CPUs)
 #   QUICK=1 bash arith_checks.sh    a reduced set (about a minute)
 # Environment: FC (default gfortran), OUT (default arith_build), JOBS (default: the number of CPUs).
 # The function texts are not retyped: they are cut out of ../src/pdfilter.f90 (two independent ways, which must agree) into
@@ -55,7 +55,7 @@ if [ -n "$QUICK" ]; then
     echo "$v inv32" >> "$JOBLIST"
   done
   echo "avx2 mont-scan 8193 9001" >> "$JOBLIST"
-  echo "avx2 bounds-small 3 9001" >> "$JOBLIST"
+  echo "avx2 bounds 3 9001" >> "$JOBLIST"
 else
   # all primes below 2^13 (16 ranges of about equal work, q^2 each) and all odd q in [8193, 8300], every pair
   B=$(awk 'BEGIN { for (k = 1; k <= 16; k++) printf "%d ", 8192 * (k / 16) ^ (1 / 3) }')
@@ -74,8 +74,7 @@ else
   echo "O0 sredc" >> "$JOBLIST"
   echo "O0 ldres" >> "$JOBLIST"
   echo "O0 inv32" >> "$JOBLIST"
-  echo "avx2 bounds-small 3 32767" >> "$JOBLIST"
-  lo=3; for k in $(seq 1 16); do hi=$(( (1100000001 * k / 16) | 1 )); echo "avx2 bounds-large $lo $hi" >> "$JOBLIST"; lo=$((hi + 2)); done
+  echo "avx2 bounds 3 32767" >> "$JOBLIST"
 fi
 run_job() {   # variant part args...
   local v=$1; shift

@@ -3,9 +3,9 @@
 #   FFLAGS_EXTRA  extra gfortran flags for the filter, for experiments, e.g.  FFLAGS_EXTRA=-mfpmath=387 bash build-linux.sh
 #                 (x87 arithmetic, as in a 32-bit x86 build; the test should then report failures)
 #   OUT           directory for the object files and the program (default: build)
-#   FILTER        a directory whose pdfilter.f90 (with the chain_general.inc next to it) is built instead of ../src/pdfilter.f90,
+#   FILTER        a directory whose pdfilter.f90 (an older one with its chain_general.inc next to it) is built instead of ../src/pdfilter.f90,
 #                 e.g. the filter of another commit:  git archive main src | tar -x -C /tmp/main && FILTER=/tmp/main/src bash build-linux.sh
-#   REF           a directory with a second pdfilter.f90 (and its chain_general.inc), linked as pdf_init_ref / pdf_filter_ref for
+#   REF           a directory with a second pdfilter.f90 (older ones with their chain_general.inc), linked as pdf_init_ref / pdf_filter_ref for
 #                 the differential check of test_pdfilter_oracle.cpp (other tests ignore it)
 #   EXTRA_CXX     further C++ sources compiled and linked with the test, LIBS_EXTRA further libraries; test_poldisc.cpp needs upstream's
 #                 polDiscTest_cpu.cpp and GMP:  EXTRA_CXX=<GetDecicsSrc>/polDiscTest_cpu.cpp LIBS_EXTRA=-lgmp TEST=test_poldisc.cpp bash build-linux.sh
@@ -16,8 +16,7 @@ cd "$(dirname "$0")"
 OUT=${OUT:-build}
 mkdir -p "$OUT"
 
-# Build the fortran pdfilter from ../src (the tests never compile a copy).  chain_general.inc is found next to it, or through -I../src
-# for a FILTER without one.  PDF_STAGES_NAME compiles the test hook that test_pdfilter_oracle.cpp reads (the
+# Build the fortran pdfilter from ../src (the tests never compile a copy).  PDF_STAGES_NAME compiles the test hook that test_pdfilter_oracle.cpp reads (the
 # application's build does not define it; a filter without the hook is tested on its verdicts only).
 SRC=${FILTER:-../src}/pdfilter.f90      # the shipped source: src/ is the only copy of the filter
 $FC -O3 -march=x86-64 -mavx2 -mno-popcnt $FFLAGS_EXTRA -I../src -cpp -J "$OUT" -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" "-DPDF_STAGES_NAME='pdf_stages_v3'" -c "$SRC" -o "$OUT/pdfilter_v3.o" || exit 1

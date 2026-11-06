@@ -13,10 +13,11 @@
 * Passiflora was written by **Alperen Yavuz**: the files in `src/` and `bench/`, the
   build scripts in `build/`, the GPU version and the release packages.
 * **Matthew** made the pre-filter exact and verified it:
-  * the integer-only pre-filter (`src/pdfilter.f90`, `src/chain_general.inc`), which
-    replaced the floating-point one: Montgomery arithmetic, a guard that keeps its
-    primes inside the proved size limits, a start-up check of the compiled
-    arithmetic, vectorised loads and the split into 24 small and 6 large primes;
+  * the integer-only pre-filter (`src/pdfilter.f90`), which replaced the
+    floating-point one: Montgomery arithmetic, a guard that keeps its primes inside
+    the proved size limit, a start-up check of the compiled arithmetic, vectorised
+    loads, and 30 primes below 2^13 in 16-bit lanes (the floating-point filter's
+    second tier of large primes dropped);
   * the integer filter of the GPU kernel (`src/nf_kernel.h`, `src/nf_gpu_common.cpp`,
     `src/nf_port_cpu.h` and the back ends): a table-format number checked at start-up,
     the wider prime table, a start-up self-test on the device and the survivor

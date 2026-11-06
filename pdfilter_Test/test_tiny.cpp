@@ -1,10 +1,9 @@
 // test_tiny.cpp -- the compiled filter against an exact oracle on complete sets of polynomials at a tiny prime
 // (docs/whitepaper.tex, Section 8, "The compiled filter on complete sets at tiny primes").  tiny_checks.sh builds src/pdfilter.f90 with one tiny
-// prime in its tables (the search constants QS_START ... changed by sed; nothing else) and runs this program in parallel.
+// prime in its table (the search constants QSTART, QSTOP changed by sed; nothing else) and runs this program in parallel.
 //
-// Usage: test_tiny Q KIND MODE START COUNT
+// Usage: test_tiny Q MODE START COUNT
 //   Q      the prime of the filter build (13, 17, 29, 37, 41: = 1 mod 4 and not dividing n = 10); it is checked against the hook
-//   KIND   small | large: the stage the build has (chain_block_s/chain_general_s with mont, or chain_block/chain_general with sredc)
 //   MODE   depressed  the monic polynomials with a9 = 0, numbered START .. START+COUNT-1 (base-Q digits = a0 .. a8); every monic
 //                     polynomial is a shift f(x+t) of exactly one of them, since Q does not divide 10
 //          zerosK     the same with a9 = ... = a(10-K) = 0 (K = 2..9): the first pivot is 0, every chain is abnormal at step 1
@@ -77,11 +76,10 @@ static uint64_t rnd() { rs += 0x9E3779B97F4A7C15ull; uint64_t z = rs; z = (z ^ (
 
 int main(int argc, char **argv)
 {
-  if (argc < 6) { fprintf(stderr, "usage: test_tiny Q small|large depressed|zerosK|shifts START COUNT\n"); return 2; }
+  if (argc < 5) { fprintf(stderr, "usage: test_tiny Q depressed|zerosK|shifts START COUNT\n"); return 2; }
   Q = atoi(argv[1]);
-  bool large = !strcmp(argv[2], "large");
-  const char *mode = argv[3];
-  i64 start = atoll(argv[4]), count = atoll(argv[5]);
+  const char *mode = argv[2];
+  i64 start = atoll(argv[3]), count = atoll(argv[4]);
   int zeros = 1;                                   // a9 = 0 always; zerosK: a9 .. a(10-K) = 0
   bool shifts = !strcmp(mode, "shifts");
   if (!strncmp(mode, "zeros", 5)) zeros = atoi(mode + 5);
@@ -158,14 +156,13 @@ int main(int argc, char **argv)
   }
   // machine-readable lines (tiny_checks.sh sums them over the chunks)
   bool bad = false;
-  const char *kind = large ? "large" : "small";
-  printf("ORACLE %d %s %s %lld %lld %lld %lld\n", Q, kind, mode, (long long)total, (long long)minus, (long long)abnormal, (long long)zero);
+  printf("ORACLE %d %s %lld %lld %lld %lld\n", Q, mode, (long long)total, (long long)minus, (long long)abnormal, (long long)zero);
   for (Variant &v : V) {
-    printf("RUN %d %s %s %s %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld\n", Q, kind, mode, v.name[0] == 'A' ? (v.general ? "AVX2-general" : "AVX2-normal") :
+    printf("RUN %d %s %s %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld\n", Q, mode, v.name[0] == 'A' ? (v.general ? "AVX2-general" : "AVX2-normal") :
            (v.general ? "base-general" : "base-normal"), (long long)v.polys, (long long)v.rejected, (long long)v.falserej, (long long)v.missed,
            (long long)v.wrongstage, (long long)v.cnt[1], (long long)v.cnt[2], (long long)v.cnt[3], (long long)v.cnt[5], (long long)v.cnt[6]);
     if (v.falserej || v.missed || v.wrongstage || v.rejected != minus) bad = true;
   }
-  for (unsigned k : keys) printf("SEQ %d %s %s %x\n", Q, kind, mode, k);
+  for (unsigned k : keys) printf("SEQ %d %s %x\n", Q, mode, k);
   return bad ? 1 : 0;
 }

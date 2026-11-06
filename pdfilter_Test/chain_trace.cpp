@@ -1,7 +1,7 @@
 // chain_trace.cpp -- the two Euclidean chains of the pre-filter, for any degree n and prime q, with a printed trace.
 //
-//   chain_block    follows subroutine chain_block of src/pdfilter.f90 (lines 266-319), for one polynomial
-//   chain_general  follows src/chain_general.inc, for one polynomial
+//   chain_block    follows subroutine chain_block of src/pdfilter.f90, for one polynomial
+//   chain_general  follows subroutine chain_general of src/pdfilter.f90, for one polynomial
 //
 // It is for reading, not for speed.  Numbers are reduced to the range -(q-1)/2 ... (q-1)/2, as red() does.
 //

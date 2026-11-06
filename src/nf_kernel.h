@@ -55,7 +55,7 @@ NF_INLINE nfuint coef_mod(i64 x, int q, int c1, int c2, int c3, int w64)
   return (nfuint)r;
 }
 
-// chi(Disc A) = -1 mod q proven?  Same algorithm as chain_general.inc for one lane.  Every product of two residues and every
+// chi(Disc A) = -1 mod q proven?  Same algorithm as chain_general of pdfilter.f90 for one lane.  Every product of two residues and every
 // lv*U(i) + (2q - lu)*V(i) is below 8q^2 and is reduced by redc, so each polynomial is its exact counterpart times a power of
 // R^-1, a square; Euler's criterion runs in the Montgomery domain from one = R mod q, and -1 is negr = -R mod q or negr + q.
 NF_INLINE int chi_reject(const nfuint *a, nfuint q, nfuint qneg, nfuint one, nfuint negr, int e)

@@ -1,6 +1,6 @@
 // test_pdfilter_oracle.cpp -- tests the pre-filter (pdfilter.f90) against an exact oracle.
 //
-// WHAT IS CHECKED.  For every polynomial f and every prime q of the filter (24 small, 6 large, in the order of the filter's
+// WHAT IS CHECKED.  For every polynomial f and every prime q of the filter (30, below 2^13, in the order of the filter's
 // stages) an independent oracle computes Disc(f) mod q -- the classical Euclidean algorithm over F_q with inverses, which
 // shares nothing with the filter's pseudo-remainder chains, its Montgomery arithmetic or its coefficient loading -- and the
 // Legendre symbol.  The filter must reject f exactly when some symbol is -1, and (with the test hook, below) at the first
@@ -26,7 +26,8 @@
 //   crtdeg   the same with a degenerate (non-generic) Euclid chain planted at one of these primes
 //   crtdegL  a degenerate chain planted at one of the first large primes (CRT over that prime and as many small ones as
 //            fit, at most 3, then sampled until the polynomial reaches that stage; only the large stages that sampling
-//            reaches in about 2^12 tries are planted, so with the filter's 24 small primes none: the stratum is off)
+//            reaches in about 2^12 tries are planted): for filters with large primes (-oldrule); the filter described
+//            here has none, so the stratum is off
 //   rep      a repeated factor over Z (Disc = 0: kept everywhere)
 //   real     the application's passing polynomials (-real FILE) and transformed copies
 //   cand     the application's candidates as the filter received them (-cand FILE; capshim.c captures them)
@@ -170,13 +171,14 @@ static bool usablePrime(u64 q)       // q = 1 mod 4 prime and every p in S a non
   for (size_t k = 0; k < Sset.size(); k++) { if (q % (u64)Sset[k] == 0 || powm((u64)Sset[k], (q - 1) / 2, q) != 1) return false; }
   return true;
 }
-// pdf_init's rule: 24 below 2^13 (and above 256) from the top, 6 below 2^25 (above 2^24).  oldRule: the rule of the filters
-// before 2026-10-29, among them the floating-point filter of 327b04f: 6 below 2^10, 24 below 2^25.
+// pdf_init's rule: 30 below 2^13 (and above 256) from the top.  oldRule: the rule of the filters before 2026-10-29, among
+// them the floating-point filter of 327b04f: 6 below 2^10, then 24 "large" ones below 2^25 (above 2^24).  (In between, until
+// 2026-11-06, the integer filter took 24 below 2^13 and 6 below 2^25.)
 static bool oldRule = false;
 static std::vector<u64> specPrimes()
 {
   std::vector<u64> pr;
-  int ns = 0, nq = 0, maxs = oldRule ? 6 : 24, maxq = oldRule ? 24 : 6;
+  int ns = 0, nq = 0, maxs = oldRule ? 6 : 30, maxq = oldRule ? 24 : 0;
   for (u64 q = oldRule ? 1023 : 8191; ns < maxs && q > 256; q -= 2) if (usablePrime(q)) { pr.push_back(q); ns++; }
   for (u64 q = (1ull << 25) - 1; nq < maxq && q > (1ull << 24); q -= 2) if (usablePrime(q)) { pr.push_back(q); nq++; }
   return pr;
@@ -691,7 +693,7 @@ static bool makeRep(Poly &p)         // (x - a)^2 h or (x^2 + u x + w)^2 h over 
   scrambleOrKeep(p, 0.7);
   return true;
 }
-// The CRT strata use as many primes as keep the modulus below 2^62 (four of the 24 small filter primes, each below 2^13),
+// The CRT strata use as many primes as keep the modulus below 2^62 (four of the 30 filter primes, each below 2^13),
 // so that every residue class has representatives in int64.
 static const i128 CRTMAX = (i128)1 << 62;
 static bool makeCrt(Poly &p, bool degen)
@@ -967,9 +969,10 @@ static int run(int argc, char **argv)
   if (haveRef) printf(" + reference filter");
   printf("%s\n", hostile ? "  [filters run under a non-default rounding mode]" : "");
   printf("strata:"); for (int s = 0; s < S_N; s++) if (wt[s] > 0) printf(" %s=%g", stName[s], wt[s]); printf("\n");
-  printf("filter primes (%s): %d small %llu..%llu, %d large %llu..%llu%s%s\n", hookPr.empty() ? "pdf_init's rule; no test hook" : "reported by the filter",
-         NS, NS ? FPr[0] : 0ull, NS ? FPr[NS - 1] : 0ull, NST - NS, NST > NS ? FPr[NS] : 0ull, NST > NS ? FPr[NST - 1] : 0ull,
-         asSpec ? ", as pdf_init's rule gives" : ", NOT the primes of pdf_init's rule", primesUnusable ? ", SOME NOT USABLE" : "");
+  printf("filter primes (%s): %d small %llu..%llu", hookPr.empty() ? "pdf_init's rule; no test hook" : "reported by the filter",
+         NS, NS ? FPr[0] : 0ull, NS ? FPr[NS - 1] : 0ull);
+  if (NST > NS) printf(", %d large %llu..%llu", NST - NS, FPr[NS], FPr[NST - 1]);
+  printf("%s%s\n", asSpec ? ", as pdf_init's rule gives" : ", NOT the primes of pdf_init's rule", primesUnusable ? ", SOME NOT USABLE" : "");
   if (primesDiffer) printf("THE BUILDS REPORT DIFFERENT PRIMES\n");
   if (!realSeeds.empty()) printf("real polynomials: %zu\n", realSeeds.size());
   if (!cands.empty()) printf("candidates: %zu\n", cands.size());

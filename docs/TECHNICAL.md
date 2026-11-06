@@ -6,7 +6,7 @@
 (numbers grow to ~1000 bits), divides out the primes in the work unit's set S, and
 asks whether the rest is a perfect square. Only about one polynomial in 10^7 passes.
 
-## 1. An exact modular pre-filter (`src/pdfilter.f90`, `src/chain_general.inc`)
+## 1. An exact modular pre-filter (`src/pdfilter.f90`)
 
 The value upstream tests differs from Disc(A) only by rational square factors
 (the content of B contributes c^10, the last sub-resultant step (B0/h)^(2k)), so the
@@ -30,19 +30,17 @@ Disc(A) mod q comes from a Euclid chain over F_q:
 * **Fast path** — generic degree sequence (each remainder one degree lower), two
   pseudo-remainder rounds per step. Every leading-coefficient power that appears has
   an even exponent, so χ(Disc A) = χ(final constant) and no modular inverses are needed.
-* **General path** (`chain_general.inc`) — for lanes where a leading coefficient
+* **General path** (`chain_general`) — for lanes where a leading coefficient
   vanishes (some families do this structurally, e.g. x^10 + b3·x^7 + …). Polynomials
   are stored left-aligned so one elementary step has the same formula in every SIMD
   lane; the odd powers of lc(V) from Res(V,U′) = lc(V)^(deg U′ − deg U + deg V)·Res(V,U)
   are tracked explicitly.
 
 All arithmetic is integer arithmetic: signed Montgomery multiplication with R = 2^16 in
-16-bit lanes for the 24 small primes (2^8 < q < 2^13) and R = 2^32 with 64-bit products
-for the six large ones (2^24 < q < 2^25), and a three-piece loading of the 64-bit
-coefficients. The filter does no floating-point operation, so its result does not depend
+16-bit lanes for the 30 primes (2^8 < q < 2^13), and a three-piece loading of the 64-bit
+coefficients (one reduction with R = 2^32 and 64-bit products). The filter does no floating-point operation, so its result does not depend
 on the rounding mode, on x87 or SSE code, or on `-ffast-math`. `pdf_init` chooses a prime
-only inside the proved limits of the arithmetic (q ≤ 8385 small, q ≤ 1,097,010,265 large,
-q ≥ 11; any other usable prime is skipped with a line on stderr), and at the end checks the
+only inside the proved limits of the arithmetic (11 ≤ q ≤ 8385; any other usable prime is skipped with a line on stderr), and at the end checks the
 compiled arithmetic on known inputs; if that check fails it uses no prime, so every flag is
 1 and the exact test alone decides. The proofs (exactness, ranges, limits, the start-up
 check, the masked loop of the general path) are in `docs/whitepaper.tex`.
@@ -91,11 +89,11 @@ Passiflora's CPU code walks only the outer loops and queues a *node* per fixed
 (a1…a3) state — 18 doubles and 35 integers. The OpenCL kernel runs one work item per
 (node, m2): the complete m1 loop, the bb4…bb9 bound tests in the original order, and an
 integer version of the filter above (unsigned 32-bit Montgomery arithmetic with R = 2^16,
-residues kept in [0, 2q)) with up to 24 small primes (14 for S = {2, 5}); it is exact like the CPU filter
+residues kept in [0, 2q)) at the 24 smallest usable primes in (256, 8192); it is exact like the CPU filter
 (`docs/whitepaper.tex`, Theorem E). It counts every
 polynomial of the original enumeration (the application reports that number) and returns
 only the ~1 in 10^5 that survive the filter. The CPU then finishes those exactly as
-before: the Fortran filter with large primes, the GMP test, PARI's irreducibility test and
+before: the Fortran filter with its own 30 primes, the GMP test, PARI's irreducibility test and
 the field discriminant.
 
 Bit-for-bit agreement with the CPU code relies on:
