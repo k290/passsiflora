@@ -5,7 +5,8 @@
 # Needs: Xcode command line tools, Homebrew gcc (gfortran) and gmp, BOINC's application libraries
 # (libboinc.a, libboinc_api.a + headers; built from source, see docs/BUILDING.md), PARI 2.8-1711 built in $W/pari
 # (./Configure --static --with-gmp=<Homebrew prefix> --without-readline; make lib-sta) and the source tree in $W/src
-# (output of prepare-src.sh).  Floating-point contraction is off so the enumeration rounds like the x86 build.
+# (output of prepare-src.sh).  Build BOINC and PARI with MACOSX_DEPLOYMENT_TARGET=11.0, the program's minimum macOS.
+# Floating-point contraction is off so the enumeration rounds like the x86 build.
 set -e
 ARCH=$(uname -m)
 if [ "$ARCH" = arm64 ]; then HB=/opt/homebrew; else HB=/usr/local; fi   # Homebrew's prefix on each architecture

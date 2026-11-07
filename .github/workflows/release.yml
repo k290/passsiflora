@@ -198,6 +198,8 @@ jobs:
           - { arch: arm64, runner: macos-15 }          # Apple silicon
           - { arch: x86_64, runner: macos-15-intel }   # Intel
     runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'   # PARI and BOINC are compiled for macOS 11, the program's minimum (not the runner's macOS)
     steps:
       - uses: actions/checkout@v4
       - name: Tools
