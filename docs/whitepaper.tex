@@ -765,8 +765,9 @@ stand-in runtime.
 \paragraph{The work units} \stnum.  The application, built from GetDecics at \code{638ca4e} with the patch by the repository's build scripts (Windows, MSYS2, with
 BOINC's own libraries), gave the \code{.truth} files of all $31$ test work units with the AVX2 build and with the baseline build.  With \code{NF\_VERIFY=1} (the exact
 test also on every polynomial, stopping at the first difference), the five smallest units ran whole in both builds without a difference.  The release workflow
-builds the CPU programs for every system and runs them on the work units before a release; for v0.4.0's filter, the same chains with $24+6$ primes, they gave every
-truth file on Linux x86-64, Windows, Linux ARM64, macOS and FreeBSD, and the two units run under emulation on RISC-V, PowerPC, IBM Z and 32-bit ARM.
+builds the CPU programs for every system and runs them on the work units before a release; for this filter they gave every truth file on Linux x86-64,
+Windows, Linux ARM64, macOS (on an Apple-silicon and on an Intel Mac, and the Intel build's baseline filter on two units) and FreeBSD, and the two units run under
+emulation on RISC-V, PowerPC, IBM Z and 32-bit ARM.
 
 \paragraph{Other sets $S$} \stnum.  The proofs hold for every $S$.  The tests were also run for $\{2,11\}$, $\{5,11\}$, $\{2,5,11\}$, $\{2,3,5\}$ and $\{3,7\}$ without a
 failure, on fewer polynomials than for $\{2,5\}$.
