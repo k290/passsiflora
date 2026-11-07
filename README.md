@@ -67,7 +67,7 @@ time goes, are in the whitepaper, Section 9 "Performance".
 
 **[Latest release](https://github.com/k290/passsiflora/releases/latest).**  Releases from v0.4.0 on contain the integer filter described
 above; v0.1.0 to v0.3.0 ([alplix/passiflora](https://github.com/alplix/passiflora/releases)) contain the earlier floating-point filter.
-The number after the prefix is the version (`040` = v0.4.0).
+The number after the prefix is the version (`051` = v0.5.1).
 
 | starts with | what it is | for |
 |---|---|---|
@@ -78,8 +78,8 @@ The number after the prefix is the version (`040` = v0.4.0).
 | `GPU-MUSA_` | the Moore Threads app (a CPU task that uses the card) | Moore Threads cards, Linux x86-64 |
 
 Systems: Windows x86-64; Linux x86-64 (CPU fully static; GPU needs glibc 2.34+); Linux aarch64; Android aarch64 (Android 10+, for a
-BOINC client that reads `app_info.xml`); FreeBSD 14+ x86-64; Linux RISC-V, armhf, ppc64le and s390x; macOS on Apple silicon (CPU only:
-Apple GPUs have no double precision).  Install steps are in `INSTALL.txt`, attached to every release and inside each package.
+BOINC client that reads `app_info.xml`); FreeBSD 14+ x86-64; Linux RISC-V, armhf, ppc64le and s390x; macOS 11+ on Intel and Apple silicon (one
+universal program, CPU only).  Install steps are in `INSTALL.txt`, attached to every release and inside each package.
 
 ## The repository
 

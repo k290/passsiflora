@@ -16,7 +16,7 @@ WHICH FILE DO I DOWNLOAD?
   ..._windows_x86-64.zip       Windows 64-bit
   ..._linux_x86-64.tar.gz      Linux 64-bit (GPU packages: glibc 2.34+, i.e. Ubuntu 22.04 or newer)
   ..._linux_aarch64.tar.gz     Linux 64-bit ARM (Raspberry Pi 4/5, Ampere, Graviton, ...; glibc 2.34+ for GPU)
-  ..._macos_arm64.tar.gz       macOS on Apple silicon (M1 and newer), CPU only (Apple GPUs have no double precision)
+  ..._macos_universal.tar.gz   macOS 11 and newer, Intel and Apple silicon (one universal program), CPU only
   ..._android_aarch64.tar.gz   Android 64-bit ARM (Android 10 and newer), CPU only; needs a BOINC client that can read app_info.xml
                                (rooted device, or the BOINC client of Termux)
   ..._freebsd_x86-64.tar.gz    FreeBSD 14 and newer, x86-64, CPU only (data folder /var/db/boinc/projects/..., service boinc-client)
@@ -51,8 +51,10 @@ INSTALL - LINUX (x86-64, aarch64, armhf, riscv64, ppc64le, s390x)
      sudo chmod +x <folder>/GetDecics_passiflora* <folder>/libnf_musa.so   (the .so only in the MUSA package)
 4. sudo systemctl start boinc-client ; boinccmd --project https://numberfields.asu.edu/NumberFields/ allowmorework
 
-INSTALL - macOS (Apple silicon)
--------------------------------
+INSTALL - macOS (Intel and Apple silicon)
+-----------------------------------------
+The package has one program for both kinds of Mac (a universal binary); macOS runs the half that
+matches the processor.
 1. BOINC Manager: Projects -> NumberFields@home -> "No new tasks". Let the tasks you have finish.
 2. Quit BOINC (BOINC Manager -> Quit, and stop the client).
 3. tar xzf the package and copy its files into

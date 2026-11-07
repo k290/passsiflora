@@ -33,7 +33,7 @@ cd boinc
   > /tmp/boinc_configure.log 2>&1 || { tail -30 /tmp/boinc_configure.log; exit 1; }
 make -j3 > /tmp/boinc_make.log 2>&1 || true
 [ -f lib/libboinc.a ] || [ -f lib/.libs/libboinc.a ] || { grep -i -m10 error /tmp/boinc_make.log; exit 1; }
-if [ -n "$PREFIX" ]; then   # PREFIX=dir: libraries in dir/lib, headers in dir/include/boinc (the BOINC of build-macos-arm64.sh)
+if [ -n "$PREFIX" ]; then   # PREFIX=dir: libraries in dir/lib, headers in dir/include/boinc (the BOINC of build-macos.sh)
   mkdir -p "$PREFIX/lib" "$PREFIX/include/boinc"
   cp api/.libs/libboinc_api.a lib/.libs/libboinc.a "$PREFIX/lib/" 2>/dev/null || cp api/libboinc_api.a lib/libboinc.a "$PREFIX/lib/"
   cp lib/*.h api/*.h version.h config.h "$PREFIX/include/boinc/"

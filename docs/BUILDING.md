@@ -87,7 +87,10 @@ static). To keep the binary usable on older distributions build in an Ubuntu 22.
 * **Linux riscv64, ppc64le, s390x, armhf:** `build/build-linux-cpu-generic.sh` in an Ubuntu 22.04 of that architecture
   (natively or emulated). Ubuntu's BOINC libraries are empty archives on riscv64 and armhf: build them first with
   `build/build-boinc-libs.sh`.
-* **macOS arm64:** `build/build-macos-arm64.sh` (Xcode tools, Homebrew gcc + gmp, BOINC's libraries, PARI built in place).
+* **macOS:** `build/build-macos.sh` (Xcode tools, Homebrew gcc + gmp, BOINC's libraries, PARI built in place), run natively
+  on an Apple-silicon or an Intel Mac; it builds for that machine's architecture (on Intel with the AVX2 and baseline filters,
+  as on Linux). The release joins the two programs into one universal program:
+  `lipo -create -output GetDecics_cpu <arm64 program> <x86_64 program>`.
   `PREFIX=<dir> build/build-boinc-libs.sh` builds BOINC's libraries (Homebrew's autoconf, automake and libtool, with
   libtool's `libexec/gnubin` on the `PATH`).
 * **FreeBSD x86-64:** `build/freebsd/build-freebsd.sh`, run inside FreeBSD 14 as root.
@@ -110,8 +113,9 @@ library for `OpenCL.dll` with `dlltool -d OpenCL.def -l libOpenCL.a`). Each scri
 
 `.github/workflows/release.yml` builds the release: pushing a tag `vX.Y.Z` runs the scripts above on GitHub's runners
 (Linux x86-64 in an Ubuntu 22.04 container, Windows with MSYS2, Linux aarch64 natively, riscv64/ppc64le/s390x/armhf in
-emulated Ubuntu 22.04 containers, macOS on Apple silicon, FreeBSD in a VM, MUSA in Moore Threads' container), runs the CPU
-programs on the work units (all 31; two small ones on the emulated systems), packages everything with
+emulated Ubuntu 22.04 containers, macOS on Apple silicon and on Intel, FreeBSD in a VM, MUSA in Moore Threads' container), runs
+the CPU programs on the work units (all 31; two small ones on the emulated systems), joins the two macOS programs into one
+universal program (each half byte for byte the one tested on its own runner), packages everything with
 `build/make-release.py` (version from the tag) and makes a **draft** release. Two things it does not do: the Android
 package (`build/android/`, which needs a gfortran for Android that is not in this repository) and testing the GPU
 programs (the runners have no graphics card). Test the draft's GPU packages on a card, then publish it.

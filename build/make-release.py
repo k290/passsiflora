@@ -8,7 +8,7 @@
 #   GPU-CUDA_        the CUDA GPU app only (NVIDIA)
 #   CPU-GPU-CUDA_    CPU + CUDA in one package
 #   GPU-MUSA_        the Moore Threads (MUSA) app, which also runs on the CPU
-# Systems: windows_x86-64, linux_x86-64, linux_aarch64, macos_arm64, android_aarch64, freebsd_x86-64, linux_riscv64, linux_ppc64le, linux_s390x, linux_armhf.
+# Systems: windows_x86-64, linux_x86-64, linux_aarch64, macos_universal, android_aarch64, freebsd_x86-64, linux_riscv64, linux_ppc64le, linux_s390x, linux_armhf.
 # Set PASSIFLORA_<WIN|LIN|A64|MAC|ANDROID|FBSD|RV64|PPC64|S390X|ARM32>_<CPU|GPU|CUDA|MUSA> to the executables (a package is skipped if one is missing);
 # PASSIFLORA_LIN_MUSA is a directory holding GetDecics_musa, libnf_musa.so and libmusart.so.4.
 # The version is the tag on the checked-out commit (v0.4.0 -> 0.4.0, packages named ..._040_...); PASSIFLORA_VERSION=0.4.0
@@ -79,8 +79,11 @@ SYSTEMS = (
     dict(key="FBSD", osname="freebsd_x86-64", platforms=["x86_64-pc-freebsd"], system="FreeBSD x86-64", windows=False,
          exe="GetDecics_passiflora_%s%s_x86_64-pc-freebsd", kinds=["CPU"],
          datadir="/var/db/boinc/projects/numberfields.asu.edu_NumberFields"),
-    dict(key="MAC", osname="macos_arm64", platforms=["arm64-apple-darwin", "x86_64-apple-darwin"], system="macOS Apple silicon",
-         windows=False, exe="GetDecics_passiflora_%s%s_arm64-apple-darwin", kinds=["CPU"],
+    # One universal program (arm64 + x86_64, joined by lipo in the release workflow) under both Mac platform names.  Intel
+    # Macs report x86_64-apple-darwin; Apple silicon reports arm64-apple-darwin, or x86_64-apple-darwin when BOINC itself is
+    # an Intel build under Rosetta.  macOS starts the half that matches the processor, so each listing is correct.
+    dict(key="MAC", osname="macos_universal", platforms=["arm64-apple-darwin", "x86_64-apple-darwin"],
+         system="macOS (Intel and Apple silicon)", windows=False, exe="GetDecics_passiflora_%s%s_universal-apple-darwin", kinds=["CPU"],
          datadir="/Library/Application Support/BOINC Data/projects/numberfields.asu.edu_NumberFields", mac=True),
 )
 

@@ -153,6 +153,9 @@ the first 5 million (0 to 10 in the test units), so it is the self-test that che
   exactly like the x86 build. Where `long double` is only a double (Apple silicon) the m1-range narrowing is
   disabled, because its error margin assumes an extended-precision `long double` (x86: 64-bit mantissa, aarch64
   Linux: 113 bits).
+* **macOS:** one universal program: the arm64 build and an x86-64 build like Linux's (AVX2 and baseline filter,
+  picked at run time), joined with `lipo`. Both BOINC platform names, `arm64-apple-darwin` and `x86_64-apple-darwin`,
+  list it: macOS starts the half that matches the processor.
 
 ## Validation
 

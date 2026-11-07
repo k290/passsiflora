@@ -190,8 +190,14 @@ jobs:
           path: out/
           retention-days: 7
 
-  macos-arm64:
-    runs-on: macos-15
+  # macOS: each architecture is built and tested natively on its own runner; macos-universal then joins the two.
+  macos:
+    strategy:
+      matrix:
+        include:
+          - { arch: arm64, runner: macos-15 }          # Apple silicon
+          - { arch: x86_64, runner: macos-15-intel }   # Intel
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Tools
@@ -203,26 +209,62 @@ jobs:
           UPSTREAM=$HOME/up OUT=$W/bs bash build/prepare-src.sh
           mv $W/bs/GetDecicsSrc $W/src
           cp -r $HOME/up/Pari/pari-2.8-1711-ge5c317c $W/pari && rm -rf $W/pari/O*   # upstream commits a prebuilt x86-64 PARI
-          cd $W/pari && ./Configure --static --with-gmp=/opt/homebrew --without-readline > $W/pari_conf.log
+          cd $W/pari && ./Configure --static --with-gmp=$(brew --prefix) --without-readline > $W/pari_conf.log
           cd O* && PERL5LIB=$W/pari/src/desc:$W/pari/src/desc/PARI make -j3 lib-sta > $W/pari_make.log
       - name: BOINC libraries
         run: |
           export PATH="$(brew --prefix libtool)/libexec/gnubin:$PATH"   # libtoolize (Homebrew names it glibtoolize)
           PREFIX=$HOME/boinc-install bash build/build-boinc-libs.sh
       - name: Build
-        run: W=$HOME/passiflora-work BOINC=$HOME/boinc-install bash build/build-macos-arm64.sh
+        run: W=$HOME/passiflora-work BOINC=$HOME/boinc-install bash build/build-macos.sh
       - name: Logs
         if: failure()
         run: tail -30 $HOME/passiflora-work/pari_conf.log $HOME/passiflora-work/pari_make.log || true
       - name: Test the CPU program on all work units
         run: |
-          bash build/test-suite-unix.sh $HOME/passiflora-work/src/GetDecics_cpu $HOME/up/Test/dataFiles 3 | tee suite.txt
+          bash build/test-suite-unix.sh $HOME/passiflora-work/src/GetDecics_cpu $HOME/up/Test/dataFiles $(sysctl -n hw.ncpu) | tee suite.txt
           grep -q 'SUMMARY: MATCH 31  DIFF 0' suite.txt
+      - name: Test the baseline filter too (Intel Macs without AVX2)
+        if: matrix.arch == 'x86_64'
+        run: |
+          sysctl -n machdep.cpu.brand_string machdep.cpu.leaf7_features   # AVX2 listed: the run above used the AVX2 filter
+          NF_FORCE_BASE=1 bash build/test-suite-unix.sh $HOME/passiflora-work/src/GetDecics_cpu $HOME/up/Test/dataFiles 2 $QUICK_WUS | tee suite.txt
+          grep -q 'SUMMARY: MATCH 2  DIFF 0' suite.txt
       - name: Collect
         run: mkdir -p out && cp $HOME/passiflora-work/src/GetDecics_cpu out/
       - uses: actions/upload-artifact@v4
         with:
-          name: bin-macos-arm64
+          name: bin-macos-${{ matrix.arch }}
+          path: out/
+          retention-days: 7
+
+  # One program for every Mac.  The package lists two BOINC platforms: arm64-apple-darwin (Apple silicon) and
+  # x86_64-apple-darwin, which Intel Macs report, and so do Apple-silicon Macs running an Intel build of BOINC under
+  # Rosetta.  A universal program is correct on all of them: macOS starts the half that matches the processor.
+  macos-universal:
+    needs: macos
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-macos-*
+          path: bins
+      - name: Join the arm64 and x86_64 programs
+        run: |
+          mkdir -p out
+          lipo -create -output out/GetDecics_cpu bins/bin-macos-arm64/GetDecics_cpu bins/bin-macos-x86_64/GetDecics_cpu
+          chmod +x out/GetDecics_cpu && lipo -archs out/GetDecics_cpu
+          # each half must be byte for byte the program that passed the tests on its own runner
+          for a in arm64 x86_64; do lipo -thin $a -output $a.half out/GetDecics_cpu && cmp $a.half bins/bin-macos-$a/GetDecics_cpu; done
+      - name: Run the universal program on two work units
+        run: |
+          bash build/fetch-upstream.sh $HOME/up
+          bash build/test-suite-unix.sh $PWD/out/GetDecics_cpu $HOME/up/Test/dataFiles 2 $QUICK_WUS | tee suite.txt
+          grep -q 'SUMMARY: MATCH 2  DIFF 0' suite.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-macos-universal
           path: out/
           retention-days: 7
 
@@ -287,7 +329,7 @@ jobs:
           retention-days: 7
 
   package:
-    needs: [linux-x86-64, windows-x86-64, linux-aarch64, linux-emulated, macos-arm64, freebsd-x86-64, musa]
+    needs: [linux-x86-64, windows-x86-64, linux-aarch64, linux-emulated, macos-universal, freebsd-x86-64, musa]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     permissions:
@@ -315,7 +357,7 @@ jobs:
                  PASSIFLORA_A64_CPU=$b/bin-linux-aarch64/GetDecics_cpu PASSIFLORA_A64_GPU=$b/bin-linux-aarch64/GetDecics_gpu \
                  PASSIFLORA_RV64_CPU=$b/bin-linux-riscv64/GetDecics_cpu PASSIFLORA_PPC64_CPU=$b/bin-linux-ppc64le/GetDecics_cpu \
                  PASSIFLORA_S390X_CPU=$b/bin-linux-s390x/GetDecics_cpu PASSIFLORA_ARM32_CPU=$b/bin-linux-armhf/GetDecics_cpu \
-                 PASSIFLORA_MAC_CPU=$b/bin-macos-arm64/GetDecics_cpu PASSIFLORA_FBSD_CPU=$b/bin-freebsd-x86-64/GetDecics_cpu
+                 PASSIFLORA_MAC_CPU=$b/bin-macos-universal/GetDecics_cpu PASSIFLORA_FBSD_CPU=$b/bin-freebsd-x86-64/GetDecics_cpu
           python3 build/make-release.py
           cp docs/INSTALL.txt dist/
           ls -l dist

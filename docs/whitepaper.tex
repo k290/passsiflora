@@ -493,7 +493,7 @@ With no prime chosen the stage loop does not run, and every flag is set to $1$. 
 \paragraph{What the check is for.}  It does not guard the run-time environment, as a check of a floating-point filter would have to: integer instructions have no
 rounding mode, so a given binary computes the same values on every processor of its architecture.  What (S2) and (S3) depend on is the compiler that built the
 binary, and that is fixed when the program is built.  The release builds use several: the MinGW-w64 cross compiler for Windows, gfortran for x86-64 and aarch64
-Linux, Homebrew's gfortran on macOS (arm64), the Android cross compiler (aarch64) and FreeBSD's gfortran, while the filter's own tests
+Linux, Homebrew's gfortran on macOS (arm64 and x86-64), the Android cross compiler (aarch64) and FreeBSD's gfortran, while the filter's own tests
 (Section~\ref{sec:evidence}) ran on x86-64 with GCC~15.2 and 16.2 only.  The release workflow runs the other builds on the upstream work units; beyond that, the
 start-up check is the one test of their compiled integer code, and for a cross-compiled build the target machine is the first place where that code can run at all.  The check costs no measurable time and fails safe: the filter switches itself off and the exact test
 decides every polynomial.  It is not a proof.  It runs the compiled loads exactly as the filter does, so a fault in the split (such as the top piece shifted
