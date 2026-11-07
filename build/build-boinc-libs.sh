@@ -2,6 +2,7 @@
 # Builds the BOINC application libraries (libboinc_api.a, libboinc.a) from source, for architectures whose
 # distribution packages ship empty archives (Ubuntu 22.04 riscv64), or for macOS.  Result: $HOME/pk/boinclibs/*.a, or with
 # PREFIX=dir the libraries in dir/lib and the headers in dir/include/boinc.
+# HOST=triple: cross-compiled with the CC, CXX, CFLAGS and CXXFLAGS of the environment (Android: build/android/).
 # MINGW=1: for Windows instead, with BOINC's lib/Makefile.mingw (MinGW-w64 cross compilers on Linux, or MSYS2 MINGW64).
 # Result: $B/lib/libboinc.a and $B/lib/libboinc_api.a, B the BOINC source (the B of build-windows-gpu.sh); AR, RANLIB as needed.
 set -e
@@ -22,14 +23,14 @@ if [ -n "$MINGW" ]; then
   echo BOINCLIBS_MINGW_OK
   exit 0
 fi
-if command -v apt-get >/dev/null; then
+if command -v apt-get >/dev/null && [ "$(id -u)" = 0 ]; then
   apt-get install -y -qq git autoconf automake libtool m4 pkg-config make g++ libssl-dev libcurl4-openssl-dev >/dev/null
 fi
 cd /tmp
 rm -rf boinc && git clone -q --depth 1 --branch client_release/7.20/7.20.7 https://github.com/BOINC/boinc.git || git clone -q --depth 1 https://github.com/BOINC/boinc.git
 cd boinc
 ./_autosetup > /tmp/boinc_autosetup.log 2>&1 || { tail -30 /tmp/boinc_autosetup.log; exit 1; }
-./configure --enable-libraries --disable-server --disable-client --disable-manager --disable-shared --enable-static --disable-fcgi \
+./configure ${HOST:+--host=$HOST} --enable-libraries --disable-server --disable-client --disable-manager --disable-shared --enable-static --disable-fcgi \
   > /tmp/boinc_configure.log 2>&1 || { tail -30 /tmp/boinc_configure.log; exit 1; }
 make -j3 > /tmp/boinc_make.log 2>&1 || true
 [ -f lib/libboinc.a ] || [ -f lib/.libs/libboinc.a ] || { grep -i -m10 error /tmp/boinc_make.log; exit 1; }

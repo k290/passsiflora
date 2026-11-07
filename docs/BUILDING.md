@@ -93,6 +93,13 @@ static). To keep the binary usable on older distributions build in an Ubuntu 22.
   `lipo -create -output GetDecics_cpu <arm64 program> <x86_64 program>`.
   `PREFIX=<dir> build/build-boinc-libs.sh` builds BOINC's libraries (Homebrew's autoconf, automake and libtool, with
   libtool's `libexec/gnubin` on the `PATH`).
+* **Android aarch64:** `build/android/`, steps 0 to 4, on x86-64 Linux with the Android NDK r27c. The NDK has no Fortran
+  compiler: `0-gfortran.sh` builds one from GNU's sources (binutils and GCC 15.2, C and Fortran, as a cross compiler for
+  `aarch64-linux-android` against the NDK's sysroot). It compiles `pdfilter.f90` and provides `libgfortran.a`; everything
+  else is built with the NDK's clang (`1-gmp.sh`, `2-pari-configure.sh`, `3-pari-make.sh`, `4-app.sh`; BOINC's libraries
+  with `HOST=aarch64-linux build/build-boinc-libs.sh`). `droidrun.sh` runs an Android program in Termux's Docker image,
+  whose `/system` holds Android's C library: natively on arm64, through qemu-user on x86-64. PARI's `Configure` runs its
+  test programs with it, and `build/test-suite-unix.sh` runs the work units with it.
 * **FreeBSD x86-64:** `build/freebsd/build-freebsd.sh`, run inside FreeBSD 14 as root.
 * **MUSA:** `build/build-musa.sh` inside the `mthreads/musa` container (Ubuntu 22.04); produces the program,
   `libnf_musa.so` and the vendor runtime.
@@ -113,12 +120,13 @@ library for `OpenCL.dll` with `dlltool -d OpenCL.def -l libOpenCL.a`). Each scri
 
 `.github/workflows/release.yml` builds the release: pushing a tag `vX.Y.Z` runs the scripts above on GitHub's runners
 (Linux x86-64 in an Ubuntu 22.04 container, Windows with MSYS2, Linux aarch64 natively, riscv64/ppc64le/s390x/armhf in
-emulated Ubuntu 22.04 containers, macOS on Apple silicon and on Intel, FreeBSD in a VM, MUSA in Moore Threads' container), runs
-the CPU programs on the work units (all 31; two small ones on the emulated systems), joins the two macOS programs into one
-universal program (each half byte for byte the one tested on its own runner), packages everything with
-`build/make-release.py` (version from the tag) and makes a **draft** release. Two things it does not do: the Android
-package (`build/android/`, which needs a gfortran for Android that is not in this repository) and testing the GPU
-programs (the runners have no graphics card). Test the draft's GPU packages on a card, then publish it.
+emulated Ubuntu 22.04 containers, macOS on Apple silicon and on Intel, Android cross-compiled on x86-64 and tested on an arm64
+runner in Termux's Docker image, FreeBSD in a VM, MUSA in Moore Threads' container), runs the CPU programs on the work units
+(all 31; two small ones on the emulated systems), joins the two macOS programs into one universal program (each half byte
+for byte the one tested on its own runner), packages everything with `build/make-release.py` (version from the tag) and
+makes a **draft** release. The gfortran for Android is kept in the runners' cache (rebuilt, about 30 minutes, when
+`0-gfortran.sh` changes). One thing it does not do: test the GPU programs (the runners have no graphics card). Test the
+draft's GPU packages on a card, then publish it.
 
 ## 5. Test
 

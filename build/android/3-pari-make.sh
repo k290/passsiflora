@@ -1,8 +1,12 @@
-cd /root/nfa/pari/Olinux-aarch64
+#!/bin/bash
+# Android step 3: builds libpari.a (env W as in step 2).
+set -e
+W=${W:-/root/nfa}
+cd "$W/pari/Olinux-aarch64"
 grep -E "sizeof_long|doubleformat|kernlvl|^CC=|gmp|GMP" pari.cfg | head
-grep -E "kernel|Kernel|gmp" /root/nfa/pari_conf.log | head -5
-export PERL5LIB=/root/nfa/pari/src/desc:/root/nfa/pari/src/desc/PARI
-make -j6 lib-sta > /root/nfa/pari_make.log 2>&1
-tail -3 /root/nfa/pari_make.log
+grep -E "kernel|Kernel|gmp" "$W/pari_conf.log" | head -5
+export PERL5LIB=$W/pari/src/desc:$W/pari/src/desc/PARI
+make -j"$(nproc)" lib-sta > "$W/pari_make.log" 2>&1 || { tail -20 "$W/pari_make.log"; exit 1; }
+tail -3 "$W/pari_make.log"
 ls -la libpari.a
 echo PARI_ANDROID_DONE

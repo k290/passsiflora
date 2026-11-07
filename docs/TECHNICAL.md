@@ -156,6 +156,9 @@ the first 5 million (0 to 10 in the test units), so it is the self-test that che
 * **macOS:** one universal program: the arm64 build and an x86-64 build like Linux's (AVX2 and baseline filter,
   picked at run time), joined with `lipo`. Both BOINC platform names, `arm64-apple-darwin` and `x86_64-apple-darwin`,
   list it: macOS starts the half that matches the processor.
+* **Android aarch64:** the same sources, built with the NDK's clang (API level 24); `pdfilter.f90` is compiled by a
+  gfortran for Android built from GNU's sources (GCC 15.2, `build/android/0-gfortran.sh`), as the NDK has none. The
+  Fortran runtime's thread-local variables need Android 10 or newer (`build/android/android_tls_pad.c`).
 
 ## Validation
 

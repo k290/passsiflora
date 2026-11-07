@@ -2,7 +2,6 @@
 # on the upstream work units against their truth files and makes a draft release with the packages, INSTALL.txt and
 # SHA256SUMS (title and notes from docs/releases/<tag>.md).  Run by hand (Actions -> Release -> Run workflow) it does the same
 # without the release: the packages, named 0.0.0, are kept as an artifact of the run.
-# Not built here: the Android package (it needs a gfortran for Android that is not in this repository).
 # Not tested here: the GPU programs (no graphics card on the runners); test the draft's packages on a card before publishing.
 name: Release
 
@@ -270,6 +269,86 @@ jobs:
           path: out/
           retention-days: 7
 
+  # Android (arm64).  The NDK has no Fortran compiler and runs only on x86-64, so the program is cross-compiled here with a
+  # gfortran for Android built from GNU's sources (build/android/0-gfortran.sh, cached) and tested in android-test.
+  android:
+    runs-on: ubuntu-24.04
+    env:
+      NDK: /home/runner/android-ndk-r27c
+      W: /home/runner/nfa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3   # PARI's Configure runs Android test programs: arm64 containers on this x86-64 runner
+        with:
+          platforms: arm64
+      - name: NDK r27c and Termux's image
+        run: |
+          sudo apt-get install -y -qq m4 > /dev/null
+          cd $HOME && wget -q https://dl.google.com/android/repository/android-ndk-r27c-linux.zip && unzip -q android-ndk-r27c-linux.zip
+          docker pull -q --platform linux/arm64 termux/termux-docker:aarch64
+      # the toolchain is saved as soon as it is built, so that a later failure does not cost another build
+      - uses: actions/cache/restore@v4
+        id: gfortran
+        with:
+          path: ~/gfortran-android
+          key: gfortran-android-${{ hashFiles('build/android/0-gfortran.sh') }}
+      - name: gfortran for Android (GNU binutils and GCC 15.2)
+        if: steps.gfortran.outputs.cache-hit != 'true'
+        run: PREFIX=$HOME/gfortran-android WORK=$HOME/gfb bash build/android/0-gfortran.sh
+      - uses: actions/cache/save@v4
+        if: steps.gfortran.outputs.cache-hit != 'true'
+        with:
+          path: ~/gfortran-android
+          key: ${{ steps.gfortran.outputs.cache-primary-key }}
+      - name: Upstream source
+        run: |
+          bash build/fetch-upstream.sh $HOME/up
+          UPSTREAM=$HOME/up OUT=$HOME/bs bash build/prepare-src.sh
+      - name: GMP and PARI
+        run: |
+          export PARISRC=$HOME/up/Pari/pari-2.8-1711-ge5c317c
+          bash build/android/1-gmp.sh && bash build/android/2-pari-configure.sh && bash build/android/3-pari-make.sh
+      - name: BOINC libraries
+        run: |
+          T=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
+          # the flags of BOINC's own Android build (android/build_libraries_arm64.sh)
+          HOST=aarch64-linux CC=$T/aarch64-linux-android24-clang CXX=$T/aarch64-linux-android24-clang++ AR=$T/llvm-ar RANLIB=$T/llvm-ranlib \
+            CFLAGS="-O3 -DANDROID -DANDROID_64 -DDECLARE_TIMEZONE" CXXFLAGS="-O3 -DANDROID -DANDROID_64" \
+            PREFIX=$HOME/boinc-android bash build/build-boinc-libs.sh
+      - name: Build
+        run: GT=$HOME/gfortran-android/bin BOINC=$HOME/boinc-android SRC=$HOME/bs/GetDecicsSrc bash build/android/4-app.sh
+      - name: Logs
+        if: failure()
+        run: tail -30 $W/*.log $HOME/gfb/*.log /tmp/boinc_*.log || true
+      - name: Collect
+        run: mkdir -p out && cp $W/src/GetDecics_cpu out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-android-aarch64
+          path: out/
+          retention-days: 7
+
+  # The Android program on all work units, natively on an arm64 runner in Termux's Docker image, whose /system holds
+  # Android's C library and linker (build/android/droidrun.sh).
+  android-test:
+    needs: android
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-android-aarch64
+          path: bin
+      - name: Upstream work units and Termux's image
+        run: |
+          bash build/fetch-upstream.sh $HOME/up
+          docker pull -q termux/termux-docker:aarch64
+      - name: Test the CPU program on all work units
+        run: |
+          chmod +x bin/GetDecics_cpu
+          NF_ANDROID_PROG=$PWD/bin/GetDecics_cpu bash build/test-suite-unix.sh $PWD/build/android/droidrun.sh $HOME/up/Test/dataFiles $(nproc) | tee suite.txt
+          grep -q 'SUMMARY: MATCH 31  DIFF 0' suite.txt
+
   freebsd-x86-64:
     runs-on: ubuntu-24.04
     timeout-minutes: 240
@@ -331,7 +410,7 @@ jobs:
           retention-days: 7
 
   package:
-    needs: [linux-x86-64, windows-x86-64, linux-aarch64, linux-emulated, macos-universal, freebsd-x86-64, musa]
+    needs: [linux-x86-64, windows-x86-64, linux-aarch64, linux-emulated, macos-universal, android-test, freebsd-x86-64, musa]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     permissions:
@@ -359,7 +438,7 @@ jobs:
                  PASSIFLORA_A64_CPU=$b/bin-linux-aarch64/GetDecics_cpu PASSIFLORA_A64_GPU=$b/bin-linux-aarch64/GetDecics_gpu \
                  PASSIFLORA_RV64_CPU=$b/bin-linux-riscv64/GetDecics_cpu PASSIFLORA_PPC64_CPU=$b/bin-linux-ppc64le/GetDecics_cpu \
                  PASSIFLORA_S390X_CPU=$b/bin-linux-s390x/GetDecics_cpu PASSIFLORA_ARM32_CPU=$b/bin-linux-armhf/GetDecics_cpu \
-                 PASSIFLORA_MAC_CPU=$b/bin-macos-universal/GetDecics_cpu PASSIFLORA_FBSD_CPU=$b/bin-freebsd-x86-64/GetDecics_cpu
+                 PASSIFLORA_MAC_CPU=$b/bin-macos-universal/GetDecics_cpu PASSIFLORA_ANDROID_CPU=$b/bin-android-aarch64/GetDecics_cpu PASSIFLORA_FBSD_CPU=$b/bin-freebsd-x86-64/GetDecics_cpu
           python3 build/make-release.py
           cp docs/INSTALL.txt dist/
           ls -l dist
