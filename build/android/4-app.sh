@@ -6,6 +6,7 @@
 # build-boinc-libs.sh with HOST and PREFIX), W (work directory of steps 1-3), SRC (prepare-src.sh's GetDecicsSrc).
 # Result: $W/src/GetDecics_cpu.
 set -e
+HERE=$(cd "$(dirname "$0")" && pwd)
 NDK=${NDK:-/root/android/android-ndk-r27c}
 GT=${GT:-/root/android/toolchain-aarch64-linux-android/bin}
 BOINC=${BOINC:-/root/android/boinc-android}
@@ -26,7 +27,7 @@ for f in TgtMartinet GetDecics; do
   $CXX -O3 -ffp-contract=off -std=c++11 -w $INC -DAPP_VERSION_CPU_STD -c -o $f.o $f.cpp
 done
 $CXX -O2 -std=c++11 -w $INC -c nf_gpu_stub.cpp
-$CC -O2 -fno-emulated-tls -c "$(cd "$(dirname "$0")" && pwd)/android_tls_pad.c" -o tlspad.o
+$CC -O2 -fno-emulated-tls -c "$HERE/android_tls_pad.c" -o tlspad.o
 GF=$($GT/aarch64-linux-android-gfortran -print-file-name=libgfortran.a)
 GC=$($GT/aarch64-linux-android-gfortran -print-libgcc-file-name)
 $CXX -O3 -static-libstdc++ -o GetDecics_cpu GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_stub.o pdfilter.o tlspad.o \
