@@ -493,7 +493,7 @@ With no prime chosen the stage loop does not run, and every flag is set to $1$. 
 \paragraph{What the check is for.}  It does not guard the run-time environment, as a check of a floating-point filter would have to: integer instructions have no
 rounding mode, so a given binary computes the same values on every processor of its architecture.  What (S2) and (S3) depend on is the compiler that built the
 binary, and that is fixed when the program is built.  The release builds use several: the MinGW-w64 cross compiler for Windows, gfortran for x86-64 and aarch64
-Linux, Homebrew's gfortran on macOS (arm64 and x86-64), the Android cross compiler (aarch64) and FreeBSD's gfortran, while the filter's own tests
+Linux, Homebrew's gfortran on macOS (arm64 and x86-64), a GCC~15.2 cross compiler for Android (aarch64, built from GNU's sources) and FreeBSD's gfortran, while the filter's own tests
 (Section~\ref{sec:evidence}) ran on x86-64 with GCC~15.2 and 16.2 only.  The release workflow runs the other builds on the upstream work units; beyond that, the
 start-up check is the one test of their compiled integer code, and for a cross-compiled build the target machine is the first place where that code can run at all.  The check costs no measurable time and fails safe: the filter switches itself off and the exact test
 decides every polynomial.  It is not a proof.  It runs the compiled loads exactly as the filter does, so a fault in the split (such as the top piece shifted
@@ -766,8 +766,8 @@ stand-in runtime.
 BOINC's own libraries), gave the \code{.truth} files of all $31$ test work units with the AVX2 build and with the baseline build.  With \code{NF\_VERIFY=1} (the exact
 test also on every polynomial, stopping at the first difference), the five smallest units ran whole in both builds without a difference.  The release workflow
 builds the CPU programs for every system and runs them on the work units before a release; for this filter they gave every truth file on Linux x86-64,
-Windows, Linux ARM64, macOS (on an Apple-silicon and on an Intel Mac, and the Intel build's baseline filter on two units) and FreeBSD, and the two units run under
-emulation on RISC-V, PowerPC, IBM Z and 32-bit ARM.
+Windows, Linux ARM64, Android (on an arm64 machine with Android's C library, in Termux's Docker image), macOS (on an Apple-silicon and on an Intel Mac, and the
+Intel build's baseline filter on two units) and FreeBSD, and the two units run under emulation on RISC-V, PowerPC, IBM Z and 32-bit ARM.
 
 \paragraph{Other sets $S$} \stnum.  The proofs hold for every $S$.  The tests were also run for $\{2,11\}$, $\{5,11\}$, $\{2,5,11\}$, $\{2,3,5\}$ and $\{3,7\}$ without a
 failure, on fewer polynomials than for $\{2,5\}$.

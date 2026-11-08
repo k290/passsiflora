@@ -124,7 +124,7 @@ emulated Ubuntu 22.04 containers, macOS on Apple silicon and on Intel, Android c
 runner in Termux's Docker image, FreeBSD in a VM, MUSA in Moore Threads' container), runs the CPU programs on the work units
 (all 31; two small ones on the emulated systems), joins the two macOS programs into one universal program (each half byte
 for byte the one tested on its own runner), packages everything with `build/make-release.py` (version from the tag) and
-makes a **draft** release. The gfortran for Android is kept in the runners' cache (rebuilt, about 30 minutes, when
+makes a **draft** release. The gfortran for Android is kept in the runners' cache (rebuilt, about 15 minutes, when
 `0-gfortran.sh` changes). One thing it does not do: test the GPU programs (the runners have no graphics card). Test the
 draft's GPU packages on a card, then publish it.
 
