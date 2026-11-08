@@ -311,9 +311,10 @@ jobs:
       - name: BOINC libraries
         run: |
           T=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
-          # the flags of BOINC's own Android build (android/build_libraries_arm64.sh)
+          # the flags of BOINC's own Android build (android/build_libraries_arm64.sh); the NDK has execinfo.h, but backtrace()
+          # only from API level 33
           HOST=aarch64-linux CC=$T/aarch64-linux-android24-clang CXX=$T/aarch64-linux-android24-clang++ AR=$T/llvm-ar RANLIB=$T/llvm-ranlib \
-            CFLAGS="-O3 -DANDROID -DANDROID_64 -DDECLARE_TIMEZONE" CXXFLAGS="-O3 -DANDROID -DANDROID_64" \
+            CFLAGS="-O3 -DANDROID -DANDROID_64 -DDECLARE_TIMEZONE" CXXFLAGS="-O3 -DANDROID -DANDROID_64" ac_cv_header_execinfo_h=no \
             PREFIX=$HOME/boinc-android bash build/build-boinc-libs.sh
       - name: Build
         run: GT=$HOME/gfortran-android/bin BOINC=$HOME/boinc-android SRC=$HOME/bs/GetDecicsSrc bash build/android/4-app.sh
