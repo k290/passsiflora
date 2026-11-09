@@ -1,0 +1,414 @@
+% SPDX-License-Identifier: GPL-2.0-or-later
+% A proposal: a cheap exact pre-test for GetDecics' field-discriminant test (PARI's discf), with its proofs.
+\documentclass[10pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs,tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{xspace}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+\newcommand{\F}{\mathbb{F}}
+\newcommand{\Fp}{\mathbb{F}_p}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Q}{\mathbb{Q}}
+\newcommand{\OK}{\mathcal{O}_K}
+\newcommand{\m}{\mathfrak{m}}
+\DeclareMathOperator{\disc}{disc}
+\DeclareMathOperator{\ind}{ind}
+\DeclareMathOperator{\Res}{Res}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\stproved}{\textsf{\small[proved]}\xspace}
+\newcommand{\stquoted}{\textsf{\small[standard result, quoted]}\xspace}
+\newcommand{\stnum}{\textsf{\small[checked numerically]}\xspace}
+
+\theoremstyle{plain}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}[proposition]{Lemma}
+\newtheorem{theorem}[proposition]{Theorem}
+\newtheorem{corollary}[proposition]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[proposition]{Definition}
+\newtheorem{remark}[proposition]{Remark}
+
+\renewcommand{\arraystretch}{1.12}
+
+\title{A cheap exact pre-test for GetDecics' field-discriminant test\\[2pt] \large Proposal, with proofs}
+\author{Passiflora}
+\date{9 November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+In a Passiflora GPU task most of the CPU time now goes to one step of the original GetDecics: PARI's \code{discf}, the field
+discriminant of every irreducible polynomial that passes the polynomial-discriminant test.  On the test work units of the sf5 and sf7
+searches thousands of polynomials reach it per unit, and all but a handful fail.  This document proposes a test that runs before
+\code{discf} and proves most of these failures with arithmetic modulo a few primes (Dedekind's criterion at primes dividing the
+polynomial discriminant).  It proves that the test rejects only polynomials that \code{discf} would reject, so the program's output and
+its counters stay exactly the same, and measures the test on the $55{,}181$ polynomials that reach \code{discf} in three test work
+units: it rejects $69$ to $83$ per cent of the failures at about $0.06$\,ms per polynomial, against $0.75$ to $0.86$\,ms for
+\code{nfdisc}, with no wrong rejection.
+\end{abstract}
+
+\noindent The status of each statement is marked as in the whitepaper: \stproved (proved here), \stquoted (a textbook result,
+with a reference), \stnum (measured; the method is stated).  Section~\ref{sec:setting} fixes the notation, Section~\ref{sec:rule}
+gives the rejection rule, Section~\ref{sec:dedekind} proves Dedekind's criterion in the direction used, Section~\ref{sec:test}
+states the pre-test and proves it exact, Sections~\ref{sec:limits} and~\ref{sec:numbers} say what it leaves to \code{discf} and
+what it saves, and Section~\ref{sec:plan} is the implementation plan.
+
+\section{The step and what it costs}\label{sec:step}
+
+After the polynomial-discriminant test (\code{polDiscTest\_cpu}, the step the whitepaper's pre-filter accelerates) GetDecics finishes
+every polynomial $f$ that passed it with upstream's code, unchanged by Passiflora (\code{TgtMartinet.cpp}; Passiflora's GPU path
+runs the same lines in \code{nfFinishPolys}):
+
+\begin{verbatim}
+  if(isirreducible(f_L)) {
+    (*irrCount)++;
+    GEN fldDisc = discf(f_L);       // upstream: "a computationally expensive task"
+    for(int k=1;k<=numPrimes;++k)   // divide out the primes of S
+      fldDisc = gdiv(fldDisc,gpowgs((GEN)Sg[k],ggval(fldDisc,(GEN)Sg[k])));
+    if(gcmp1(gabs(fldDisc,DEFAULTPREC))) { (*fdCount)++;  /* output f */ }
+  }
+\end{verbatim}
+
+\noindent So $f$ is a result exactly when it is irreducible and its field discriminant has no prime factor outside the set $S$ of the
+work unit.  Profiling Passiflora's CUDA program on a GTX~1650 (one task, Windows, the CPU idle otherwise) gave \stnum:
+
+\begin{center}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+work unit & task & GPU kernels & \code{discf} & calls & results \\
+\midrule
+\code{sf7\_DS-12x12\_Grp811471of1000000} & 26.5\,s & 13.8\,s & 10.3\,s & 12{,}895 & 6 \\
+\code{sf5\_DS-16x12\_Grp64300of1600000}  & 38.5\,s & 13.5\,s & 22.0\,s & 21{,}274 & 2 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent While the GPU computes, the CPU sleeps; of the task's CPU time, \code{discf} took $84$ and $89$ per cent.  The stock CPU program
+makes the same calls, but there they are lost in a run of over an hour.  Of the polynomials that reach \code{discf}, $99.9$ per cent
+fail.
+
+\section{Setting and notation}\label{sec:setting}
+
+Throughout, $f\in\Z[x]$ is monic and irreducible over $\Q$ of degree $n$ (in GetDecics $n=10$), $\alpha$ is a root of $f$,
+$K=\Q(\alpha)$, $\OK$ is the ring of integers of $K$, $R=\Z[\alpha]\subseteq\OK$, $d_K$ is the discriminant of $K$ and
+$\disc f=\prod_{i<j}(\alpha_i-\alpha_j)^2$ the discriminant of $f$ (the $\alpha_i$ the roots of $f$ in $\mathbb C$).  Both $R$ and
+$\OK$ are free $\Z$-modules of rank $n$, so the \emph{index} $\ind(f)=[\OK:R]$ is finite.  $S$ is a finite set of primes.  For a
+prime $p$, a bar denotes reduction modulo $p$, $v_p$ the $p$-adic valuation.
+
+\begin{definition}
+$f$ \emph{passes the field-discriminant test} for $S$ if every prime dividing $d_K$ lies in $S$.
+\end{definition}
+
+\noindent This is the test of the code above: dividing $d_K\neq0$ by $p^{v_p(d_K)}$ for every $p\in S$ leaves $\pm1$ exactly when no
+other prime divides $d_K$.
+
+\section{The rejection rule}\label{sec:rule}
+
+\begin{lemma}[the index formula]\label{lem:index}
+$\disc f=\ind(f)^2\,d_K$.  \stquoted\ \cite[Ch.~I, Prop.~2.12]{Neu}
+\end{lemma}
+
+\begin{proof}
+Let $\omega_1,\dots,\omega_n$ be a $\Z$-basis of $\OK$ and write $\alpha^{j-1}=\sum_k M_{jk}\omega_k$ with $M\in\Z^{n\times n}$.  For
+the embeddings $\sigma_1,\dots,\sigma_n$ of $K$, $(\sigma_l(\alpha^{j-1}))=M\,(\sigma_l(\omega_k))$, and the discriminant of a basis
+is the square of the determinant of this matrix, so $\disc(1,\alpha,\dots,\alpha^{n-1})=(\det M)^2d_K$.  The left side is
+$\det(\alpha_l^{j-1})^2=\prod_{i<j}(\alpha_i-\alpha_j)^2=\disc f$ (Vandermonde), and $|\det M|=[\OK:R]$ (the index of a full
+sublattice is the absolute value of the determinant of its basis in a basis of the lattice).
+\end{proof}
+
+\begin{proposition}[the rejection rule]\label{prop:rule}
+Let $p\notin S$ be a prime with $p\mid\disc f$ and $p\nmid\ind(f)$.  Then $p\mid d_K$, and $f$ fails the field-discriminant test for $S$.
+\stproved
+\end{proposition}
+
+\begin{proof}
+By Lemma~\ref{lem:index}, $v_p(d_K)=v_p(\disc f)-2v_p(\ind f)=v_p(\disc f)\geq1$, and $p\notin S$.
+\end{proof}
+
+\begin{remark}[why the whitepaper's filter cannot help here]\label{rem:parity}
+Lemma~\ref{lem:index} also gives $v_p(d_K)\equiv v_p(\disc f)\pmod 2$.  The polynomial-discriminant test asks whether
+$|\disc f|=\bigl(\prod_{p\in S}p^{a_p}\bigr)m^2$ (the whitepaper's definition of \emph{passes}, and its Proposition ``What the exact
+test computes'' for the code): whether $v_p(\disc f)$ is even for every $p\notin S$.  So it is exactly the parity condition, and the
+whitepaper's filter is a cheap test of that condition (a Legendre symbol $-1$ modulo a filter prime proves an odd
+valuation somewhere).  A polynomial that passes has $\disc f=\pm\prod_{p\in S}p^{a_p}\cdot m^2$; at every filter prime $q$ ($q\equiv1\pmod4$, every
+$p\in S$ a square modulo $q$) its Legendre symbol is therefore $0$ or $1$, and the filter can reject none of them.  What remains is whether $\ind(f)$ absorbs all of $m$: by Lemma~\ref{lem:index}
+$f$ passes the field-discriminant test if and only if $v_p(\ind f)=v_p(m)$ for every prime $p\mid m$, $p\notin S$.  That is a
+question about the ring $\Z[\alpha]$ at the primes dividing $m$, which residues of $\disc f$ do not see.
+\end{remark}
+
+\section{Dedekind's criterion}\label{sec:dedekind}
+
+Fix a prime $p$ and factor $\bar f=\prod_{i=1}^r\bar\varphi_i^{e_i}$ in $\Fp[x]$, with distinct monic irreducible $\bar\varphi_i$ and
+$e_i\geq1$.  Choose monic $\varphi_i\in\Z[x]$ reducing to $\bar\varphi_i$, and put
+\[
+G=\prod_{i=1}^r\varphi_i,\qquad H=\prod_{i=1}^r\varphi_i^{\,e_i-1},\qquad F=\frac{GH-f}{p}.
+\]
+Since $\bar G\bar H=\prod\bar\varphi_i^{e_i}=\bar f$, the polynomial $GH-f$ has coefficients divisible by $p$, so $F\in\Z[x]$.
+
+\begin{theorem}[Dedekind's criterion, the direction used]\label{thm:dedekind}
+If $\gcd(\bar F,\bar G,\bar H)=1$ in $\Fp[x]$, then $p\nmid\ind(f)$.  \stproved, from the standard facts quoted in
+Lemmas~\ref{lem:ideals} and~\ref{lem:local}.
+\end{theorem}
+
+\noindent The converse also holds \cite{Ded,Coh} (Theorem~6.1.4 there), so the criterion decides whether $p\mid\ind(f)$, and
+in particular its outcome does not depend on the choice of the lifts $\varphi_i$; only the direction above is needed for exactness,
+and its proof below works for any choice.  The proof takes three lemmas.
+
+\begin{lemma}\label{lem:ideals}
+The map $\Z[x]\to R$, $x\mapsto\alpha$, is onto with kernel $f\Z[x]$, so $R/pR\cong\Fp[x]/(\bar f)$.  The maximal ideals of $R$ that
+contain $p$ are $\m_i=pR+\varphi_i(\alpha)R$ for $i=1,\dots,r$, pairwise distinct, and for $v\in\Z[x]$:
+$v(\alpha)\in\m_i\iff\bar\varphi_i\mid\bar v$.  \stproved
+\end{lemma}
+
+\begin{proof}
+The map is onto by definition of $R$.  If $g(\alpha)=0$ for $g\in\Z[x]$, then $f\mid g$ in $\Q[x]$ because $f$ is the minimal
+polynomial of $\alpha$; division of $g$ by the monic $f$ in $\Z[x]$ has a remainder of degree $<n$ vanishing at $\alpha$, hence $0$,
+so $f\mid g$ in $\Z[x]$.  Therefore $R/pR\cong\Z[x]/(p,f)\cong\Fp[x]/(\bar f)$.  The ideals of $\Fp[x]$ containing $\bar f$ are
+$(\bar d)$ for the monic divisors $\bar d\mid\bar f$, and those that are maximal are $(\bar\varphi_i)$.  Their preimages in $R$ are
+the $\m_i$, distinct because the $\bar\varphi_i$ are, and every maximal ideal of $R$ containing $p$ contains $pR$, so it is one of
+them.  Finally $v(\alpha)\in\m_i$ if and only if $\bar v$ lies in $(\bar\varphi_i)$ modulo $\bar f$, that is
+$\bar\varphi_i\mid\bar v$, since $\bar\varphi_i\mid\bar f$.
+\end{proof}
+
+\begin{lemma}\label{lem:local}
+$p\nmid\ind(f)$ if and only if, for every $i$, the maximal ideal $\m_iR_{\m_i}$ of the local ring $R_{\m_i}$ is principal.
+\stproved, from \cite[Prop.~5.12, 5.13, Cor.~5.8, Prop.~9.2]{AM}
+\end{lemma}
+
+\begin{proof}
+Let $T=\Z\setminus p\Z$.  The group $Q=\OK/R$ is finite of order $\ind(f)$, and localization is exact, so
+$T^{-1}Q=T^{-1}\OK/T^{-1}R$; for a finite abelian group $T^{-1}Q$ is its $p$-primary part.  Hence $p\nmid\ind(f)$ if and only if
+$T^{-1}R=T^{-1}\OK$.  Since $\OK$ is the integral closure of $R$ in $K$, $T^{-1}\OK$ is the integral closure of $T^{-1}R$
+\cite[Prop.~5.12]{AM}, so $p\nmid\ind(f)$ if and only if $T^{-1}R$ is integrally closed, which holds if and only if its localization
+at each maximal ideal is integrally closed \cite[Prop.~5.13]{AM}.
+
+$R$ is a noetherian domain (a finitely generated $\Z$-module inside $K$), integral over $\Z$.  A nonzero prime $\mathfrak p$ of $R$
+contracts to a nonzero prime $q\Z$: for $0\neq x\in\mathfrak p$ the minimal polynomial $x^d+c_{d-1}x^{d-1}+\dots+c_0$ of $x$ over
+$\Q$ has integer coefficients ($x$ is integral) and $c_0\neq0$, and $c_0=-x(x^{d-1}+\dots+c_1)\in xR\subseteq\mathfrak p$.  Then
+$\mathfrak p$ is maximal \cite[Cor.~5.8]{AM}.  The prime ideals of $T^{-1}R$ correspond to the primes of $R$ disjoint
+from $T$: the zero ideal and the nonzero primes contracting to $p\Z$, which by Lemma~\ref{lem:ideals} are the $\m_i$ ($r\ge1$, so
+$T^{-1}R$ is not a field).  So the maximal ideals of $T^{-1}R$ are the $T^{-1}\m_i$, and $(T^{-1}R)_{T^{-1}\m_i}=R_{\m_i}$.  Each
+$R_{\m_i}$ is a noetherian local domain whose primes are $0$ and its maximal ideal, so of dimension one, and for such a ring being
+integrally closed is equivalent to its maximal ideal being principal \cite[Prop.~9.2]{AM}.
+\end{proof}
+
+\begin{lemma}\label{lem:gcd}
+$\gcd(\bar G,\bar H)=\prod_{e_i\geq2}\bar\varphi_i$, so $\gcd(\bar F,\bar G,\bar H)=1$ if and only if no $\bar\varphi_i$ with
+$e_i\geq2$ divides $\bar F$.  \stproved
+\end{lemma}
+
+\begin{proof}
+$\bar G$ is the product of the distinct irreducibles $\bar\varphi_i$, each to the first power, and $\bar\varphi_i\mid\bar H$ exactly
+when $e_i\geq2$.
+\end{proof}
+
+\begin{proof}[Proof of Theorem~\ref{thm:dedekind}]
+From $f(\alpha)=0$ and the definition of $F$,
+\begin{equation}\label{eq:key}
+G(\alpha)\,H(\alpha)=p\,F(\alpha).
+\end{equation}
+Fix $i$ and let $A=R_{\m_i}$.  By Lemma~\ref{lem:ideals}, $v(\alpha)$ is a unit of $A$ for every $v\in\Z[x]$ with
+$\bar\varphi_i\nmid\bar v$.  Write $G=\varphi_iG_i$ with $G_i=\prod_{j\neq i}\varphi_j$; the $\bar\varphi_j$ are distinct
+irreducibles, so $\bar\varphi_i\nmid\bar G_i$ and $G_i(\alpha)$ is a unit of $A$.  By Lemma~\ref{lem:local} it suffices to show that
+$\m_iA=pA+\varphi_i(\alpha)A$ is principal.
+
+\emph{Case $e_i=1$.}  Then $\bar\varphi_i\nmid\bar H$, so $H(\alpha)$ is a unit of $A$, and \eqref{eq:key} gives
+$\varphi_i(\alpha)=p\,F(\alpha)\big/\big(G_i(\alpha)H(\alpha)\big)\in pA$.  So $\m_iA=pA$.
+
+\emph{Case $e_i\geq2$.}  By the hypothesis and Lemma~\ref{lem:gcd}, $\bar\varphi_i\nmid\bar F$, so $F(\alpha)$ is a unit of $A$, and
+\eqref{eq:key} gives $p=\varphi_i(\alpha)\,G_i(\alpha)H(\alpha)\big/F(\alpha)\in\varphi_i(\alpha)A$.  So $\m_iA=\varphi_i(\alpha)A$.
+\end{proof}
+
+\section{Which primes to try}\label{sec:primes}
+
+\begin{lemma}\label{lem:discmodp}
+$p\mid\disc f$ if and only if $e_i\geq2$ for some $i$.  \stproved
+\end{lemma}
+
+\begin{proof}
+$\disc f=(-1)^{n(n-1)/2}\Res(f,f')$ is a polynomial with integer coefficients in the coefficients of the monic $f$, so
+$\overline{\disc f}=\disc\bar f$, the discriminant of the monic $\bar f$ of degree $n$ over $\Fp$, which vanishes exactly when $\bar f$
+has a repeated root in an algebraic closure.  Over the perfect field $\Fp$ each $\bar\varphi_i$ has simple roots and distinct
+$\bar\varphi_i$ have no common root, so a repeated root exists exactly when some $e_i\geq2$.
+\end{proof}
+
+\noindent So at a prime $p\nmid\disc f$ all $e_i=1$, the hypothesis of Theorem~\ref{thm:dedekind} holds trivially, and it says only
+what Lemma~\ref{lem:index} already says; and Proposition~\ref{prop:rule} needs $p\mid\disc f$.  The primes worth trying are the primes
+$p\notin S$ dividing $\disc f$, that is (Remark~\ref{rem:parity}) the primes of $m$.  Small ones are found by trial division.  Once
+they are divided out, what is left of $|\disc f|$ without the primes of $S$ is often a prime power $q^k$ (Section~\ref{sec:numbers}),
+and then $q$ is one more prime to try.  Theorem~\ref{thm:dedekind} needs $q$ to be prime, not merely probably prime: a primality
+\emph{proof} is required (PARI's \code{isprime} gives one; for $q<2^{64}$, which covers every case measured here, the BPSW test that it
+uses is known to be correct).
+
+\section{The pre-test and its exactness}\label{sec:test}
+
+\begin{definition}[the pre-test]
+For $f$ monic and irreducible, $S$, and a bound $B$:
+\begin{enumerate}[nosep,label=\arabic*.]
+\item Compute $D=\disc f$ exactly, and $N=|D|$ with every prime of $S$ divided out.
+\item For each prime $p<B$, $p\notin S$, in increasing order: if $p\mid N$, then if \textsc{Dedekind}$(f,p)$ holds, \emph{reject};
+  otherwise divide every factor $p$ out of $N$.
+\item If $N>1$ and $N=q^k$ with $q$ proved prime, and \textsc{Dedekind}$(f,q)$ holds, \emph{reject}.
+\item Otherwise the pre-test is \emph{undecided}, and the program computes \code{discf} as now.
+\end{enumerate}
+\textsc{Dedekind}$(f,p)$: factor $\bar f$ over $\Fp$, form $G$, $H$ and $F$ as in Section~\ref{sec:dedekind}, and test
+$\gcd(\bar F,\bar G,\bar H)=1$.
+\end{definition}
+
+\begin{theorem}[exactness]\label{thm:exact}
+If the pre-test rejects $f$, then $f$ fails the field-discriminant test for $S$.  \stproved
+\end{theorem}
+
+\begin{proof}
+A rejection happens at a prime $p$ ($p<B$ in step 2, $p=q$ in step 3) with $p\notin S$ (the primes of $S$ were divided out of $N$) and
+$p\mid N\mid D=\disc f$, at which \textsc{Dedekind}$(f,p)$ holds.  By Theorem~\ref{thm:dedekind}, $p\nmid\ind(f)$, and by
+Proposition~\ref{prop:rule}, $f$ fails.
+\end{proof}
+
+\begin{corollary}[the output is unchanged]\label{cor:output}
+Run the pre-test after \code{isirreducible} and after \code{irrCount} is incremented, and compute \code{discf} only when it is
+undecided.  Then the counters \code{pdCount}, \code{irrCount}, \code{fdCount} and the output file, polynomial by polynomial and in
+order, are those of the program without the pre-test.  \stproved
+\end{corollary}
+
+\begin{proof}
+The pre-test changes nothing before the test of $d_K$.  A polynomial it rejects fails that test by Theorem~\ref{thm:exact}, so
+without the pre-test it would neither increment \code{fdCount} nor be written; every other polynomial goes through \code{discf} and
+the same test as before.
+\end{proof}
+
+\noindent The corollary assumes that the arithmetic is exact: the discriminant and the divisions in $\Z$, the factorization over $\Fp$
+(Berlekamp's or Cantor--Zassenhaus' algorithm; the latter is randomized in its running time only, its output is always a correct
+factorization) and the primality proof.  PARI provides all of them, and the program already trusts PARI for \code{discf} itself.
+
+\section{What the pre-test leaves to \texttt{discf}}\label{sec:limits}
+
+A polynomial that passes the field-discriminant test is always left to \code{discf} (contrapositive of Theorem~\ref{thm:exact}).  A
+polynomial that fails is left to it when, at every prime $p\notin S$ dividing $d_K$, either
+\begin{enumerate}[nosep,label=(\alph*)]
+\item $p$ divides the index: by the converse of Theorem~\ref{thm:dedekind} the criterion then fails at $p$, although
+  $v_p(\ind f)<v_p(m)$; or
+\item $p\geq B$ and the part of $m$ left after trial division is not a prime power ($p$ is never tried).
+\end{enumerate}
+Two extensions would reach some of these.  For (a), the theorem of Ore \cite{Ore} and its generalization by the Montes algorithm
+\cite{GMN} compute $v_p(\ind f)$ from Newton polygons of $f$ when $f$ is $p$-regular, still with arithmetic modulo powers of $p$.  PARI's
+order maximal at a given prime (\code{nfdisc([f,[p]])}) decides (a) completely, but in the measurements below it cost more than
+\code{nfdisc} itself.  For (b), a larger bound $B$ helps (Section~\ref{sec:numbers}); factoring $m$ completely is part of what makes
+\code{discf} expensive.
+
+\section{Measurements}\label{sec:numbers}
+
+\paragraph{Method} \stnum.  An instrumented copy of Passiflora's CUDA program (not the repository's code) wrote every polynomial
+it passed to \code{discf}, on three test work units.  PARI/GP~2.17.3 then computed for each the true answer with \code{nfdisc}, ran
+the pre-test (the functions of Appendix~\ref{app:gp}) for several bounds, and checked every rejection against \code{nfdisc}: $d_K$
+must contain the prime the pre-test named.  Times are GP's on an i5-12500H; the program links PARI~2.8, whose \code{discf} took
+$0.80$ and $1.03$\,ms per polynomial on the first two units.
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+work unit (Grp) & sf7, 811471 & sf5, 64300 & sf5, 82890 \\
+\midrule
+polynomials reaching \code{discf} & 12{,}895 & 21{,}274 & 21{,}012 \\
+\quad failing the field-discriminant test & 12{,}889 & 21{,}272 & 21{,}005 \\
+\quad smallest bad prime below 1000 & 10{,}107 & 17{,}442 & 17{,}234 \\
+\quad smallest bad prime above 1000 & 2{,}782 & 3{,}830 & 3{,}771 \\
+rest of $m$ after the primes $<1000$: $1$ & 830 & 193 & 43 \\
+\quad a prime power & 6{,}998 & 2{,}130 & 965 \\
+\quad composite & 5{,}067 & 18{,}951 & 20{,}004 \\
+\midrule
+failures rejected: steps 1--2, $B=100$ & 6{,}304 (48.9\%) & 11{,}218 (52.7\%) & 11{,}116 (52.9\%) \\
+\quad steps 1--2, $B=1000$ & 8{,}383 (65.0\%) & 14{,}500 (68.2\%) & 14{,}413 (68.6\%) \\
+\quad steps 1--2, $B=10^4$ & 9{,}493 (73.7\%) & 16{,}260 (76.4\%) & 16{,}124 (76.8\%) \\
+\quad steps 1--3, $B=100$ & 7{,}556 (58.6\%) & 11{,}298 (53.1\%) & 11{,}126 (53.0\%) \\
+\quad steps 1--3, $B=1000$ & 10{,}719 (83.2\%) & 15{,}005 (70.5\%) & 14{,}530 (69.2\%) \\
+\quad wrong rejections, every variant & 0 & 0 & 0 \\
+failures left by case (a), bad prime $<1000$ & 1{,}724 & 2{,}942 & 2{,}821 \\
+\midrule
+time per polynomial: steps 1--3, $B=1000$ & 0.074\,ms & 0.057\,ms & 0.058\,ms \\
+\quad steps 1--2, $B=10^4$ & 0.103\,ms & 0.098\,ms & 0.089\,ms \\
+\quad \code{nfdisc} & 0.747\,ms & 0.861\,ms & 0.780\,ms \\
+\bottomrule
+\end{tabular}
+\end{center}
+{\sloppy\noindent The work units are \code{sf7\_DS-12x12\_Grp811471of1000000}, \code{sf5\_DS-16x12\_Grp64300of1600000} and
+\code{sf5\_DS-16x12\_Grp82890of1600000}; the shares are of the failures.\par}
+\medskip
+
+\noindent Every one of the $10{,}093$ prime powers found in step 3 had $q<2^{40}$, where \code{isprime} proves primality in a few
+microseconds.  With steps 1--3 and $B=1000$ the time for the polynomials that reach \code{discf} would drop, if the polynomials left
+over cost the average \code{nfdisc} time, from $9.6$ to $2.6$\,s on the sf7 unit ($-73$\%), from $18.3$ to $6.6$\,s ($-64$\%) and from
+$16.4$ to $6.3$\,s ($-62$\%) on the sf5 units.  In the profiled GPU task of the sf7 unit this would take its CPU time from about
+$12$\,s to about $4$ to $5$\,s.  Steps 1--3 with $B=10^4$ were not measured; the table suggests they would combine the gains of both.
+
+\section{Implementation plan}\label{sec:plan}
+
+\begin{enumerate}[nosep,label=\arabic*.]
+\item Add the pre-test at both places that call \code{discf}: upstream's loop in \code{TgtMartinet.cpp} (through
+  \code{patches/passiflora.patch}) and \code{nfFinishPolys}, after \code{irrCount} is incremented (Corollary~\ref{cor:output}).
+\item Use PARI's library functions, which PARI~2.8 has: \code{ZX\_disc} for $D$, \code{Z\_lvalrem}/\code{Z\_pvalrem} for the
+  divisions, \code{Z\_isanypower} and \code{isprime} for step 3, and factorization over $\Fp$ (\code{FpX\_factor}, or the word-size
+  \code{Flx} functions, since every $p$ here is below $2^{40}$) with \code{FpX\_gcd} for \textsc{Dedekind}.  Choose $B$ from
+  measurements of the C code ($1000$ to $10^4$).
+\item With \code{NF\_VERIFY=1}, also compute \code{discf} for every polynomial the pre-test rejects and stop if it passes, so that a
+  fault in the implementation shows up.
+\item Tests: all 31 upstream work units against their \code{.truth} files on the CPU and the GPU; a check that runs the pre-test on
+  every polynomial that reaches \code{discf} in all 31 units and compares with \code{discf} (no wrong rejection allowed); the CPU time
+  of GPU tasks before and after, on an idle machine.
+\item Documents: a section of the whitepaper with Sections~\ref{sec:rule}--\ref{sec:test} of this proposal; notes in
+  \code{TECHNICAL.md} and in \code{CHANGES-FROM-GETDECICS.md}.
+\end{enumerate}
+
+\appendix
+\section{The GP functions used in the measurements}\label{app:gp}
+
+\begin{verbatim}
+S = [2, 5];
+spart(d) = { my(r = d); for (i = 1, #S, r /= S[i]^valuation(r, S[i])); r };
+dedekind_ok(f, p) = {      \\ gcd(F, G, H) = 1 mod p, Theorem 4
+  my(fa = factormod(f, p), G = 1, H = 1, F, T);
+  for (i = 1, #fa~, my(g = lift(fa[i, 1])); G *= g;
+                    if (fa[i, 2] > 1, H *= g^(fa[i, 2] - 1)));
+  F = (G * H - f) / p;
+  if (denominator(content(F)) != 1, error("G*H != f mod p"));
+  T = gcd(gcd(F * Mod(1, p), G * Mod(1, p)), H * Mod(1, p));
+  poldegree(T) == 0
+};
+pretest(f, D, B) = {       \\ steps 1-3; returns the prime of a rejection, or 0
+  my(c = abs(spart(D)), q);
+  forprime (p = 3, B - 1,
+    if (setsearch(S, p) || c % p, next);
+    if (dedekind_ok(f, p), return(p));
+    while (c % p == 0, c /= p));
+  if (c > 1, if (!isprime(c), ispower(c, , &q); if (q && isprime(q), c = q)));
+  if (c > 1 && isprime(c) && dedekind_ok(f, c), return(c));
+  0
+};
+\end{verbatim}
+
+\noindent The measurements of steps 1--2 tested $p\mid D$ directly.  Those of steps 1--3 used the equivalent form on
+$m=\sqrt N$ (every $N$ was a square, as the polynomial-discriminant test implies), with \code{ispseudoprime} in place of
+\code{isprime}.  The code above, run as printed with $B=1000$, rejects the same polynomials on all three units ($10{,}719$,
+$15{,}005$ and $14{,}530$), every rejection correct and at a prime that \code{isprime} proved.
+
+\begin{thebibliography}{GMN12}
+\bibitem[AM69]{AM} M.~F. Atiyah, I.~G. Macdonald, \emph{Introduction to Commutative Algebra}, Addison-Wesley, 1969.
+\bibitem[Coh93]{Coh} H.~Cohen, \emph{A Course in Computational Algebraic Number Theory}, Graduate Texts in Mathematics 138,
+  Springer, 1993, Section~6.1.
+\bibitem[Ded78]{Ded} R.~Dedekind, \"Uber den Zusammenhang zwischen der Theorie der Ideale und der Theorie der h\"oheren Kongruenzen,
+  \emph{Abh. K\"onigl. Ges. Wiss. G\"ottingen} 23 (1878), 1--23.
+\bibitem[GMN12]{GMN} J.~Gu\`ardia, J.~Montes, E.~Nart, Newton polygons of higher order in algebraic number theory,
+  \emph{Trans. Amer. Math. Soc.} 364 (2012), 361--416.
+\bibitem[Neu99]{Neu} J.~Neukirch, \emph{Algebraic Number Theory}, Grundlehren der mathematischen Wissenschaften 322, Springer, 1999.
+\bibitem[Ore28]{Ore} \O.~Ore, Newtonsche Polygone in der Theorie der algebraischen K\"orper, \emph{Math. Ann.} 99 (1928), 84--117.
+\end{thebibliography}
+
+\end{document}
