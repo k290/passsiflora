@@ -4,10 +4,14 @@
 //
 // The kernel and the runtime calls live in nf_musa_dev.cu, built with the vendor's compiler into the
 // shared library libnf_musa.so (which links the vendor's runtime).  This program loads that library at
-// run time from its own directory: without the library, the runtime or a device it simply runs on the CPU.
-// BOINC cannot assign such a GPU, so the task is a plain CPU task that uses the card by itself: the back
-// end activates when a device is present and BOINC gave the task no GPU of another kind
-// (NF_GPU=0 switches it off, NF_MUSA_DEVICE picks the device).
+// run time from its own directory.
+// BOINC cannot schedule such a GPU: a project server ignores coprocessor types it does not know (an app
+// version declaring one counts as a CPU version, and requests for its work are skipped), so a <coproc> in
+// cc_config.xml does not work with an unmodified project.  The program is therefore a CPU app version, as
+// BOINC sees it, that also uses the card: without the library, the runtime, a device or a passed
+// self-test it runs on the CPU, which is exactly what it declares to BOINC.  One task at a time uses each
+// card (a lock file next to the program); the other tasks run on the CPU.  --device N picks the card
+// (default 0); NF_GPU=0 switches the card off.
 
 #include <cstdio>
 #include <cstdlib>
@@ -19,8 +23,12 @@
 #include "app_ipc.h"
 #include "nf_gpu_backend.h"
 
+const bool nfBackendCpuApp = true;            // a CPU app version that may use a card
+
 #ifdef __linux__
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <sys/file.h>
 #include <unistd.h>
 
 static int (*p_count)();
@@ -32,27 +40,31 @@ static int (*p_run)(unsigned, unsigned, const unsigned long long *, unsigned lon
 static int (*p_selftest)(const unsigned *, unsigned, const long long *, unsigned, const long long *, unsigned, unsigned *,
                          unsigned);
 
+// The directory of the program file itself (under BOINC the project directory, not the task's slot directory).
+static std::string exeDir()
+{
+  char exe[4096];
+  ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+  if (n <= 0) return "";
+  exe[n] = 0;
+  std::string dir = exe;
+  size_t p = dir.rfind('/');
+  return p == std::string::npos ? std::string(".") : dir.substr(0, p);
+}
+
 static bool loadLibrary()
 {
-  std::string dir;
-  char exe[4096];
-  ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);   // the real file, not BOINC's slot link
-  if (n > 0) {
-    exe[n] = 0;
-    dir = exe;
-    size_t p = dir.rfind('/');
-    dir = (p == std::string::npos) ? std::string(".") : dir.substr(0, p);
-  }
+  std::string dir = exeDir();
   void *h = 0;
   if (!dir.empty()) h = dlopen((dir + "/libnf_musa.so").c_str(), RTLD_NOW);
   if (!h) h = dlopen("libnf_musa.so", RTLD_NOW);
-  if (!h) return false;
+  if (!h) { fprintf(stderr, "GPU mode: libnf_musa.so or the MUSA runtime could not be loaded; running on the CPU.\n"); return false; }
   p_count = (int (*)())dlsym(h, "nfm_device_count");
   // A library built for another prime-table format (an older libnf_musa.so, which has no nfm_table_format) must not run.
   p_format = (int (*)())dlsym(h, "nfm_table_format");
   if (!p_format || p_format() != NF_TABLE_FORMAT) {
     fprintf(stderr, "GPU mode: libnf_musa.so was built for another prime-table format (%d, this program %d); rebuild it\n"
-                    "with build/build-musa.sh.  Using the CPU.\n", p_format ? p_format() : 1, NF_TABLE_FORMAT);
+                    "with build/build-musa.sh.  Running on the CPU.\n", p_format ? p_format() : 1, NF_TABLE_FORMAT);
     return false;
   }
   p_init = (int (*)(int, const int *, int, char *, int, int *, int *, unsigned long long *, int *))dlsym(h, "nfm_init");
@@ -64,12 +76,27 @@ static bool loadLibrary()
   return p_count && p_init && p_set_nodes && p_run;
 }
 
+// One task per card: an exclusive lock on nf_musa_gpu<N>.lock next to the program, held until the process ends (the
+// system releases it then, also when BOINC kills the task).  false: another task has the card.
+static bool lockDevice(int dev)
+{
+  std::string dir = exeDir();
+  std::string path = (dir.empty() ? std::string(".") : dir) + "/nf_musa_gpu" + std::to_string(dev) + ".lock";
+  int fd = open(path.c_str(), O_RDWR | O_CREAT, 0666);
+  if (fd < 0) {
+    fprintf(stderr, "GPU mode: cannot open %s; using the card without a lock.\n", path.c_str());
+    return true;
+  }
+  if (flock(fd, LOCK_EX | LOCK_NB) != 0) { close(fd); return false; }
+  return true;                                 // fd stays open: the lock lasts as long as the process
+}
+
 // The start-up self-test of the filter on the device (nfm_selftest, with the table of nfm_init): false = the library has none,
-// or the device does not reproduce the exact values, and the application runs on the CPU.
+// or the device does not reproduce the exact values, and the task runs on the CPU (it is a CPU task to BOINC).
 static bool selfTest(const std::vector<int> &primes)
 {
   if (!p_selftest) {
-    fprintf(stderr, "GPU mode: libnf_musa.so has no self-test; rebuild it with build/build-musa.sh.  Using the CPU.\n");
+    fprintf(stderr, "GPU mode: libnf_musa.so has no self-test; rebuild it with build/build-musa.sh.  Running on the CPU.\n");
     return false;
   }
   NfSelfTest t;
@@ -78,33 +105,40 @@ static bool selfTest(const std::vector<int> &primes)
   boinc_begin_critical_section();
   int rc = p_selftest(t.ts.data(), t.nt, t.xs.data(), t.nx, t.polys.data(), t.npoly, out.data(), (unsigned)out.size());
   boinc_end_critical_section();
-  if (rc != 0) exit(1);
-  return nfSelfTestVerify(t, out);
+  if (rc != 0) nfGpuFail(false, 1, "the MUSA self-test could not run (%d).", rc);
+  if (!nfSelfTestVerify(t, out)) {
+    fprintf(stderr, "GPU mode: the card is not used; running on the CPU.\n");
+    return false;
+  }
+  return true;
 }
 
 bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
 {
-  (void)argc; (void)argv;
   APP_INIT_DATA aid;
   boinc_get_init_data(aid);
   std::string gt = aid.gpu_type;
-  if (!gt.empty() && gt != "CPU") return false;     // BOINC gave this task a GPU of another kind
+  if (!gt.empty() && gt != "CPU") {            // listed in app_info.xml as a GPU app version of another kind
+    fprintf(stderr, "GPU mode: BOINC assigned a GPU of type \"%s\" to this CPU program; running on the CPU.\n", gt.c_str());
+    return false;
+  }
   if (!loadLibrary()) return false;
 
   int n = p_count();
-  if (n <= 0) return false;
-  int dev = 0;
-  const char *dv = getenv("NF_MUSA_DEVICE");
-  if (dv) dev = atoi(dv);
-  if (dev < 0 || dev >= n) { fprintf(stderr, "Error: no GPU device %d (found %d).\n", dev, n); exit(1); }
+  if (n <= 0) { fprintf(stderr, "GPU mode: no MUSA device found; running on the CPU.\n"); return false; }
+  int dev = nfGpuDeviceArg(argc, argv);
+  if (dev < 0) dev = 0;
+  if (dev >= n) { fprintf(stderr, "GPU mode: no MUSA device %d (found %d); running on the CPU.\n", dev, n); return false; }
+  if (!lockDevice(dev)) {
+    fprintf(stderr, "GPU mode: MUSA device %d is in use by another task; running on the CPU.\n", dev);
+    return false;
+  }
 
   char name[256] = "?";
   int major = 0, minor = 0, mps = 0;
   unsigned long long mem = 0;
-  if (p_init(dev, primes.data(), (int)primes.size(), name, sizeof(name), &major, &minor, &mem, &mps) != 0) {
-    fprintf(stderr, "Error: the GPU could not be initialised.\n");
-    exit(1);
-  }
+  if (p_init(dev, primes.data(), (int)primes.size(), name, sizeof(name), &major, &minor, &mem, &mps) != 0)
+    nfGpuFail(false, 1, "the MUSA device %d could not be initialised.", dev);
   fprintf(stderr, "GPU mode: MUSA device %d \"%s\", %d multiprocessors, compute capability %d.%d, %llu MB, %u filter primes.\n",
           dev, name, mps, major, minor, (unsigned long long)(mem >> 20), (unsigned)(primes.size() / 8));
   return selfTest(primes);
@@ -114,7 +148,7 @@ void nfBackendShutdown() {}
 
 void nfBackendSetNodes(const double *nd, const long long *ni, size_t n)
 {
-  if (p_set_nodes(nd, ni, n) != 0) exit(1);
+  if (p_set_nodes(nd, ni, n) != 0) nfGpuFail(false, 1, "MUSA: the nodes could not be copied to the device.");
 }
 
 long long nfBackendRun(size_t a, size_t b, const unsigned long long *cum, std::vector<NfSurv> &out, bool *overflow)
@@ -127,7 +161,7 @@ long long nfBackendRun(size_t a, size_t b, const unsigned long long *cum, std::v
   boinc_begin_critical_section();
   int rc = p_run((unsigned)(b - a), (unsigned)a, cum, total, raw.data(), &outcnt, &inspected);
   boinc_end_critical_section();
-  if (rc != 0) exit(1);
+  if (rc != 0) nfGpuFail(false, 1, "MUSA: the kernel failed (%d).", rc);
   if (outcnt > NF_OUT_CAP) { *overflow = true; return 0; }
   size_t base = out.size();
   out.resize(base + outcnt);

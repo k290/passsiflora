@@ -59,6 +59,7 @@ extern "C" int nfm_init(int device, const int *primes, int nints, char *name, in
     }
   }
   NFM_CHECK(cudaSetDevice(device));
+  cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);   // the CPU sleeps while a kernel runs instead of spinning
   cudaDeviceProp p;
   NFM_CHECK(cudaGetDeviceProperties(&p, device));
   strncpy(name, p.name, namelen - 1);

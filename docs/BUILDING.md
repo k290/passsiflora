@@ -73,8 +73,8 @@ gcc <= 13; Ubuntu 22.04's gcc 11 works) and writes `src/nf_cuda_fatbin.h`; compi
 MUSA library (`build/build-musa.sh`) are built from `src/nf_kernel.h` and `src/nf_port_cuda.h`: rebuild them whenever
 either changes (the OpenCL kernel is embedded as source by every GPU build and needs nothing extra).  The program checks at
 start-up that the device code reads the prime table it builds (`NF_TABLE_FORMAT`, the kernel entry point `nf_enum_t2`): a CUDA
-program with a fat binary left over from the floating-point kernel stops with a message, and a MUSA program refuses an older
-`libnf_musa.so` and runs on the CPU.
+program with a fat binary left over from the floating-point kernel stops with a message, and a MUSA program (a CPU app
+version to BOINC) refuses an older `libnf_musa.so` and runs on the CPU.
 
 OpenCL GPU build: embed the kernel (`nf_enum_cl.h` is `R"NFCL(` + `nf_port_opencl.h` + `nf_kernel.h` + `)NFCL"`), compile
 `nf_gpu_common.cpp` and `nf_gpu_opencl.cpp` instead of the stub, and link `libboinc_opencl.a` and `-lOpenCL` (everything else

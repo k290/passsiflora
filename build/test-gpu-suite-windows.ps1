@@ -2,7 +2,8 @@
 #   -exe       the program: a file in <work>\bin, or a full path       -tag   a name for the run
 #   -df        upstream's Test\dataFiles                               -work  where the run directories go
 #   -initData  an init_data.xml for each run (default: <work>\gpu\init_data.xml if it exists)
-#   -envs      variables set during the runs, "NAME=value;..." (e.g. NF_OCL_ANY=1 or NF_CUDA_ANY=1 without an init_data.xml)
+#   -envs      variables set during the runs, "NAME=value;..." (e.g. NF_SELFCHECK=0).  Without an init_data.xml the program
+#              uses the first GPU (OpenCL: the first OpenCL GPU of all platforms).
 # The defaults are the original author's machine.
 param([string]$exe, [string]$tag,
       [string]$df = 'C:\Users\Alp\AppData\Local\Temp\claude\C--Users-Alp-Documents-Default-Project\ac77d448-3f34-4416-ac54-fafab05b597e\scratchpad\src\Test\dataFiles',

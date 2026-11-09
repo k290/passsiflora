@@ -4,11 +4,34 @@
 #ifndef NF_GPU_BACKEND_H
 #define NF_GPU_BACKEND_H
 
+#include <string>
 #include <vector>
 
 #include "nf_gpu.h"
 
 struct NfSurv { long long node, m2, m1, b[9]; };
+
+// What the program is to BOINC.  false (OpenCL, CUDA): a GPU app version, which BOINC runs on a GPU it has assigned; the
+// task uses that GPU or stops (nfGpuFail).  true (MUSA): a CPU app version that may also use a card BOINC does not know
+// about; without a usable card it runs on the CPU, as the CPU program does.
+extern const bool nfBackendCpuApp;
+
+// --device N (or -device N) on the command line, else -1.  The BOINC client passes it to every GPU app; run by hand it
+// picks the device.
+int nfGpuDeviceArg(int argc, char **argv);
+
+// The GPU this task is to use.  type: BOINC's gpu_type ("NVIDIA", "ATI", "intel_gpu"), from init_data.xml, which the client
+// writes into the task's directory (to run the program by hand, copy one into the directory, as upstream's tests do); empty
+// when run by hand without one.  device: gpu_device_num, else --device N, else 0.  Under BOINC with no GPU at all (the
+// program was listed as a CPU app version) the task stops.
+struct NfGpuChoice { std::string type; int device; bool byHand; };
+NfGpuChoice nfGpuChoose(int argc, char **argv);
+
+// Ends the task because the GPU cannot be used: prints "GPU mode: <reason>".  Under BOINC a temporary problem (temporary =
+// true: the device or its memory is in use by other programs) asks the client to restart the task in a minute
+// (boinc_temporary_exit, as BOINC recommends for GPU memory allocation failures); otherwise the task ends with exit status
+// code (6 when the device computes wrong values, 1 for every other problem).
+[[noreturn]] void nfGpuFail(bool temporary, int code, const char *fmt, ...);
 
 // The prime-table format this program builds, and the kernel entry point for it (nf_kernel.h).  Device code built for
 // another format has no entry point of this name (CUDA, OpenCL) or reports another format (MUSA): the back end refuses it.
@@ -20,8 +43,9 @@ static const size_t NF_MAX_NODES = 1u << 17;   // nodes per batch
 static const unsigned NF_OUT_CAP = 1u << 18;   // survivor records per launch
 
 // Pick the device and build / load the kernel.  primes = the filter-prime table, 8 ints per prime
-// (q, 2^16, 2^32, 2^48, 2^64 mod q, (q-1)/2, bits of -1/q mod 2^32, -2^16 mod q).  Returns false when no device of
-// this kind is assigned to the task (the app then runs on the CPU); exits on real errors.
+// (q, 2^16, 2^32, 2^48, 2^64 mod q, (q-1)/2, bits of -1/q mod 2^32, -2^16 mod q).  Returns true when the device is ready.
+// The GPU programs (OpenCL, CUDA) never return false: a device they cannot use stops the task (nfGpuFail).  A CPU app
+// version (MUSA) returns false when it has no usable card, and runs on the CPU.
 bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes);
 
 // Upload the nodes of the batch (n nodes, NF_ND doubles and NF_NI integers each).
@@ -47,8 +71,8 @@ struct NfSelfTest {
   std::vector<unsigned> expect;    // the kernel's output, work item by work item
 };
 void nfSelfTestBuild(const std::vector<int> &primes, NfSelfTest &t);
-// true if out equals t.expect; otherwise prints the first differences and returns false: the back end then refuses GPU mode
-// and the application runs on the CPU.  NF_SELFTEST_FAULT=1 changes one value of out first (test hook).
+// true if out equals t.expect; otherwise prints the first differences and returns false: a GPU program then stops the task
+// (exit status 6), a CPU app version runs on the CPU.  NF_SELFTEST_FAULT=1 changes one value of out first (test hook).
 bool nfSelfTestVerify(const NfSelfTest &t, std::vector<unsigned> &out);
 
 #endif

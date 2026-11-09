@@ -56,7 +56,7 @@ Linux, macOS and FreeBSD.  The release workflow runs each of those programs on t
 the system is emulated); beyond that, the CPU filter's start-up check of its compiled arithmetic is the one test of their code.  The GPU kernel was tested on one card, and under OpenCL each machine's graphics driver compiles it, so every GPU task
 first runs a self-test of the kernel's filter against values computed on the host and compares its polynomial count with the CPU over
 the first 5 million polynomials.  A failed check reports nothing wrong: the CPU filter switches off and the exact test decides every
-polynomial; a GPU task runs on the CPU or stops.  `NF_GPUCHECK=1` compares the GPU's survivors with the CPU for the whole task.
+polynomial; a GPU task stops with an error (exit status 6).  `NF_GPUCHECK=1` compares the GPU's survivors with the CPU for the whole task.
 
 ## How fast?
 
@@ -67,7 +67,7 @@ time goes, are in the whitepaper, Section 9 "Performance".
 
 **[Latest release](https://github.com/k290/passsiflora/releases/latest).**  Releases from v0.4.0 on contain the integer filter described
 above; v0.1.0 to v0.3.0 ([alplix/passiflora](https://github.com/alplix/passiflora/releases)) contain the earlier floating-point filter.
-The number after the prefix is the version (`051` = v0.5.1).
+The number after the prefix is the version (`052` = v0.5.2).
 
 | starts with | what it is | for |
 |---|---|---|
@@ -75,11 +75,38 @@ The number after the prefix is the version (`051` = v0.5.1).
 | `GPU_` | the OpenCL GPU app, with an `app_config.xml` | NVIDIA, AMD or Intel cards with double-precision OpenCL |
 | `CPU-GPU_` | both apps, with an `app_info.xml` that lists both and an `app_config.xml` for the GPU | as `GPU_`; BOINC runs one app on the card and one on the processor |
 | `GPU-CUDA_`, `CPU-GPU-CUDA_` | the same with CUDA instead of OpenCL (driver only, no toolkit) | NVIDIA cards, Maxwell to Blackwell |
-| `GPU-MUSA_` | the Moore Threads app (a CPU task that uses the card) | Moore Threads cards, Linux x86-64 |
+| `GPU-MUSA_` | the Moore Threads app (a CPU task to BOINC; one task per card also uses the card) | Moore Threads cards, Linux x86-64 |
 
 Systems: Windows x86-64; Linux x86-64 (CPU fully static; GPU needs glibc 2.34+); Linux aarch64; Android aarch64 (Android 10+, for a
 BOINC client that reads `app_info.xml`); FreeBSD 14+ x86-64; Linux RISC-V, armhf, ppc64le and s390x; macOS 11+ on Intel and Apple silicon (one
 universal program, CPU only).  Install steps are in `INSTALL.txt`, attached to every release and inside each package.
+
+## Running the programs
+
+**Under BOINC (production).**  Install a package as `INSTALL.txt` describes: the program files, `app_info.xml` and, in the GPU
+packages, `app_config.xml` go into the project's folder in BOINC's data directory.  BOINC then runs them as the anonymous-platform
+app versions that `app_info.xml` lists: the CPU program as a CPU task, a GPU program on the GPU BOINC assigns to the task (it passes
+the device in `init_data.xml` and as `--device N`), four GPU tasks per card with half a CPU core set aside for each
+(`app_config.xml` explains how to tune this).  A GPU program that cannot use its GPU ends the task with an error whose cause is in
+the task's stderr (shown on the project's website); a temporary problem, such as GPU memory in use by another program, makes BOINC
+restart the task a minute later.  The Moore Threads program is a CPU task to BOINC; one task at a time also uses each card.
+
+**By hand (development and testing).**  Copy a work unit to `in` in an empty directory and start the program there; it writes `out`,
+and its log to `stderr.txt`:
+
+```bash
+mkdir run && cd run && cp ../upstream/Test/dataFiles/sf5_DS-14x11_Grp16409of705883.dat in
+/path/to/GetDecics_cpu                 # the CPU program
+/path/to/GetDecics_gpu                 # OpenCL: the first OpenCL GPU; stderr.txt lists them, --device N picks another
+/path/to/GetDecics_cuda --device 1     # CUDA: the second NVIDIA card
+```
+
+A GPU program uses the GPU that an `init_data.xml` in the directory names (as the BOINC client writes it; upstream's examples are in
+`Test/exampleInitDataXmlFiles`), else `--device N`, else the first GPU; the first lines of `stderr.txt` say which.  Compare `out` with
+the unit's `wu_<name>.out.truth`, apart from the "Elapsed Time" line: `build/test-suite-unix.sh` does that for all 31 units (below).
+`NF_GPU=0` runs a GPU program on the CPU; the other `NF_*` variables are test switches ([docs/TECHNICAL.md](docs/TECHNICAL.md)).
+What Passiflora changes in how the programs are built and run, compared with upstream GetDecics, and why:
+[docs/CHANGES-FROM-GETDECICS.md](docs/CHANGES-FROM-GETDECICS.md).
 
 ## The repository
 
@@ -90,7 +117,7 @@ Only code written for Passiflora is here; it is applied on top of the upstream G
 | `src/` | Passiflora's sources, copied next to upstream's: the CPU pre-filter (`pdfilter.f90`), the GPU kernel (`nf_kernel.h`, `nf_kernel.cu`, `nf_port_*.h`), the GPU host code and back ends (`nf_gpu_common.cpp`, `nf_gpu_opencl.cpp`, `nf_gpu_cuda.cpp`, `nf_gpu_musa.cpp`, `nf_musa_dev.cu`) and the CPU-only stub (`nf_gpu_stub.cpp`). |
 | `patches/passiflora.patch` | the changes to four upstream files: `GetDecics.cpp`, `TgtMartinet.cpp`, `TgtMartinet.h` (the calls of the filter and the GPU mode) and `polDiscTest_cpu.cpp` (32-bit `long` support and comments). |
 | `build/` | `prepare-src.sh` assembles a source tree (upstream + patch + `src/`); `test-suite-unix.sh` runs work units against their reference outputs; the `build-*.sh` scripts and `make-release.py` are the release builds, with the paths of the release machine. |
-| `docs/` | `whitepaper.tex`/`.pdf` (algorithms, proofs, evidence), `TECHNICAL.md` (a shorter technical overview), `BUILDING.md` (how to build), `INSTALL.txt` (for users). |
+| `docs/` | `whitepaper.tex`/`.pdf` (algorithms, proofs, evidence), `TECHNICAL.md` (a shorter technical overview), `CHANGES-FROM-GETDECICS.md` (what differs from upstream and why), `BUILDING.md` (how to build), `INSTALL.txt` (for users). |
 | `bench/` | micro-benchmarks of the filter (`bench_filter.f90`, `timing_probe.f90`). |
 | `pdfilter_Test/` | the test suite of the pre-filter and of GetDecics' exact test; see its [README](pdfilter_Test/README.md). |
 

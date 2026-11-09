@@ -3,9 +3,9 @@
 // nf_gpu_cuda.cpp -- CUDA back end (NVIDIA).
 //
 // Uses the CUDA *driver* API, loaded at run time (nvcuda.dll / libcuda.so.1), so the program
-// builds without the CUDA toolkit and starts on machines without a CUDA driver (it then runs
-// on the CPU).  The kernel is the fat binary nf_cuda_fatbin.h (built from nf_kernel.cu with
-// nvcc, one cubin per architecture plus PTX), loaded with cuModuleLoadData.
+// builds without the CUDA toolkit and needs nothing but the NVIDIA driver (without it the task
+// stops with an error).  The kernel is the fat binary nf_cuda_fatbin.h (built from nf_kernel.cu
+// with nvcc, one cubin per architecture plus PTX), loaded with cuModuleLoadData.
 //
 // The same file serves other CUDA-driver-API-compatible runtimes: build with
 //   -DNF_DRV_PREFIX=\"hip\"  -DNF_DRV_LIB=\"libamdhip64.so\"   (AMD HIP), or
@@ -45,6 +45,11 @@ static const unsigned char nfFatbin[] = {
 #ifndef NF_DRV_NAME
 #  define NF_DRV_NAME "CUDA"
 #endif
+#ifndef NF_BOINC_GPU_TYPE
+#  define NF_BOINC_GPU_TYPE "NVIDIA"           // BOINC's gpu_type of the cards this driver runs
+#endif
+
+const bool nfBackendCpuApp = false;           // a GPU app version: it uses the GPU BOINC assigned, or stops
 
 typedef int CUresult;
 typedef int CUdevice;
@@ -62,6 +67,7 @@ struct Drv {
   CUresult (*DeviceGetAttribute)(int *, int, CUdevice);
   CUresult (*DeviceTotalMem)(size_t *, CUdevice);
   CUresult (*DevicePrimaryCtxRetain)(CUcontext *, CUdevice);
+  CUresult (*DevicePrimaryCtxSetFlags)(CUdevice, unsigned);   // optional
   CUresult (*CtxSetCurrent)(CUcontext);
   CUresult (*CtxSynchronize)(void);
   CUresult (*ModuleLoadData)(CUmodule *, const void *);
@@ -82,12 +88,13 @@ static CUdeviceptr g_dNodeD, g_dNodeI, g_dCum, g_dPrimes, g_dOut, g_dOutCnt, g_d
 static size_t g_cntCap = 0;
 static unsigned g_np = 0;
 
+// Driver errors stop the task; out of memory (2) and all devices busy or unavailable (46, e.g. another program holds a
+// device in exclusive mode) count as temporary (BOINC: retry in a minute).
 static void drvFail(const char *what, CUresult r, const char *file, int line)
 {
   const char *msg = "?";
   if (D.GetErrorString) D.GetErrorString(r, &msg);
-  fprintf(stderr, NF_DRV_NAME " error %d (%s) at %s:%d (%s)\n", r, msg ? msg : "?", file, line, what);
-  exit(1);
+  nfGpuFail(r == 2 || r == 46, 1, NF_DRV_NAME " error %d (%s) at %s:%d (%s)", r, msg ? msg : "?", file, line, what);
 }
 #define DCHK(x) do { CUresult r_ = (x); if (r_ != 0) drvFail(#x, r_, __FILE__, __LINE__); } while (0)
 
@@ -139,19 +146,19 @@ static bool loadDriver()
   get((void *&)D.MemsetD32, "MemsetD32_v2", "MemsetD32");
   get((void *&)D.LaunchKernel, "LaunchKernel");
   D.GetErrorString = (CUresult (*)(CUresult, const char **))symbol(lib, std::string(NF_DRV_PREFIX) + "GetErrorString");
+  D.DevicePrimaryCtxSetFlags = (CUresult (*)(CUdevice, unsigned))symbol(lib, std::string(NF_DRV_PREFIX) + "DevicePrimaryCtxSetFlags_v2");
+  if (!D.DevicePrimaryCtxSetFlags)
+    D.DevicePrimaryCtxSetFlags = (CUresult (*)(CUdevice, unsigned))symbol(lib, std::string(NF_DRV_PREFIX) + "DevicePrimaryCtxSetFlags");
   return ok;
 }
 
-// The start-up self-test of the filter on this device (nf_selftest_t2 of the loaded module, with the table of g_dPrimes): false =
-// the device does not reproduce the exact values, or the module has no self-test, and the application runs on the CPU.
-static bool selfTest(CUmodule mod, const std::vector<int> &primes)
+// The start-up self-test of the filter on this device (nf_selftest_t2 of the loaded module, with the table of g_dPrimes).  A
+// device that does not reproduce the exact values stops the task (exit status 6).
+static void selfTest(CUmodule mod, const std::vector<int> &primes)
 {
   CUfunction fn;
   CUresult r = D.ModuleGetFunction(&fn, mod, NF_SELFTEST_NAME);
-  if (r != 0) {
-    fprintf(stderr, "GPU mode: the embedded " NF_DRV_NAME " kernel has no self-test (%d); using the CPU.\n", r);
-    return false;
-  }
+  if (r != 0) nfGpuFail(false, 1, "the embedded " NF_DRV_NAME " kernel has no self-test (%d).", r);
   NfSelfTest t;
   nfSelfTestBuild(primes, t);
   unsigned nt = t.nt, nx = t.nx, npoly = t.npoly, np = t.np, total = (unsigned)t.expect.size();
@@ -171,32 +178,21 @@ static bool selfTest(CUmodule mod, const std::vector<int> &primes)
   DCHK(D.MemcpyDtoH(out.data(), dOut, (size_t)total * sizeof(unsigned)));
   boinc_end_critical_section();
   DCHK(D.MemFree(dTs));  DCHK(D.MemFree(dXs));  DCHK(D.MemFree(dPol));  DCHK(D.MemFree(dOut));
-  return nfSelfTestVerify(t, out);
+  if (!nfSelfTestVerify(t, out)) nfGpuFail(false, 6, "this GPU or driver does not reproduce the filter's exact values.");
 }
 
 bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
 {
-  (void)argc; (void)argv;
-  const char *any = getenv("NF_CUDA_ANY");
-  APP_INIT_DATA aid;
-  boinc_get_init_data(aid);
-  std::string gt = aid.gpu_type;
-  bool useAny = (any && *any == '1');
-  if (gt != "NVIDIA" && !useAny) return false;
-
-  if (!loadDriver()) {
-    if (useAny) { fprintf(stderr, "Error: the " NF_DRV_NAME " driver could not be loaded.\n"); exit(1); }
-    fprintf(stderr, "GPU mode: the " NF_DRV_NAME " driver could not be loaded (%s); using the CPU.\n", NF_DRV_LIB);
-    return false;
-  }
+  NfGpuChoice c = nfGpuChoose(argc, argv);
+  if (!c.type.empty() && c.type != NF_BOINC_GPU_TYPE)
+    nfGpuFail(false, 1, "BOINC assigned a GPU of type \"%s\", which this " NF_DRV_NAME " program does not use.", c.type.c_str());
+  if (!loadDriver()) nfGpuFail(false, 1, "the " NF_DRV_NAME " driver (%s) could not be loaded: is the graphics driver installed?", NF_DRV_LIB);
   DCHK(D.Init(0));
   int ndev = 0;
   DCHK(D.DeviceGetCount(&ndev));
-  int idx = aid.gpu_device_num;
-  const char *dv = getenv("NF_CUDA_DEVICE");
-  if (dv) idx = atoi(dv);
-  if (idx < 0) idx = 0;
-  if (idx >= ndev) { fprintf(stderr, "Error: no " NF_DRV_NAME " device %d (found %d).\n", idx, ndev); exit(1); }
+  int idx = c.device;
+  if (idx < 0 || idx >= ndev) nfGpuFail(false, 1, "no " NF_DRV_NAME " device %d (found %d).", idx, ndev);
+  const char *how = !c.type.empty() ? (c.byHand ? "named by init_data.xml" : "assigned by BOINC") : "run by hand; --device N picks another";
 
   CUdevice dev;
   DCHK(D.DeviceGet(&dev, idx));
@@ -210,9 +206,12 @@ bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
   size_t mem = 0;
   D.DeviceTotalMem(&mem, dev);
   g_np = (unsigned)(primes.size() / 8);
-  fprintf(stderr, "GPU mode: " NF_DRV_NAME " device %d \"%s\", %d multiprocessors, compute capability %d.%d, %llu MB, driver %d, %u filter primes.\n",
-          idx, name, mp, major, minor, (unsigned long long)(mem >> 20), drv, g_np);
+  fprintf(stderr, "GPU mode: " NF_DRV_NAME " device %d \"%s\" (%s), %d multiprocessors, compute capability %d.%d, %llu MB, driver %d, %u filter primes.\n",
+          idx, name, how, mp, major, minor, (unsigned long long)(mem >> 20), drv, g_np);
 
+  // The CPU sleeps while a kernel runs instead of spinning (CU_CTX_SCHED_BLOCKING_SYNC, as upstream's cudaDeviceScheduleBlockingSync):
+  // a GPU task then uses little of its CPU while it waits for the device.
+  if (D.DevicePrimaryCtxSetFlags) D.DevicePrimaryCtxSetFlags(dev, 0x04);
   CUcontext ctx;
   DCHK(D.DevicePrimaryCtxRetain(&ctx, dev));
   DCHK(D.CtxSetCurrent(ctx));
@@ -238,7 +237,8 @@ bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
   DCHK(D.MemAlloc(&g_dOut, (size_t)NF_OUT_CAP * 12 * sizeof(long long)));
   DCHK(D.MemAlloc(&g_dOutCnt, sizeof(unsigned)));
   g_dCnt = 0;  g_cntCap = 0;
-  return selfTest(mod, primes);
+  selfTest(mod, primes);
+  return true;
 }
 
 void nfBackendShutdown()

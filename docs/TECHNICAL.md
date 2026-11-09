@@ -1,5 +1,8 @@
 # How Passiflora works — and why the results are identical
 
+What Passiflora changes relative to upstream GetDecics, and why: [CHANGES-FROM-GETDECICS.md](CHANGES-FROM-GETDECICS.md).  How to run
+the programs, by hand and under BOINC: the [README](../README.md).
+
 ## The stock CPU app spends 98 % of its time in one test
 
 `polDiscTest_cpu` computes the discriminant of each candidate decic with GMP
@@ -105,7 +108,10 @@ Bit-for-bit agreement with the CPU code relies on:
 * survivors sorted back into enumeration order before the exact tests.
 
 Checkpoints are written between batches and resume at the first node of the next
-batch. The batch size adapts to about 100 ms per kernel launch.
+batch. The batch size adapts to about 100 ms per kernel launch. While a kernel runs the
+CPU sleeps: the CUDA program asks the driver to block (`CU_CTX_SCHED_BLOCKING_SYNC`), the
+OpenCL program polls the kernel's event every millisecond (NVIDIA's OpenCL would otherwise spin
+a core), so a task uses 0.3 to 0.6 of a core on a GTX 1650 instead of a whole one.
 
 ## GPU back ends
 
@@ -115,8 +121,8 @@ back end maps the few differences (address spaces, atomics, `as_float`, 64-bit t
 | Back end | Port header | Host code | Notes |
 |---|---|---|---|
 | OpenCL | `nf_port_opencl.h` | `nf_gpu_opencl.cpp` | kernel compiled at run time, `FP_CONTRACT OFF` |
-| MUSA (Moore Threads) | `nf_port_cuda.h` | `nf_gpu_musa.cpp` + `nf_musa_dev.cu` | the device part (kernel + CUDA-runtime-style wrapper) is converted with `musify-text` and built with `mcc` into `libnf_musa.so`; the program `dlopen`s it, so a computer without the vendor runtime or card just runs on the CPU. BOINC cannot see these GPUs: the task is a CPU task that uses the card by itself |
-| CUDA | `nf_port_cuda.h` | `nf_gpu_cuda.cpp` | kernel compiled once with `nvcc --fmad=false` into a fat binary (cubin for sm_50 … sm_120 + PTX) that is embedded in the program and loaded through the CUDA *driver* API, which is itself loaded at run time (`nvcuda.dll` / `libcuda.so.1`): nothing CUDA is linked, so the program starts without a CUDA driver and falls back to the CPU |
+| MUSA (Moore Threads) | `nf_port_cuda.h` | `nf_gpu_musa.cpp` + `nf_musa_dev.cu` | the device part (kernel + CUDA-runtime-style wrapper) is converted with `musify-text` and built with `mcc` into `libnf_musa.so`, which the program `dlopen`s. BOINC cannot schedule these GPUs (see below), so to BOINC the program is a CPU app version; one task at a time uses each card (a lock file next to the program), the others, and every task on a computer without the runtime or a card, run on the CPU |
+| CUDA | `nf_port_cuda.h` | `nf_gpu_cuda.cpp` | kernel compiled once with `nvcc --fmad=false` into a fat binary (cubin for sm_50 … sm_120 + PTX) that is embedded in the program and loaded through the CUDA *driver* API, which is itself loaded at run time (`nvcuda.dll` / `libcuda.so.1`): nothing CUDA is linked, and the program needs only the NVIDIA driver |
 
 The CUDA fat binary and the MUSA library are built apart from the program, so the program checks at start-up that they read
 the prime table it builds: the table layout has a number (`NF_TABLE_FORMAT`), the kernel entry point carries it (`nf_enum_t2`),
@@ -133,8 +139,9 @@ At start-up every back end runs the self-test kernel `nf_selftest_t2` once on th
 the symbol at each filter prime and `survives` on fixed inputs (the extremes and pseudo-random values; 240
 polynomials, among them abnormal chains and discriminants divisible by a table prime), 7,920 values for S = {2,5}.
 The host computes what they must be without the kernel's code (exact arithmetic modulo q; the symbol from the
-resultant by Euclid with inverses). On any difference, or with device code that has no self-test (an older CUDA
-fat binary, OpenCL kernel or `libnf_musa.so`), the task runs on the CPU.
+resultant by Euclid with inverses). On any difference the task stops with an error (exit status 6), as with device
+code that has no self-test (an older CUDA fat binary or OpenCL kernel); the MUSA program, a CPU task to BOINC, runs
+on the CPU instead.
 
 Then, at the start of every GPU task, the CPU loops run next to the GPU for the first 5 million polynomials and
 the two counts are compared batch by batch. With `NF_GPUCHECK=1` (the whole task) the CPU also runs the kernel's own
@@ -146,6 +153,24 @@ the first 5 million (0 to 10 in the test units), so it is the self-test that che
 `NF_SELFCHECK=<n>` changes the number of polynomials (0 = off), `NF_GPUCHECK=1` checks the whole run;
 `NF_SELFCHECK_FAULT=1` injects a miscount, `NF_SELFCHECK_FAULT=2` a lost survivor (with `NF_GPUCHECK=1`) and
 `NF_SELFTEST_FAULT=1` a wrong self-test value, to test the failure paths.
+
+## Running under BOINC, and by hand
+
+* **Which GPU.** Under BOINC the one the client assigned (`init_data.xml`: `gpu_type`, `gpu_device_num`; the client also
+  passes `--device N`). Run by hand: the one an `init_data.xml` in the directory names (upstream's test set-up), else
+  `--device N`, else the first. The OpenCL program then lists the OpenCL GPUs of all platforms, numbered for `--device`;
+  the first lines of `stderr.txt` say which device a task uses and why.
+* **When the GPU cannot be used.** A GPU program (OpenCL, CUDA) uses its GPU or stops the task with a message naming the
+  cause (`nfGpuFail`, `nf_gpu_backend.h`): no GPU assigned (the program was listed without a `<coproc>`), a GPU type it does
+  not use, no driver or device, no double precision, a kernel the driver cannot compile, or a failed self-test (exit
+  status 6). Out of device or host memory and a device in use by another program end the task with
+  `boinc_temporary_exit` instead: BOINC restarts it a minute later from its checkpoint. Run by hand every problem is an
+  error. Until v0.5.2 these cases ran the task on the CPU; why that was wrong for BOINC is in CHANGES-FROM-GETDECICS.md.
+* **CPU share.** The packages set aside half a core per GPU task (`app_config.xml` `cpu_usage`, `app_info.xml`
+  `avg_ncpus`), from the measurement above; four tasks share a card (`gpu_usage` 0.25).
+* **MUSA.** A project's scheduler ignores coprocessor types it does not know (an app version that declares one counts as
+  a CPU version, and requests for its work are skipped), so a `<coproc>` in `cc_config.xml` would get the card no work.
+  The MUSA program is therefore a CPU app version that also uses the card, one task per card.
 
 ## Other platforms
 
@@ -173,18 +198,19 @@ the first 5 million (0 to 10 in the test units), so it is the self-test that che
 
 ## Environment switches (testing)
 
+None is needed to run the programs; to choose a GPU by hand, use `--device N` or an `init_data.xml` (above).
+
 | Variable | Effect |
 |---|---|
 | `NF_NOFILTER=1` | stock code path (no pre-filter) |
 | `NF_VERIFY=1` | also run the exact test on every polynomial, abort on mismatch |
 | `NF_FORCE_BASE=1` | use the baseline (SSE2) filter build |
 | `NF_GENERAL_ALL=1` | send every lane through the general chain |
-| `NF_GPU=0` | never use the GPU |
+| `NF_GPU=0` | run a GPU program on the CPU (the MUSA program: leave the card alone) |
 | `NF_GPUCHECK=1` | GPU mode plus the CPU loops; abort if the counts or the filter's survivors differ |
 | `NF_SELFCHECK=N` | CPU loops next to the GPU for the first N polynomials of a task (default 5000000; 0 = off) |
 | `NF_SELFCHECK_FAULT=1`, `=2` | test hooks: pretend the GPU miscounted (1) or, with `NF_GPUCHECK=1`, lost a filter survivor (2) |
 | `NF_SELFTEST_FAULT=1` | test hook: pretend the device got one value of the start-up self-test wrong |
-| `NF_OCL_ANY=1` | GPU mode on the first OpenCL device without BOINC (`NF_OCL_PLATFORM`, `NF_OCL_DEVICE` pick another) |
 | `NF_GPU_ITEMS=N` | fixed work items per launch instead of the adaptive size |
 | `NF_MAXPOLYS=N` | stop after N polynomials and print a timing split (CPU mode) |
 | `NF_PDFDEBUG=1` | print per-prime survivor counts for the first batch |

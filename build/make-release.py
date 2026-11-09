@@ -7,7 +7,7 @@
 #   CPU-GPU_         CPU + OpenCL in one package
 #   GPU-CUDA_        the CUDA GPU app only (NVIDIA)
 #   CPU-GPU-CUDA_    CPU + CUDA in one package
-#   GPU-MUSA_        the Moore Threads (MUSA) app, which also runs on the CPU
+#   GPU-MUSA_        the Moore Threads (MUSA) app: a CPU app to BOINC that also uses the card (one task per card)
 # Systems: windows_x86-64, linux_x86-64, linux_aarch64, macos_universal, android_aarch64, freebsd_x86-64, linux_riscv64, linux_ppc64le, linux_s390x, linux_armhf.
 # Set PASSIFLORA_<WIN|LIN|A64|MAC|ANDROID|FBSD|RV64|PPC64|S390X|ARM32>_<CPU|GPU|CUDA|MUSA> to the executables (a package is skipped if one is missing);
 # PASSIFLORA_LIN_MUSA is a directory holding GetDecics_musa, libnf_musa.so and libmusart.so.4.
@@ -90,9 +90,14 @@ SYSTEMS = (
 APP_CONFIG = """<?xml version="1.0" encoding="UTF-8"?>
 <!--
   app_config.xml - Passiflora GPU: runs 4 tasks per graphics card.
-  While one task is busy on the processor (the exact checks of the few candidates), the others keep the
-  card working.  gpu_usage 1 = one task per card, 0.5 = two, 0.25 = four, 0.125 = eight.
-  Each task uses about 150 MB of video memory and cpu_usage CPU cores.
+  While one task is busy on the processor (the outer loops of the search and the exact checks of the few
+  candidates), the others keep the card working.  gpu_usage 1 = one task per card, 0.5 = two, 0.25 = four,
+  0.125 = eight.  Each task uses about 150 MB of video memory.
+  cpu_usage is the share of a CPU core BOINC sets aside for each GPU task.  The task sleeps while the card
+  computes; measured on a GTX 1650 with an i5-12500H it used 0.3 to 0.6 of a core, depending on the work
+  unit and on how many tasks share the card.  A faster card waits less for its CPU work, so a task uses
+  more: the ratio of "CPU time" to "Run time" in a task's details on the project's website is the value
+  for your computer.
   BOINC Manager: Options -> Read config files, after editing.
 -->
 <app_config>
@@ -100,7 +105,7 @@ APP_CONFIG = """<?xml version="1.0" encoding="UTF-8"?>
     <name>GetDecics</name>
     <gpu_versions>
       <gpu_usage>0.25</gpu_usage>
-      <cpu_usage>1</cpu_usage>
+      <cpu_usage>0.5</cpu_usage>
     </gpu_versions>
   </app>
 </app_config>
@@ -114,7 +119,8 @@ def app_version(version, platform, exe, plan=None, coproc=None):
          "    <platform>%s</platform>" % platform]
     if plan:
         s.append("    <plan_class>%s</plan_class>" % plan)
-    s += ["    <avg_ncpus>1</avg_ncpus>"]
+    # a GPU task sets aside half a core (measured 0.3 to 0.6; app_config.xml explains), a CPU task a whole one
+    s += ["    <avg_ncpus>%s</avg_ncpus>" % ("0.5" if coproc else "1")]
     if coproc:
         s += ["    <max_ncpus>1</max_ncpus>",
               "    <coproc>", "      <type>%s</type>" % coproc, "      <count>1</count>", "    </coproc>"]
@@ -140,7 +146,8 @@ def app_info(platforms, cpu_exe, ocl_exe, cuda_exe, musa_exe, extra_files):
         if cuda_exe:
             parts += [app_version(402, platform, cuda_exe, "cuda30", "NVIDIA"), ""]
         if musa_exe:
-            # BOINC cannot see Moore Threads GPUs: a CPU task that uses the card itself
+            # A CPU app version that also uses a Moore Threads card, one task per card.  BOINC cannot schedule such a card:
+            # a project server ignores coprocessor types it does not know, so a <coproc> here would get no work.
             parts += [app_version(403, platform, musa_exe, "musa"), ""]
     parts += ["</app_info>", ""]
     return "\n".join(parts)
@@ -185,9 +192,10 @@ def readme(sysd, name, gpu, cuda, musa, extra):
                   "     sudo xattr -dr com.apple.quarantine <the copied files>"]
     lines += ["4. Start BOINC again and allow new tasks.", ""]
     if musa:
-        lines += ["MUSA: for Moore Threads graphics cards (needs the Moore Threads driver). The program is a normal",
-                  "CPU task that uses the card by itself; libnf_musa.so and libmusart.so.4 must stay next to it.",
-                  "On a computer without such a card it simply runs on the CPU.", ""]
+        lines += ["MUSA: for Moore Threads graphics cards (needs the Moore Threads driver). To BOINC the program is a",
+                  "normal CPU task; one task at a time also uses the card (the others run on the CPU), and",
+                  "libnf_musa.so and libmusart.so.4 must stay next to it. Without such a card every task runs on",
+                  "the CPU.", ""]
     elif cuda:
         lines += ["GPU: needs an NVIDIA graphics card with double-precision support and the NVIDIA driver",
                   "(no CUDA toolkit needed). app_config.xml runs 4 tasks per card (see the comments in it).", ""]

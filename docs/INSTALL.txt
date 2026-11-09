@@ -11,7 +11,8 @@ WHICH FILE DO I DOWNLOAD?
                    lists both and an app_config.xml for the GPU.
   GPU-CUDA_...     the GPU app for NVIDIA cards through CUDA (needs only the NVIDIA driver).
   CPU-GPU-CUDA_    the CPU app and the CUDA app in one package.
-  GPU-MUSA_...     for Moore Threads graphics cards (Linux x86-64): a CPU task that uses the card.
+  GPU-MUSA_...     for Moore Threads graphics cards (Linux x86-64): a CPU task to BOINC that also uses
+                   the card (one task per card).
 
   ..._windows_x86-64.zip       Windows 64-bit
   ..._linux_x86-64.tar.gz      Linux 64-bit (GPU packages: glibc 2.34+, i.e. Ubuntu 22.04 or newer)
@@ -70,16 +71,20 @@ GPU
   double-precision OpenCL support and a driver that provides OpenCL (Windows: OpenCL.dll comes with
   the driver; Linux: libOpenCL.so.1 plus the vendor's OpenCL runtime).
 * CUDA: NVIDIA cards only; no CUDA toolkit needed, the program loads the driver by itself.
-* MUSA: Moore Threads cards cannot be seen by BOINC, so the program runs as a normal CPU task and uses
-  the card itself; libnf_musa.so and libmusart.so.4 must stay next to it. On a computer without such a
-  card it simply runs on the CPU.
+* MUSA: BOINC cannot schedule Moore Threads cards, so the program runs as a normal CPU task; one task at
+  a time also uses each card, the others run on the CPU. libnf_musa.so and libmusart.so.4 must stay next
+  to it. On a computer without such a card every task runs on the CPU.
 * Every GPU task first cross-checks the start of its work (5 million polynomials) against the CPU. If a
   GPU or driver does not reproduce the CPU result, the task stops with an error instead of reporting
   wrong results (the stderr then says "GPU self-check FAILED"). NF_SELFCHECK=0 switches it off.
+* A GPU task uses the GPU BOINC gives it, or stops with an error that names the cause (in the task's
+  stderr on the project's website): no driver, no double precision, a failed self-test, and so on.
+  If the card's memory is in use by another program, BOINC restarts the task a minute later.
 * app_config.xml runs 4 tasks per card (gpu_usage 0.25): while one task is busy on the processor
-  (the exact checks of the few candidates), the others keep the card working. Change
-  <gpu_usage> to 1 for one task per card, 0.5 for two, 0.125 for eight; each task uses about
-  150 MB of video memory and one CPU core (<cpu_usage>).
+  (the outer loops and the exact checks of the few candidates), the others keep the card working.
+  Change <gpu_usage> to 1 for one task per card, 0.5 for two, 0.125 for eight; each task uses about
+  150 MB of video memory. <cpu_usage> 0.5 sets aside half a CPU core per GPU task; a task's "CPU time"
+  divided by its "Run time" (in its details on the project's website) is the value for your computer.
   In BOINC Manager: Options -> Read config files after editing.
 
 UNINSTALL

@@ -27,7 +27,7 @@ s = open('nf_port_opencl.h').read() + open('nf_kernel.h').read()
 nl = chr(10)
 open('nf_enum_cl.h', 'w').write('R"NFCL(' + nl + s + ')NFCL"' + nl)
 PY
-{ echo "LIBRARY OpenCL.dll"; echo "EXPORTS"; for f in clGetPlatformIDs clGetPlatformInfo clGetDeviceIDs clGetDeviceInfo clCreateContext clCreateCommandQueue clCreateProgramWithSource clBuildProgram clGetProgramBuildInfo clCreateKernel clCreateBuffer clReleaseMemObject clEnqueueWriteBuffer clEnqueueReadBuffer clEnqueueNDRangeKernel clSetKernelArg clFinish; do echo $f; done; } > OpenCL.def
+{ echo "LIBRARY OpenCL.dll"; echo "EXPORTS"; for f in clGetPlatformIDs clGetPlatformInfo clGetDeviceIDs clGetDeviceInfo clCreateContext clCreateCommandQueue clCreateProgramWithSource clBuildProgram clGetProgramBuildInfo clCreateKernel clCreateBuffer clReleaseMemObject clEnqueueWriteBuffer clEnqueueReadBuffer clEnqueueNDRangeKernel clSetKernelArg clFinish clFlush clGetEventInfo clReleaseEvent; do echo $f; done; } > OpenCL.def
 $DLLTOOL -d OpenCL.def -l libOpenCL.a -D OpenCL.dll
 INC="-I. -I$CLINC -I$B -I$B/lib -I$B/api -I$WP/src/headers -I$WP/Omingw-x86_64 -I$G/include"
 x86_64-w64-mingw32-gfortran -O3 -march=x86-64 -mavx2 -mno-popcnt -cpp -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" -c pdfilter.f90 -o pdfilter_v3.o

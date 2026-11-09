@@ -5,11 +5,18 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
+// NF_GPU_NO_BOINC: the CPU-side tests (pdfilter_Test/test_gpu_filter.cpp) include this file without BOINC's libraries.
+#ifndef NF_GPU_NO_BOINC
+#include "boinc_api.h"
+#include "app_ipc.h"
+#endif
 #include "nf_gpu.h"
 #include "nf_gpu_backend.h"
 
@@ -221,13 +228,65 @@ bool nfSelfTestVerify(const NfSelfTest &t, std::vector<unsigned> &out)
               part[g < n1 ? 0 : g < n1 + n2 ? 1 : g < n1 + n2 + n3 ? 2 : 3], (unsigned)g, v, t.expect[g]);
   }
   if (bad) {
-    fprintf(stderr, "GPU self-test FAILED: %u of %u values differ, the device does not compute the filter exactly; using the CPU.\n",
+    fprintf(stderr, "GPU self-test FAILED: %u of %u values differ, the device does not compute the filter exactly.\n",
             (unsigned)bad, (unsigned)t.expect.size());
     return false;
   }
   fprintf(stderr, "GPU self-test passed (%u values: redc, coef_mod and the symbol at each of the %u filter primes, %u polynomials).\n",
           (unsigned)t.expect.size(), t.np, t.npoly);
   return true;
+}
+
+// ---- device choice and failures -----------------------------------------------------
+
+int nfGpuDeviceArg(int argc, char **argv)
+{
+  for (int i = 1; i + 1 < argc; i++)
+    if (!strcmp(argv[i], "--device") || !strcmp(argv[i], "-device")) return atoi(argv[i + 1]);
+  return -1;
+}
+
+#ifndef NF_GPU_NO_BOINC
+NfGpuChoice nfGpuChoose(int argc, char **argv)
+{
+  APP_INIT_DATA aid;
+  boinc_get_init_data(aid);
+  NfGpuChoice c;
+  c.type = aid.gpu_type;
+  int arg = nfGpuDeviceArg(argc, argv);
+  c.byHand = boinc_is_standalone() != 0;
+  if (!c.type.empty()) {                       // assigned by the BOINC client, or by an init_data.xml copied in by hand
+    c.device = aid.gpu_device_num >= 0 ? aid.gpu_device_num : (arg >= 0 ? arg : 0);
+    return c;
+  }
+  if (!c.byHand && arg < 0)
+    nfGpuFail(false, 1, "BOINC started this GPU program without a GPU.  Its app_version in app_info.xml needs a <coproc> "
+                        "(use the app_info.xml of the package).");
+  c.device = arg >= 0 ? arg : 0;               // run by hand (or a BOINC client older than 7.0.12): --device N, else 0
+  return c;
+}
+#endif
+
+void nfGpuFail(bool temporary, int code, const char *fmt, ...)
+{
+  char msg[1024];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(msg, sizeof(msg), fmt, ap);
+  va_end(ap);
+  fprintf(stderr, "GPU mode: %s\n", msg);
+#ifndef NF_GPU_NO_BOINC
+  if (temporary && !boinc_is_standalone()) {
+    fprintf(stderr, "This is usually temporary: BOINC restarts the task in a minute.\n");
+    fflush(stderr);
+    boinc_temporary_exit(60, msg);
+  }
+#else
+  (void)temporary;
+#endif
+  fprintf(stderr, "The task is stopped.\n");
+  fflush(stderr);
+  exit(code);
 }
 
 // ---- init -------------------------------------------------------------------------
@@ -237,16 +296,22 @@ bool nfGpuActive() { return g_active; }
 bool nfGpuInit(int argc, char **argv, int numP, const int *pSet)
 {
   const char *force = getenv("NF_GPU");
-  if (force && *force == '0') return false;
+  if (force && *force == '0') {                // developer switch: the GPU program's CPU path
+    fprintf(stderr, "GPU mode off (NF_GPU=0): running on the CPU.\n");
+    return false;
+  }
 
   std::vector<int> primes = buildPrimeTable(numP, pSet);
   size_t np = primes.size() / 8;
-  if (np < MIN_PRIMES) {
-    fprintf(stderr, "GPU mode: only %u usable filter primes for this work unit; using the CPU.\n", (unsigned)np);
+  if (np < MIN_PRIMES) {                       // does not happen for |S| <= 3 (the program refuses larger S)
+    if (!nfBackendCpuApp)
+      nfGpuFail(false, 1, "only %u usable filter primes for this work unit; the GPU kernel needs %u.", (unsigned)np,
+                (unsigned)MIN_PRIMES);
+    fprintf(stderr, "GPU mode: only %u usable filter primes for this work unit; running on the CPU.\n", (unsigned)np);
     return false;
   }
   g_table = primes;
-  if (!nfBackendInit(argc, argv, primes)) return false;
+  if (!nfBackendInit(argc, argv, primes)) return false;   // only a CPU app version (MUSA) returns false
 
   const char *tg = getenv("NF_GPU_ITEMS");
   if (tg) g_target = strtoull(tg, NULL, 10);

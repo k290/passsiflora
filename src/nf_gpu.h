@@ -15,9 +15,11 @@ struct NfNode {
   long long i[NF_NI];
 };
 
-// Pick the GPU assigned by BOINC (or NF_OCL_ANY=1: first OpenCL device) and build
-// the kernel.  Returns false when the app should run in CPU mode (no GPU assigned,
-// NF_GPU=0, too few filter primes for this work unit, ...).  Exits on real errors.
+// Pick the GPU (the one BOINC assigned; run by hand: init_data.xml, --device N or the first
+// GPU) and build the kernel.  A GPU program (OpenCL, CUDA) returns true or stops the task
+// when it cannot use the GPU (nf_gpu_backend.h: nfGpuFail).  It returns false, and the task
+// runs on the CPU, only with NF_GPU=0 (a developer switch) or in the MUSA program, which
+// BOINC runs as a CPU app version.
 bool nfGpuInit(int argc, char **argv, int numP, const int *pSet);
 bool nfGpuActive();
 

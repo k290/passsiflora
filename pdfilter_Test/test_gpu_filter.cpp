@@ -23,8 +23,10 @@
 #include <thread>
 #include <mutex>
 
+#define NF_GPU_NO_BOINC                    // compiled without BOINC's libraries
 #include "../src/nf_gpu_common.cpp"      // with the kernel, compiled for the CPU through src/nf_port_cpu.h
 // the back end is not used: buildPrimeTable and primeRow are called directly
+const bool nfBackendCpuApp = false;
 bool nfBackendInit(int, char **, const std::vector<int> &) { return false; }
 void nfBackendShutdown() {}
 void nfBackendSetNodes(const double *, const long long *, size_t) {}
