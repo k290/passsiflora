@@ -166,8 +166,20 @@ the first 5 million (0 to 10 in the test units), so it is the self-test that che
   status 6). Out of device or host memory and a device in use by another program end the task with
   `boinc_temporary_exit` instead: BOINC restarts it a minute later from its checkpoint. Run by hand every problem is an
   error. Until v0.5.2 these cases ran the task on the CPU; why that was wrong for BOINC is in CHANGES-FROM-GETDECICS.md.
-* **CPU share.** The packages set aside half a core per GPU task (`app_config.xml` `cpu_usage`, `app_info.xml`
-  `avg_ncpus`), from the measurement above; four tasks share a card (`gpu_usage` 0.25).
+* **The two configuration files are the volunteer's.** Both sit in the project's folder on the volunteer's computer; under
+  anonymous platform the project never sends them, and `build/make-release.py` only writes the packages' starting versions.
+  `app_info.xml` (required) declares each app version: program file, BOINC platform name, version number (400 CPU, 402 GPU,
+  403 MUSA), plan class, `<coproc>` type and count, `avg_ncpus` and `max_ncpus`. The client reports these versions in its
+  scheduler requests, and an edit needs a client restart. `app_config.xml` (optional) overrides the scheduling of the GPU
+  versions: `gpu_usage` (0.25, four tasks per card) and `cpu_usage`; BOINC Manager's Read config files applies an edit at once.
+* **CPU share.** The packages set aside half a core per GPU task in both files (`avg_ncpus` and `cpu_usage` 0.5, from the
+  measurement above), so `cpu_usage` is there as the setting to tune, not to change the default. Four tasks per card could also
+  be a fractional `<coproc><count>` in `app_info.xml`, but a change there would need a restart, so it stays in `app_config.xml`.
+* **An existing `app_config.xml`.** Copying a GPU package into the project's folder replaces an `app_config.xml` already there,
+  with whatever else it set for NumberFields (`max_concurrent`, `project_max_concurrent`, ...). `INSTALL.txt` and the package's
+  README tell volunteers to merge the package's `<app>` entry instead.
+* **The project's own apps.** For app versions the project serves (such as the official "Decics - Passiflora"),
+  `app_config.xml` is client-side too; the defaults come from the plan class on the project's server.
 * **MUSA.** A project's scheduler ignores coprocessor types it does not know (an app version that declares one counts as
   a CPU version, and requests for its work are skipped), so a `<coproc>` in `cc_config.xml` would get the card no work.
   The MUSA program is therefore a CPU app version that also uses the card, one task per card.

@@ -2,8 +2,7 @@
 
 Passiflora is applied on top of Eric Driver's GetDecics ([drivere/get-decics-numberfields](https://github.com/drivere/get-decics-numberfields),
 commit `638ca4e`). This document lists what Passiflora changes in how the programs compute, are built, are packaged and run, why
-each change was made, and how it fits BOINC's conventions. Each entry names the release that introduced it; "next" means the
-next release after v0.5.2. The mathematics and its proofs are in [whitepaper.pdf](whitepaper.pdf); [TECHNICAL.md](TECHNICAL.md)
+each change was made, and how it fits BOINC's conventions. Each entry names the release that introduced it. The mathematics and its proofs are in [whitepaper.pdf](whitepaper.pdf); [TECHNICAL.md](TECHNICAL.md)
 is the technical overview.
 
 BOINC's conventions here come from BOINC's documentation (the wiki pages AppCoprocessor, OpenCL-Applications,
@@ -28,11 +27,11 @@ gives each GPU task its device in `init_data.xml` and as `--device N`, and the p
 | Release workflow: tag → every package, tested | v0.4 | built by hand | — |
 | Packages with CPU and GPU app versions in one `app_info.xml` | v0.1 | served by the project | yes |
 | 4 GPU tasks per card | v0.1 | the project's setting | yes |
-| A GPU task's CPU share: half a core instead of a whole one | next | 0.1 CPU in upstream's example `init_data.xml` | yes, measured |
-| The CPU sleeps while the GPU computes | next (upstream did this for CUDA) | CUDA: blocking sync | yes |
-| Device choice by BOINC's rules, also when run by hand | next | BOINC's rules | yes |
-| A GPU that cannot be used stops the task (temporary problems: retry) | next (v0.1–v0.5.2 ran on the CPU) | stops the task | yes; the CPU fallback did not |
-| MUSA: a CPU app version that uses one card per task | v0.3, one task per card: next | — | as far as BOINC allows |
+| A GPU task's CPU share: half a core instead of a whole one | v0.6.0 | 0.1 CPU in upstream's example `init_data.xml` | yes, measured |
+| The CPU sleeps while the GPU computes | v0.6.0 (upstream did this for CUDA) | CUDA: blocking sync | yes |
+| Device choice by BOINC's rules, also when run by hand | v0.6.0 | BOINC's rules | yes |
+| A GPU that cannot be used stops the task (temporary problems: retry) | v0.6.0 (v0.1–v0.5.2 ran on the CPU) | stops the task | yes; the CPU fallback did not |
+| MUSA: a CPU app version that uses one card per task | v0.3, one task per card: v0.6.0 | — | as far as BOINC allows |
 
 ## Upstream in brief
 
@@ -69,7 +68,7 @@ integer wrap-around, and the survivors are sorted back into enumeration order.
 filter on fixed inputs with values computed independently on the host; during the first 5 million polynomials of every task the
 CPU runs the same loops and the counts must agree. *Why:* each machine's driver compiles the OpenCL kernel, so the code that runs
 was never tested by the project. *BOINC:* a GPU that computes wrong values must produce an error, not a result: both checks stop the
-task with exit status 6 (the self-test does so from the next release on; before, a failed self-test ran the task on the CPU).
+task with exit status 6 (the self-test does so from v0.6.0 on; before, a failed self-test ran the task on the CPU).
 
 ## 2. How the programs are built
 
@@ -111,27 +110,27 @@ packages let BOINC give each task to the CPU or the GPU, as it does with the pro
 survivors) leave the card idle; with four tasks the others fill those gaps. Measured on a GTX 1650: four tasks finished a work unit
 each in 83 s, one task alone in 29.7 s, 43 % more work per hour.
 
-**A GPU task's CPU share** (next; was a whole core since v0.1). `app_config.xml` sets `cpu_usage` to 0.5 and `app_info.xml`
+**A GPU task's CPU share** (v0.6.0; was a whole core since v0.1). `app_config.xml` sets `cpu_usage` to 0.5 and `app_info.xml`
 `avg_ncpus` to 0.5 for the GPU versions. *Why:* BOINC sets this much CPU aside for each GPU task and runs fewer CPU tasks
 accordingly; BOINC also overcommits the CPU on purpose to keep GPUs busy (GpuSched), so the number should be what a task uses.
 Measured on a GTX 1650 with an i5-12500H, once the task sleeps while it waits (next entry): 0.3 to 0.6 of a core, depending on
 the work unit and on how many tasks share the card. A faster card waits less for its CPU work, so a task uses more there;
 `app_config.xml` explains how to read the right value from a task's CPU time and run time.
 
-**The CPU sleeps while the GPU computes** (next). The CUDA program asks the driver to block (`CU_CTX_SCHED_BLOCKING_SYNC`), as
+**The CPU sleeps while the GPU computes** (v0.6.0). The CUDA program asks the driver to block (`CU_CTX_SCHED_BLOCKING_SYNC`), as
 upstream's CUDA program did (`cudaDeviceScheduleBlockingSync`), and the MUSA library does the same. NVIDIA's OpenCL has no such
 mode, so the OpenCL program polls the kernel's event every millisecond (on Windows with a high-resolution timer). *Why:* both
 NVIDIA drivers by default spin a CPU core for as long as a kernel runs, so every GPU task took a whole core: 0.91 to 0.96 of a core
 in the measurements, against 0.3 to 0.6 now, at the same speed (one task: 27.5 s of CPU time for 30.1 s before, 14.1 s for 29.7 s
 now with OpenCL; four tasks: 83 s instead of 86 s).
 
-**Which GPU a task uses** (next; before: BOINC's assignment only, or `NF_OCL_ANY=1`/`NF_CUDA_ANY=1`). Under BOINC the GPU is the
+**Which GPU a task uses** (v0.6.0; before: BOINC's assignment only, or `NF_OCL_ANY=1`/`NF_CUDA_ANY=1`). Under BOINC the GPU is the
 one the client assigned (`init_data.xml`: `gpu_type`, `gpu_device_num`). Run by hand it is the one an `init_data.xml` in the
 directory names (upstream's way of testing), else the one `--device N` picks, else the first: the OpenCL program lists the OpenCL
 GPUs of all platforms on stderr, numbered for `--device`. *Why:* these are BOINC's own conventions, so the program behaves like
 upstream's and like BOINC's samples, and running it by hand needs no environment variables.
 
-**When the GPU cannot be used** (next; v0.1 to v0.5.2 ran the task on the CPU). The GPU programs now use the GPU or stop the task with
+**When the GPU cannot be used** (v0.6.0; v0.1 to v0.5.2 ran the task on the CPU). The GPU programs now use the GPU or stop the task with
 a message that names the cause: no GPU assigned (the program was listed without a `<coproc>`), a GPU type the program does not
 use, no driver, no such device, no double precision, a kernel the driver cannot compile, or a failed self-test (exit status 6).
 Problems that pass by themselves (out of GPU or host memory, the device in use by another program) end the task with
@@ -145,7 +144,7 @@ the CPU app version, which the combined packages provide. (The fallbacks came in
 no CUDA driver; v0.4: failed self-test. The too-few-primes case cannot happen for sets S of up to three primes, which is all the
 program accepts.)
 
-**MUSA** (v0.3; one task per card, `--device` and blocking sync: next). BOINC does not detect Moore Threads cards. Its documented
+**MUSA** (v0.3; one task per card, `--device` and blocking sync: v0.6.0). BOINC does not detect Moore Threads cards. Its documented
 way for such a card is a `<coproc>` in the client's `cc_config.xml` with the same type in `app_info.xml`, but a project's scheduler
 ignores coprocessor types it does not know: it counts such an app version as a CPU version and skips the client's requests for
 that coprocessor's work, so the card would never get tasks. The MUSA program therefore stays what it was: to BOINC a CPU app version,

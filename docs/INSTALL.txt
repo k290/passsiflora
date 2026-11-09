@@ -86,11 +86,17 @@ GPU
   150 MB of video memory. <cpu_usage> 0.5 sets aside half a CPU core per GPU task; a task's "CPU time"
   divided by its "Run time" (in its details on the project's website) is the value for your computer.
   In BOINC Manager: Options -> Read config files after editing.
+* app_info.xml and app_config.xml are files on your computer, in the project folder; the project never
+  sends them, and the package only gives you a starting version. app_info.xml lists the programs (edit
+  it only with BOINC stopped); app_config.xml tunes how the GPU tasks are scheduled. If the project
+  folder already has an app_config.xml of yours, do not replace it: add the <app> entry of the
+  package's app_config.xml to it.
 
 UNINSTALL
 ---------
-Stop BOINC, delete app_info.xml, app_config.xml and the GetDecics_passiflora* file(s) (and libnf_musa.so,
-libmusart.so.4 for MUSA) from the project folder, start BOINC.
+Stop BOINC, delete app_info.xml, app_config.xml (or, if you merged the package's entry into your own,
+that GetDecics entry) and the GetDecics_passiflora* file(s) (and libnf_musa.so, libmusart.so.4 for MUSA)
+from the project folder, start BOINC.
 
 Source and details: https://github.com/k290/passsiflora   (licence GPL-2.0-or-later)
 Original application: Eric Driver, https://github.com/drivere/get-decics-numberfields

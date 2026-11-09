@@ -90,6 +90,8 @@ SYSTEMS = (
 APP_CONFIG = """<?xml version="1.0" encoding="UTF-8"?>
 <!--
   app_config.xml - Passiflora GPU: runs 4 tasks per graphics card.
+  This file is yours: BOINC reads it from the project folder and the project never sends it.  If you
+  already have an app_config.xml for NumberFields, add the <app> entry below to it instead.
   While one task is busy on the processor (the outer loops of the search and the exact checks of the few
   candidates), the others keep the card working.  gpu_usage 1 = one task per card, 0.5 = two, 0.25 = four,
   0.125 = eight.  Each task uses about 150 MB of video memory.
@@ -179,6 +181,9 @@ def readme(sysd, name, gpu, cuda, musa, extra):
     ] + stop + [
         "3. Copy everything in this folder (%s) into:" % files, "   " + sysd["datadir"],
     ]
+    if gpu:
+        lines += ["   If that folder already has an app_config.xml of yours, keep it and add the <app> entry of",
+                  "   this package's app_config.xml to it instead."]
     if sysd.get("android"):
         lines += ["   Android only lets the BOINC client read this folder with root access (or when BOINC runs in Termux, with",
                   "   that client's own projects folder).  Make the program file executable:  chmod 755 <the program file>"]
@@ -202,7 +207,8 @@ def readme(sysd, name, gpu, cuda, musa, extra):
     elif gpu:
         lines += ["GPU: needs a graphics card with double-precision OpenCL (NVIDIA, AMD, Intel) and a",
                   "driver that provides OpenCL. app_config.xml runs 4 tasks per card (see the comments in it).", ""]
-    lines += ["To go back to the stock app: stop BOINC, delete app_info.xml%s and the" % (", app_config.xml" if gpu else ""),
+    lines += ["To go back to the stock app: stop BOINC, delete app_info.xml%s and the" %
+              (", app_config.xml (or the entry you merged into yours)" if gpu else ""),
               "Passiflora program files from that folder, start BOINC.", "",
               "Licence: GPL-2.0-or-later. Source: " + REPO, ""]
     return "\n".join(lines)

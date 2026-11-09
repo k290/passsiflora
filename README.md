@@ -67,7 +67,7 @@ time goes, are in the whitepaper, Section 9 "Performance".
 
 **[Latest release](https://github.com/k290/passsiflora/releases/latest).**  Releases from v0.4.0 on contain the integer filter described
 above; v0.1.0 to v0.3.0 ([alplix/passiflora](https://github.com/alplix/passiflora/releases)) contain the earlier floating-point filter.
-The number after the prefix is the version (`052` = v0.5.2).
+The number after the prefix is the version (`060` = v0.6.0).
 
 | starts with | what it is | for |
 |---|---|---|
@@ -84,10 +84,20 @@ universal program, CPU only).  Install steps are in `INSTALL.txt`, attached to e
 ## Running the programs
 
 **Under BOINC (production).**  Install a package as `INSTALL.txt` describes: the program files, `app_info.xml` and, in the GPU
-packages, `app_config.xml` go into the project's folder in BOINC's data directory.  BOINC then runs them as the anonymous-platform
-app versions that `app_info.xml` lists: the CPU program as a CPU task, a GPU program on the GPU BOINC assigns to the task (it passes
-the device in `init_data.xml` and as `--device N`), four GPU tasks per card with half a CPU core set aside for each
-(`app_config.xml` explains how to tune this).  A GPU program that cannot use its GPU ends the task with an error whose cause is in
+packages, `app_config.xml` go into the project's folder in BOINC's data directory.  Both XML files live on the volunteer's computer:
+under anonymous platform the project sends neither, and a package only provides starting versions of them, which the volunteer may
+edit.
+
+* `app_info.xml` (required) declares the app versions: which program runs under which BOINC platform names and plan classes, on
+  which kind of GPU, and how much CPU BOINC sets aside for each task.  The client reports these versions to the project when it asks
+  for work.  After editing it, restart the client.
+* `app_config.xml` (optional) tunes how the client schedules the GPU versions it already has: `gpu_usage` 0.25 runs four tasks per
+  card, `cpu_usage` is the CPU share of a GPU task and overrides the one in `app_info.xml` (both are 0.5 in the packages).  BOINC
+  Manager's *Options → Read config files* applies an edit without a restart.  A volunteer who already has an `app_config.xml` for
+  NumberFields should add the package's `<app>` entry to it instead of replacing it.
+
+BOINC then runs the CPU program as a CPU task and a GPU program on the GPU it assigns to the task (it passes the device in
+`init_data.xml` and as `--device N`).  A GPU program that cannot use its GPU ends the task with an error whose cause is in
 the task's stderr (shown on the project's website); a temporary problem, such as GPU memory in use by another program, makes BOINC
 restart the task a minute later.  The Moore Threads program is a CPU task to BOINC; one task at a time also uses each card.
 
