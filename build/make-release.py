@@ -66,7 +66,7 @@ SYSTEMS = (
          datadir="/var/lib/boinc-client/projects/numberfields.asu.edu_NumberFields"),
     dict(key="ANDROID", osname="android_aarch64", platforms=["aarch64-android-linux-gnu"], system="Android 64-bit ARM", windows=False,
          exe="GetDecics_passiflora_%s%s_aarch64-android-linux-gnu", kinds=["CPU"], android=True,
-         datadir="/data/data/edu.berkeley.boinc/client/projects/numberfields.asu.edu_NumberFields"),
+         datadir="projects/numberfields.asu.edu_NumberFields in the BOINC client's data directory"),
     dict(key="FBSD", osname="freebsd_x86-64", platforms=["x86_64-pc-freebsd"], system="FreeBSD x86-64", windows=False,
          exe="GetDecics_passiflora_%s%s_x86_64-pc-freebsd", kinds=["CPU"],
          datadir="/var/db/boinc/projects/numberfields.asu.edu_NumberFields"),
@@ -152,8 +152,28 @@ def readme(sysd, name, gpu, cuda, musa, extra):
     if musa:
         files = "all files in this folder"
     if sysd.get("android"):
-        stop = ["2. Stop the BOINC client (BOINC app: menu -> Shut down BOINC; Termux: boinccmd --quit)."]
-    elif sysd.get("key") == "FBSD":
+        # NumberFields' Android app: deployed on the project server, the BOINC app for Android runs it like any project
+        # app.  It needs only Android's own system libraries (libc, libm, libdl,
+        # /system/bin/linker64) and Android 10+ (the Fortran runtime's thread-local variables, docs/TECHNICAL.md).
+        return "\n".join([
+            "Passiflora v%s - GetDecics (NumberFields@home) optimized app - %s, %s" % (VER, sysd["system"], name),
+            "=" * 70, "",
+            "This folder contains the program file and app_info.xml.",
+            "Full instructions: INSTALL.txt on the release page, or " + REPO, "",
+            "This is NumberFields' Android app (BOINC platform aarch64-android-linux-gnu, Android 10 and",
+            "newer). It needs only Android's own system libraries: no root, no Termux. Deployed on the",
+            "project server, it is downloaded and run by the BOINC app for Android like any project app,",
+            "with nothing to install by hand. BOINC for Android is not on Google Play; it is on F-Droid,",
+            "the Amazon Appstore (Fire tablets) and boinc.berkeley.edu (APK).", "",
+            "Deploying: the program needs Android 10 or newer; a plan class with",
+            "<min_android_version>100000</min_android_version> sends it only to those devices.", "",
+            "By hand, as an anonymous-platform app: with the BOINC client stopped, copy the program file and",
+            "app_info.xml into projects/numberfields.asu.edu_NumberFields/ in the client's data directory,",
+            "make the program executable (chmod 755) and start the client. That needs a client whose data",
+            "directory you can write to: the BOINC app for Android keeps its own private to the app; BOINC",
+            "in Termux (pkg install boinc) uses the folder you start it in.", "",
+            "Licence: GPL-2.0-or-later. Source: " + REPO, ""])
+    if sysd.get("key") == "FBSD":
         stop = ["2. Stop BOINC:  sudo service boinc-client stop"]
     elif mac:
         stop = ["2. Quit BOINC (BOINC Manager -> BOINC Manager -> Quit, and stop the client)."]
@@ -175,12 +195,7 @@ def readme(sysd, name, gpu, cuda, musa, extra):
     if gpu:
         lines += ["   If that folder already has an app_config.xml of yours, keep it and add the <app> entry of",
                   "   this package's app_config.xml to it instead."]
-    if sysd.get("android"):
-        lines += ["   That is the folder of the BOINC app from Google Play, which Android keeps private: copying into it",
-                  "   needs root.  Without root, run BOINC in Termux (pkg install boinc) and use the",
-                  "   projects/numberfields.asu.edu_NumberFields folder in its data directory instead.",
-                  "   Make the program file executable:  chmod 755 <the program file>"]
-    elif not sysd["windows"]:
+    if not sysd["windows"]:
         lines += ["   then:  sudo chown -R boinc:boinc <the copied files>  &&  sudo chmod +x <the program files>"
                   if not mac else
                   "   then:  sudo chown -R boinc_master:boinc_master <the copied files>  &&  sudo chmod +x <the program files>",

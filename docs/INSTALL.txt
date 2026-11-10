@@ -18,9 +18,7 @@ WHICH FILE DO I DOWNLOAD?
   ..._linux_x86-64.tar.gz      Linux 64-bit (GPU packages: glibc 2.34+, i.e. Ubuntu 22.04 or newer)
   ..._linux_aarch64.tar.gz     Linux 64-bit ARM (Raspberry Pi 4/5, Ampere, Graviton, ...; glibc 2.34+ for GPU)
   ..._macos_universal.tar.gz   macOS 15 and newer, Intel and Apple silicon (one universal program), CPU only
-  ..._android_aarch64.tar.gz   Android 64-bit ARM (Android 10 and newer), CPU only.  NumberFields has no Android app of its own,
-                               so this goes in with app_info.xml: no root is needed with BOINC in Termux (pkg install boinc);
-                               the BOINC app from Google Play keeps its folder private, so with that app it needs root
+  ..._android_aarch64.tar.gz   Android 64-bit ARM (Android 10 and newer), CPU only: NumberFields' Android app
   ..._freebsd_x86-64.tar.gz    FreeBSD 14 and newer, x86-64, CPU only (data folder /var/db/boinc/projects/..., service boinc-client)
   ..._linux_armhf.tar.gz       Linux 32-bit ARM (armhf), CPU only
 
@@ -62,6 +60,20 @@ matches the processor.
      sudo chmod +x <the copied program file>
      sudo xattr -dr com.apple.quarantine <the copied files>      (clears the mark of a downloaded file)
 4. Start BOINC and choose "Allow new tasks".
+
+INSTALL - ANDROID (64-bit ARM, Android 10 and newer)
+----------------------------------------------------
+This is NumberFields' Android app (BOINC platform aarch64-android-linux-gnu). It needs only Android's
+own system libraries: no root, no Termux. Deployed on the project server, it is downloaded and run by
+the BOINC app for Android like any project app, with nothing to install by hand. BOINC for Android is
+not on Google Play; it is on F-Droid, the Amazon Appstore (Fire tablets) and boinc.berkeley.edu (APK).
+Deploying: the program needs Android 10 or newer; a plan class with
+<min_android_version>100000</min_android_version> sends it only to those devices.
+By hand, as an anonymous-platform app: with the BOINC client stopped, copy the program file and
+app_info.xml into projects/numberfields.asu.edu_NumberFields/ in the client's data directory, make the
+program executable (chmod 755) and start the client. That needs a client whose data directory you can
+write to: the BOINC app for Android keeps its own private to the app; BOINC in Termux
+(pkg install boinc) uses the folder you start it in.
 
 GPU
 ---
