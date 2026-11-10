@@ -1,5 +1,5 @@
 #!/bin/bash
-# Linux CPU build for any architecture Ubuntu 22.04 supports (riscv64, ppc64le, ...), run natively or in an emulated container (glibc 2.35 -> the programs need glibc 2.34+).
+# Linux CPU build for any architecture Ubuntu 22.04 supports (the release builds armhf with it), run natively or in an emulated container (glibc 2.35 -> the programs need glibc 2.34+).
 # Needs: build-essential gfortran libgmp-dev libboinc-app-dev bison perl python3 (+ ocl-icd-opencl-dev opencl-headers for OpenCL)
 # Expects $HOME/pk/armpack.tar.gz made from the output of prepare-src.sh (src/), PARI 2.8-1711 (pari/) and Test/.
 # Floating-point contraction is switched off: the enumeration must round exactly like the x86 build.

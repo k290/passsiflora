@@ -51,7 +51,7 @@ every start (below).
 
 **At run time.**  The start-up checks guard the build, not the machine.  Integer instructions have no rounding modes, so a binary
 computes the same values on every processor of its architecture; what can be wrong is the code its compiler produced.  The filter's
-own tests ran on x86-64 with GCC 15.2 and 16.2, but the releases are also built with MinGW-w64 and for ARM, RISC-V, PowerPC and IBM Z
+own tests ran on x86-64 with GCC 15.2 and 16.2, but the releases are also built with MinGW-w64 and for ARM
 Linux, macOS and FreeBSD.  The release workflow runs each of those programs on the upstream work units (all 31, or two small ones where
 the system is emulated); beyond that, the CPU filter's start-up check of its compiled arithmetic is the one test of their code.  The GPU kernel was tested on one card, and under OpenCL each machine's graphics driver compiles it, so every GPU task
 first runs a self-test of the kernel's filter against values computed on the host and compares its polynomial count with the CPU over
@@ -67,7 +67,7 @@ time goes, are in the whitepaper, Section 9 "Performance".
 
 **[Latest release](https://github.com/k290/passsiflora/releases/latest).**  Releases from v0.4.0 on contain the integer filter described
 above; v0.1.0 to v0.3.0 ([alplix/passiflora](https://github.com/alplix/passiflora/releases)) contain the earlier floating-point filter.
-The number after the prefix is the version (`060` = v0.6.0).
+The number after the prefix is the version (`061` = v0.6.1).
 
 | starts with | what it is | for |
 |---|---|---|
@@ -77,8 +77,8 @@ The number after the prefix is the version (`060` = v0.6.0).
 | `GPU-CUDA_`, `CPU-GPU-CUDA_` | the same with CUDA instead of OpenCL (driver only, no toolkit) | NVIDIA cards, Maxwell to Blackwell |
 | `GPU-MUSA_` | the Moore Threads app (a CPU task to BOINC; one task per card also uses the card) | Moore Threads cards, Linux x86-64 |
 
-Systems: Windows x86-64; Linux x86-64 (CPU fully static; GPU needs glibc 2.34+); Linux aarch64; Android aarch64 (Android 10+, for a
-BOINC client that reads `app_info.xml`); FreeBSD 14+ x86-64; Linux RISC-V, armhf, ppc64le and s390x; macOS 11+ on Intel and Apple silicon (one
+Systems: Windows x86-64; Linux x86-64 (CPU fully static; GPU needs glibc 2.34+); Linux aarch64; Android aarch64 (Android 10+; with
+BOINC in Termux, no root needed); FreeBSD 14+ x86-64; Linux armhf; macOS 15+ on Intel and Apple silicon (one
 universal program, CPU only).  Install steps are in `INSTALL.txt`, attached to every release and inside each package.
 
 ## Running the programs

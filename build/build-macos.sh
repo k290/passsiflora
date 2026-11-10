@@ -5,7 +5,8 @@
 # Needs: Xcode command line tools, Homebrew gcc (gfortran) and gmp, BOINC's application libraries
 # (libboinc.a, libboinc_api.a + headers; built from source, see docs/BUILDING.md), PARI 2.8-1711 built in $W/pari
 # (./Configure --static --with-gmp=<Homebrew prefix> --without-readline; make lib-sta) and the source tree in $W/src
-# (output of prepare-src.sh).  Build BOINC and PARI with MACOSX_DEPLOYMENT_TARGET=11.0, the program's minimum macOS.
+# (output of prepare-src.sh).  Build BOINC and PARI with MACOSX_DEPLOYMENT_TARGET=15.0, the program's minimum macOS:
+# macOS 15 is the oldest the release workflow tests on (GitHub's macos-15 runners), and Homebrew's libraries are built for it.
 # Floating-point contraction is off so the enumeration rounds like the x86 build.
 set -e
 ARCH=$(uname -m)
@@ -15,7 +16,7 @@ W=${W:-$HOME/passiflora-work}
 BOINC=${BOINC:-$HOME/juniper-work/boinc-install}
 P=$W/pari
 OBJ=$(basename "$(ls -d $P/O* | head -1)")
-MIN=-mmacosx-version-min=11.0
+MIN=-mmacosx-version-min=15.0
 cd "$W/src"
 : > config.h
 INC="-I. -I$BOINC/include/boinc -I$BOINC/include -I$P/src/headers -I$P/$OBJ -I$HB/include"

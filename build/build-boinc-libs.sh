@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the BOINC application libraries (libboinc_api.a, libboinc.a) from source, for architectures whose
-# distribution packages ship empty archives (Ubuntu 22.04 riscv64), or for macOS.  Result: $HOME/pk/boinclibs/*.a, or with
+# distribution packages ship empty archives (Ubuntu 22.04 armhf), or for macOS.  Result: $HOME/pk/boinclibs/*.a, or with
 # PREFIX=dir the libraries in dir/lib and the headers in dir/include/boinc.
 # HOST=triple: cross-compiled with the CC, CXX, CFLAGS and CXXFLAGS of the environment (Android: build/android/).
 # MINGW=1: for Windows instead, with BOINC's lib/Makefile.mingw (MinGW-w64 cross compilers on Linux, or MSYS2 MINGW64).

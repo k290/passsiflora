@@ -33,15 +33,24 @@ g++ -O2 -std=c++11 -w $INC -c nf_gpu_cuda.cpp
 BL=/usr/lib/x86_64-linux-gnu
 # CPU: fully static
 g++ -O3 -static -Wl,-u,pthread_once -Wl,-u,pthread_getspecific -Wl,-u,pthread_setspecific -Wl,-u,pthread_create -Wl,-u,pthread_join -Wl,-u,pthread_equal -Wl,-u,pthread_self -Wl,-u,pthread_detach -Wl,-u,pthread_cancel -Wl,-u,pthread_mutex_lock -Wl,-u,pthread_mutex_trylock -Wl,-u,pthread_mutex_unlock -Wl,-u,pthread_mutex_init -Wl,-u,pthread_mutex_destroy -Wl,-u,pthread_cond_init -Wl,-u,pthread_cond_broadcast -Wl,-u,pthread_cond_signal -Wl,-u,pthread_cond_wait -Wl,-u,pthread_cond_destroy -Wl,-u,pthread_mutexattr_init -Wl,-u,pthread_mutexattr_settype -Wl,-u,pthread_mutexattr_destroy -Wl,-u,pthread_key_create -Wl,-u,pthread_key_delete -o GetDecics_cpu GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_stub.o pdfilter_v3.o pdfilter_base.o \
-  $BL/libboinc_api.a $BL/libboinc.a -L$P/Olinux-x86_64 -l:libpari.a -l:libgfortran.a -lquadmath -l:libgmp.a -lm -lpthread
+  $BL/libboinc_api.a $BL/libboinc.a -L$P/Olinux-x86_64 -l:libpari.a -l:libgfortran.a -l:libquadmath.a -l:libgmp.a -lm -lpthread
 # GPU: OpenCL is loaded from the system, everything else static
 g++ -O3 -o GetDecics_gpu GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_common.o nf_gpu_opencl.o pdfilter_v3.o pdfilter_base.o \
   $BL/libboinc_opencl.a $BL/libboinc_api.a $BL/libboinc.a -L$P/Olinux-x86_64 -l:libpari.a \
-  -static-libgcc -static-libstdc++ -l:libgfortran.a -lquadmath -l:libgmp.a -lOpenCL -lm -lpthread
+  -static-libgcc -static-libstdc++ -l:libgfortran.a -l:libquadmath.a -l:libgmp.a -lOpenCL -lm -lpthread
 # GPU (CUDA): the driver library is loaded at run time, nothing CUDA is linked
-g++ -O3 -o GetDecics_cuda GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_common.o nf_gpu_cuda.o pdfilter_v3.o pdfilter_base.o   $BL/libboinc_api.a $BL/libboinc.a -L$P/Olinux-x86_64 -l:libpari.a   -static-libgcc -static-libstdc++ -l:libgfortran.a -lquadmath -l:libgmp.a -ldl -lm -lpthread
+g++ -O3 -o GetDecics_cuda GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_common.o nf_gpu_cuda.o pdfilter_v3.o pdfilter_base.o   $BL/libboinc_api.a $BL/libboinc.a -L$P/Olinux-x86_64 -l:libpari.a   -static-libgcc -static-libstdc++ -l:libgfortran.a -l:libquadmath.a -l:libgmp.a -ldl -lm -lpthread
 cp GetDecics_cpu GetDecics_cpu.unstripped
 strip GetDecics_cpu GetDecics_gpu GetDecics_cuda
 ls -la GetDecics_cpu GetDecics_gpu GetDecics_cuda
 objdump -T GetDecics_gpu | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+# The GPU programs may load only what every Linux system that can run them has: the C library and, for OpenCL, the loader
+# that comes with the graphics driver.  Any other shared library (up to v0.6.0 libquadmath.so.0, which only systems with
+# gfortran or its runtime have) stops every task with exit code 127 before it starts, wherever that library is missing.
+for b in GetDecics_gpu GetDecics_cuda; do
+  libs=$(readelf -d $b | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | tr '\n' ' ')
+  echo "$b loads: $libs"
+  extra=$(echo $libs | tr ' ' '\n' | grep -v -x -E 'libc\.so\.6|libm\.so\.6|libpthread\.so\.0|libdl\.so\.2|ld-linux-x86-64\.so\.2|libOpenCL\.so\.1' || true)
+  if [ -n "$extra" ]; then echo "$b needs libraries a volunteer may not have: $extra"; exit 1; fi
+done
 echo PK_LINUX_OK

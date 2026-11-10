@@ -45,4 +45,10 @@ g++ -O3 -o GetDecics_gpu GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_comm
 strip GetDecics_cpu GetDecics_gpu
 ls -la GetDecics_cpu GetDecics_gpu
 objdump -T GetDecics_gpu | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+# Only the C library and the OpenCL loader may be shared: any other library stops every task with exit code 127 on systems
+# without it (build-linux-chroot-inner.sh).
+libs=$(readelf -d GetDecics_gpu | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | tr '\n' ' ')
+echo "GetDecics_gpu loads: $libs"
+extra=$(echo $libs | tr ' ' '\n' | grep -v -x -E 'libc\.so\.6|libm\.so\.6|libpthread\.so\.0|libdl\.so\.2|ld-linux-aarch64\.so\.1|libOpenCL\.so\.1' || true)
+if [ -n "$extra" ]; then echo "GetDecics_gpu needs libraries a volunteer may not have: $extra"; exit 1; fi
 echo PK_AARCH64_OK

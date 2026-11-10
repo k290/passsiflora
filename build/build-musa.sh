@@ -33,7 +33,7 @@ g++ -O2 -std=c++11 -w $INC -c nf_gpu_common.cpp
 g++ -O2 -std=c++11 -w $INC -c nf_gpu_musa.cpp
 g++ -O3 -o /work/out/GetDecics_musa GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_common.o nf_gpu_musa.o \
   pdfilter_v3.o pdfilter_base.o $BL/libboinc_api.a $BL/libboinc.a -L$P/$OBJ -l:libpari.a \
-  -static-libgcc -static-libstdc++ -l:libgfortran.a -lquadmath -l:libgmp.a -ldl -lm -lpthread
+  -static-libgcc -static-libstdc++ -l:libgfortran.a -l:libquadmath.a -l:libgmp.a -ldl -lm -lpthread
 
 # the vendor runtime the library needs
 cp -L $M/lib/libmusart.so.4 /work/out/libmusart.so.4
@@ -42,4 +42,10 @@ ls -la /work/out
 echo "--- libnf_musa.so needs:"; readelf -d /work/out/libnf_musa.so | grep -E "NEEDED|RUNPATH"
 echo "--- libmusart.so.4 needs:"; readelf -d /work/out/libmusart.so.4 | grep -E "NEEDED|SONAME"
 objdump -T /work/out/GetDecics_musa | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+# The program itself may load only the C library (libnf_musa.so is opened at run time): any other library stops every task
+# with exit code 127 on systems without it (build-linux-chroot-inner.sh).
+libs=$(readelf -d /work/out/GetDecics_musa | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | tr '\n' ' ')
+echo "GetDecics_musa loads: $libs"
+extra=$(echo $libs | tr ' ' '\n' | grep -v -x -E 'libc\.so\.6|libm\.so\.6|libpthread\.so\.0|libdl\.so\.2|ld-linux-x86-64\.so\.2' || true)
+if [ -n "$extra" ]; then echo "GetDecics_musa needs libraries a volunteer may not have: $extra"; exit 1; fi
 echo PK_MUSA_OK

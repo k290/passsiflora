@@ -160,7 +160,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [riscv64, ppc64le, s390x, armhf]
+        arch: [armhf]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -172,12 +172,11 @@ jobs:
           rm -rf pk/pari/O*   # upstream commits a prebuilt x86-64 PARI
       - name: Build and test in an emulated Ubuntu 22.04
         run: |
-          case ${{ matrix.arch }} in armhf) P=linux/arm/v7 ;; *) P=linux/${{ matrix.arch }} ;; esac
-          docker run --rm --platform $P -v "$PWD":/w -w /w -e HOME=/w -e QUICK_WUS ubuntu:22.04 bash -c '
+          docker run --rm --platform linux/arm/v7 -v "$PWD":/w -w /w -e HOME=/w -e QUICK_WUS ubuntu:22.04 bash -c '
             set -e
             apt-get update -qq
             DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential gfortran libgmp-dev libboinc-app-dev bison perl python3 git ca-certificates > /dev/null
-            # Ubuntu 22.04 ships empty BOINC libraries on some architectures (riscv64, armhf): build them from source there
+            # Ubuntu 22.04 ships empty BOINC libraries on armhf: build them from source there
             if ! nm /usr/lib/$(gcc -dumpmachine)/libboinc_api.a 2>/dev/null | grep -q " T boinc_init"; then bash build/build-boinc-libs.sh; fi
             bash build/build-linux-cpu-generic.sh
             bash build/test-suite-unix.sh /w/pk/src/GetDecics_cpu /w/up/Test/dataFiles 2 $QUICK_WUS | tee /w/suite.txt'
@@ -198,7 +197,7 @@ jobs:
           - { arch: x86_64, runner: macos-15-intel }   # Intel
     runs-on: ${{ matrix.runner }}
     env:
-      MACOSX_DEPLOYMENT_TARGET: '11.0'   # PARI and BOINC are compiled for macOS 11, the program's minimum (not the runner's macOS)
+      MACOSX_DEPLOYMENT_TARGET: '15.0'   # PARI and BOINC are compiled for macOS 15, the program's minimum (the oldest macOS tested)
     steps:
       - uses: actions/checkout@v4
       - name: Tools
@@ -410,8 +409,38 @@ jobs:
           path: work/out/
           retention-days: 7
 
+  # The Linux x86-64 programs must start on a system that has nothing but the graphics driver: each one is started in a
+  # bare Debian 13 container with only the OpenCL loader added.  A missing shared library stops a program before it starts,
+  # with exit code 127 (up to v0.6.0 the GPU programs needed libquadmath.so.0).  Without a card or input files the programs
+  # then stop with their own message, which is all this checks.
+  linux-bare-start:
+    needs: [linux-x86-64, musa]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-linux-x86-64
+          path: bins/lin
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-musa
+          path: bins/musa
+      - name: Start each program in a bare Debian 13
+        run: |
+          chmod +x bins/lin/GetDecics_* bins/musa/GetDecics_musa
+          docker run --rm -v "$PWD/bins":/b:ro debian:13-slim bash -c '
+            apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ocl-icd-libopencl1 > /dev/null
+            bad=0
+            for p in /b/lin/GetDecics_cpu /b/lin/GetDecics_gpu /b/lin/GetDecics_cuda /b/musa/GetDecics_musa; do
+              cd "$(mktemp -d)"
+              timeout 60 "$p" < /dev/null > out.txt 2>&1; rc=$?
+              echo "== $p: exit code $rc"; head -c 400 out.txt; echo
+              if [ $rc = 127 ] || grep -q "error while loading shared libraries" out.txt; then echo "^ does not start"; bad=1; fi
+            done
+            exit $bad'
+
   package:
-    needs: [linux-x86-64, windows-x86-64, linux-aarch64, linux-emulated, macos-universal, android-test, freebsd-x86-64, musa]
+    needs: [linux-x86-64, windows-x86-64, linux-aarch64, linux-emulated, macos-universal, android-test, freebsd-x86-64, musa, linux-bare-start]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     permissions:
@@ -437,8 +466,7 @@ jobs:
                  PASSIFLORA_WIN_CPU=$b/bin-windows-x86-64/GetDecics_cpu.exe PASSIFLORA_WIN_GPU=$b/bin-windows-x86-64/GetDecics_gpu.exe \
                  PASSIFLORA_WIN_CUDA=$b/bin-windows-x86-64/GetDecics_cuda.exe \
                  PASSIFLORA_A64_CPU=$b/bin-linux-aarch64/GetDecics_cpu PASSIFLORA_A64_GPU=$b/bin-linux-aarch64/GetDecics_gpu \
-                 PASSIFLORA_RV64_CPU=$b/bin-linux-riscv64/GetDecics_cpu PASSIFLORA_PPC64_CPU=$b/bin-linux-ppc64le/GetDecics_cpu \
-                 PASSIFLORA_S390X_CPU=$b/bin-linux-s390x/GetDecics_cpu PASSIFLORA_ARM32_CPU=$b/bin-linux-armhf/GetDecics_cpu \
+                 PASSIFLORA_ARM32_CPU=$b/bin-linux-armhf/GetDecics_cpu \
                  PASSIFLORA_MAC_CPU=$b/bin-macos-universal/GetDecics_cpu PASSIFLORA_ANDROID_CPU=$b/bin-android-aarch64/GetDecics_cpu PASSIFLORA_FBSD_CPU=$b/bin-freebsd-x86-64/GetDecics_cpu
           python3 build/make-release.py
           cp docs/INSTALL.txt dist/

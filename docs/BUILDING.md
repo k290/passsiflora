@@ -84,8 +84,8 @@ static). To keep the binary usable on older distributions build in an Ubuntu 22.
 ## 3b. Other systems
 
 * **Linux aarch64:** `build/build-linux-aarch64.sh`, run natively on an Ubuntu 22.04 arm64 machine or VM.
-* **Linux riscv64, ppc64le, s390x, armhf:** `build/build-linux-cpu-generic.sh` in an Ubuntu 22.04 of that architecture
-  (natively or emulated). Ubuntu's BOINC libraries are empty archives on riscv64 and armhf: build them first with
+* **Linux armhf:** `build/build-linux-cpu-generic.sh` in an Ubuntu 22.04 armhf system
+  (natively or emulated). Ubuntu's BOINC libraries are empty archives on armhf: build them first with
   `build/build-boinc-libs.sh`.
 * **macOS:** `build/build-macos.sh` (Xcode tools, Homebrew gcc + gmp, BOINC's libraries, PARI built in place), run natively
   on an Apple-silicon or an Intel Mac; it builds for that machine's architecture (on Intel with the AVX2 and baseline filters,
@@ -119,10 +119,10 @@ library for `OpenCL.dll` with `dlltool -d OpenCL.def -l libOpenCL.a`). Each scri
 ## 6. Releases
 
 `.github/workflows/release.yml` builds the release: pushing a tag `vX.Y.Z` runs the scripts above on GitHub's runners
-(Linux x86-64 in an Ubuntu 22.04 container, Windows with MSYS2, Linux aarch64 natively, riscv64/ppc64le/s390x/armhf in
-emulated Ubuntu 22.04 containers, macOS on Apple silicon and on Intel, Android cross-compiled on x86-64 and tested on an arm64
+(Linux x86-64 in an Ubuntu 22.04 container, Windows with MSYS2, Linux aarch64 natively, armhf in
+an emulated Ubuntu 22.04 container, macOS on Apple silicon and on Intel, Android cross-compiled on x86-64 and tested on an arm64
 runner in Termux's Docker image, FreeBSD in a VM, MUSA in Moore Threads' container), runs the CPU programs on the work units
-(all 31; two small ones on the emulated systems), joins the two macOS programs into one universal program (each half byte
+(all 31; two small ones on emulated armhf), joins the two macOS programs into one universal program (each half byte
 for byte the one tested on its own runner), packages everything with `build/make-release.py` (version from the tag) and
 makes a **draft** release. The gfortran for Android is kept in the runners' cache (rebuilt, about 15 minutes, when
 `0-gfortran.sh` changes). One thing it does not do: test the GPU programs (the runners have no graphics card). Test the

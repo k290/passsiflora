@@ -23,7 +23,7 @@ gives each GPU task its device in `init_data.xml` and as `--device N`, and the p
 | One OpenCL program for NVIDIA, AMD and Intel | v0.1 | one program per vendor | yes (BOINC supports it) |
 | Kernel inside the program, batch size adapts | v0.1 | kernel file and per-card table shipped next to it | yes |
 | CUDA through the driver API, kernel for every generation embedded | v0.2 | CUDA runtime, compiled for listed architectures | yes |
-| More platforms (ARM, macOS, RISC-V, PowerPC, IBM Z, Android, FreeBSD) | v0.3, v0.5.1, v0.5.2 | Windows, Linux (ARM64 in beta), Intel Mac | yes: what anonymous platform is for |
+| More platforms (ARM, macOS, Android, FreeBSD) | v0.3, v0.5.1, v0.5.2 | Windows, Linux (ARM64 in beta), Intel Mac | yes: what anonymous platform is for |
 | Release workflow: tag → every package, tested | v0.4 | built by hand | — |
 | Packages with CPU and GPU app versions in one `app_info.xml` | v0.1 | served by the project | yes |
 | 4 GPU tasks per card | v0.1 | the project's setting | yes |
@@ -78,7 +78,10 @@ otherwise have to choose; it cannot run the wrong code. A project would use CPU 
 
 **Static programs** (v0.1, v0.2). The Linux CPU program is fully static; the GPU programs are built on Ubuntu 22.04 (glibc 2.34) with
 everything static except the driver, which is loaded at run time. *Why:* the programs run on any distribution without installing
-libraries.
+libraries. From v0.2 to v0.6.0 the GPU programs also loaded `libquadmath.so.0` by mistake (`-lquadmath` without `-static` picks the
+shared library), and on systems without gfortran's runtime their tasks stopped with exit code 127 before starting. Since v0.6.1
+it is static too, the build scripts refuse any shared library other than the C library and the OpenCL loader, and the release
+workflow starts every Linux x86-64 program in a bare Debian 13 container.
 
 **One OpenCL program for NVIDIA, AMD and Intel** (v0.1). The vendor comes from BOINC's `gpu_type`; `app_info.xml` lists the same
 program under the three OpenCL plan classes. *Why:* one file to build and test. BOINC supports this explicitly
@@ -94,7 +97,8 @@ through PTX; nothing of CUDA is linked. Upstream's nvcc build links the CUDA run
 
 **More platforms** (v0.3: Linux ARM64, macOS on Apple silicon, RISC-V, PowerPC, IBM Z, armhf, Android, FreeBSD; v0.5.1: one
 universal macOS program for Intel and Apple silicon, built for macOS 11; v0.5.2: Android built by the release workflow with a gfortran
-for Android built from GNU's sources). *Why:* anonymous platform exists for platforms a project does not serve.
+for Android built from GNU's sources; after v0.6.0: macOS built for macOS 15, the oldest macOS the release workflow tests, and no more RISC-V, PowerPC or IBM Z
+packages). *Why:* anonymous platform exists for platforms a project does not serve.
 
 **The release workflow** (v0.4). Pushing a version tag builds every package on GitHub's runners, runs the CPU programs on the 31
 upstream work units and makes a draft release.
