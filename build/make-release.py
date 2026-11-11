@@ -213,8 +213,9 @@ def readme(sysd, name, gpu, cuda, musa, extra):
         lines += ["GPU: needs an NVIDIA graphics card with double-precision support and the NVIDIA driver",
                   "(no CUDA toolkit needed). app_config.xml runs 4 tasks per card (see the comments in it).", ""]
     elif gpu:
-        lines += ["GPU: needs a graphics card with double-precision OpenCL (NVIDIA, AMD, Intel) and a",
-                  "driver that provides OpenCL. app_config.xml runs 4 tasks per card (see the comments in it).", ""]
+        lines += ["GPU: needs a graphics card with OpenCL (NVIDIA, AMD, Intel) and a driver that provides it. A",
+                  "card without double precision (Intel Iris Xe, UHD 700, Arc A-series) does those steps in software:",
+                  "the same results, slower. app_config.xml runs 4 tasks per card (see the comments in it).", ""]
     lines += ["To go back to the stock app: stop BOINC, delete app_info.xml%s and the" %
               (", app_config.xml (or the entry you merged into yours)" if gpu else ""),
               "Passiflora program files from that folder, start BOINC.", "",

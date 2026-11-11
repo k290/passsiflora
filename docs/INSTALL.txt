@@ -77,9 +77,11 @@ write to: the BOINC app for Android keeps its own private to the app; BOINC in T
 
 GPU
 ---
-* OpenCL: one program serves NVIDIA, AMD and Intel; BOINC chooses the card. The card needs
-  double-precision OpenCL support and a driver that provides OpenCL (Windows: OpenCL.dll comes with
-  the driver; Linux: libOpenCL.so.1 plus the vendor's OpenCL runtime).
+* OpenCL: one program serves NVIDIA, AMD and Intel; BOINC chooses the card. It needs a driver that
+  provides OpenCL (Windows: OpenCL.dll comes with the driver; Linux: libOpenCL.so.1 plus the vendor's
+  OpenCL runtime). A GPU without double precision (Intel Iris Xe, UHD 700 series, Arc A-series) does
+  the double-precision steps in software: the same results, at a fraction of the speed of a card
+  that has it.
 * CUDA: NVIDIA cards only; no CUDA toolkit needed, the program loads the driver by itself.
 * MUSA: BOINC cannot schedule Moore Threads cards, so the program runs as a normal CPU task; one task at
   a time also uses each card, the others run on the CPU. libnf_musa.so and libmusart.so.4 must stay next
@@ -88,7 +90,8 @@ GPU
   GPU or driver does not reproduce the CPU result, the task stops with an error instead of reporting
   wrong results (the stderr then says "GPU self-check FAILED"). NF_SELFCHECK=0 switches it off.
 * A GPU task uses the GPU BOINC gives it, or stops with an error that names the cause (in the task's
-  stderr on the project's website): no driver, no double precision, a failed self-test, and so on.
+  stderr on the project's website): no driver, a kernel the driver cannot compile, a failed self-test,
+  and so on.
   If the card's memory is in use by another program, BOINC restarts the task a minute later.
 * app_config.xml runs 4 tasks per card (gpu_usage 0.25): while one task is busy on the processor
   (the outer loops and the exact checks of the few candidates), the others keep the card working.

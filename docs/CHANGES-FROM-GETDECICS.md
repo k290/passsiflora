@@ -17,6 +17,7 @@ gives each GPU task its device in `init_data.xml` and as `--device N`, and the p
 | CPU pre-filter before the exact test | v0.1 (exact integer filter: v0.4) | exact test on every polynomial | yes: same output, shorter tasks |
 | Exact shortcuts in the enumeration loops | v0.1 | `sqrt` comparisons, full m1 range | yes |
 | The whole search on the GPU | v0.1 | GPU runs only the discriminant test | yes |
+| Double-precision steps in software on GPUs without it | after v0.6.1 | integer-only kernel, enumeration on the CPU | yes: those GPUs compute instead of failing |
 | GPU self-checks that stop a miscomputing GPU | v0.3, v0.4 | none | yes: an error, not a wrong result |
 | One CPU program choosing AVX2 or baseline code at run time | v0.1 | one generic build | yes |
 | Static programs; GPU drivers loaded at run time | v0.1, v0.2 | partly static | yes |
@@ -63,6 +64,19 @@ the outer loops and finishes the roughly one polynomial in 10^5 that survives, w
 *Why:* upstream's GPU programs moved 88 bytes per polynomial over PCIe (about 50 GB per work unit) from one enumerating CPU
 thread, so a modern card waited most of the time. The output is unchanged: the kernel follows the CPU's floating-point order and
 integer wrap-around, and the survivors are sorted back into enumeration order.
+
+**Software doubles on GPUs without double precision** (after v0.6.1). The enumeration's bounds are double-precision arithmetic
+and must round exactly as on the CPU. On a GPU without double precision (no `cl_khr_fp64`: Intel Iris Xe, UHD 700 series, Arc
+A-series, also Apple's GPUs) the kernel now does each of those operations in software on 64-bit integers, correctly rounded like
+the hardware (`src/nf_kernel.h`, `NF_SOFT_DOUBLE`); `pdfilter_Test/test_soft_double.cpp` compares every operation with the CPU's.
+*Why:* from v0.6.0 such a GPU stopped every task ("no double precision"), and the project sends its Intel GPU tasks to these
+GPUs too. Upstream's Intel app runs there because its kernel uses integers only, but it leaves the enumeration to one CPU core.
+Measured on an Iris Xe with an i5-12500H, on a work unit of 107 million polynomials: Passiflora with software doubles 26 s at
+0.04 of a CPU core, upstream's Intel app 1,688 s at a whole core, Passiflora's CPU program 30 s on one core; all 31 test work units
+gave their reference outputs. A GPU with double precision keeps using it: on a GTX 1650 software doubles are about four times
+slower. Moving the enumeration back to the CPU instead was measured too: one core enumerates 7 to 17 million polynomials a second
+(23 to 39 % of the CPU program's time), so a filter-only GPU would need a whole core per task and still trail the fused kernel,
+which does 22 million a second on a GTX 1650 at about half a core (more on faster cards).
 
 **GPU self-checks** (cross-check at the start of every task: v0.3; start-up self-test: v0.4). The self-test compares the kernel's
 filter on fixed inputs with values computed independently on the host; during the first 5 million polynomials of every task the
@@ -136,7 +150,8 @@ upstream's and like BOINC's samples, and running it by hand needs no environment
 
 **When the GPU cannot be used** (v0.6.0; v0.1 to v0.5.2 ran the task on the CPU). The GPU programs now use the GPU or stop the task with
 a message that names the cause: no GPU assigned (the program was listed without a `<coproc>`), a GPU type the program does not
-use, no driver, no such device, no double precision, a kernel the driver cannot compile, or a failed self-test (exit status 6).
+use, no driver, no such device, no double precision (after v0.6.1: software doubles instead, above), a kernel the driver cannot
+compile, or a failed self-test (exit status 6).
 Problems that pass by themselves (out of GPU or host memory, the device in use by another program) end the task with
 `boinc_temporary_exit`, so BOINC restarts it a minute later from its checkpoint, as BOINC recommends for GPU memory allocation
 failures. Run by hand, every problem ends the program with an error. `NF_GPU=0` still runs the GPU program on the CPU, as a

@@ -168,7 +168,13 @@ bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
   char ext[8192] = "";  clGetDeviceInfo(dev, CL_DEVICE_EXTENSIONS, sizeof(ext) - 1, ext, NULL);
   fprintf(stderr, "GPU mode: OpenCL device %d \"%s\" (%s), %u compute units, %llu MB, %u filter primes.\n",
           c.device, name, how, cus, (unsigned long long)(gmem >> 20), g_np);
-  if (!strstr(ext, "cl_khr_fp64")) nfGpuFail(false, 1, "the device has no double precision (cl_khr_fp64).");
+  // A device without double precision (Intel Gen11 / Xe-LP / Arc A-series, ...) runs the kernel with software doubles: the
+  // same results bit for bit, slower (nf_kernel.h).  NF_SOFT_DOUBLE=1 forces them on any device, for tests.
+  const char *fsd = getenv("NF_SOFT_DOUBLE");
+  bool hasFp64 = strstr(ext, "cl_khr_fp64") != NULL, soft = !hasFp64 || (fsd && *fsd == '1');
+  if (soft)
+    fprintf(stderr, "GPU mode: %s: the kernel uses software doubles (the same results, slower).\n",
+            hasFp64 ? "NF_SOFT_DOUBLE=1" : "the device has no double precision (cl_khr_fp64)");
 
   cl_int st;
   cl_context_properties cps[3] = { CL_CONTEXT_PLATFORM, (cl_context_properties)plat, 0 };
@@ -178,7 +184,7 @@ bool nfBackendInit(int argc, char **argv, const std::vector<int> &primes)
   const char *src = kernelSource;
   size_t len = strlen(src);
   g_prog = clCreateProgramWithSource(g_ctx, 1, &src, &len, &st);  CLCHK(st);
-  st = clBuildProgram(g_prog, 1, &dev, "-cl-std=CL1.2", NULL, NULL);
+  st = clBuildProgram(g_prog, 1, &dev, soft ? "-cl-std=CL1.2 -D NF_SOFT_DOUBLE=1" : "-cl-std=CL1.2", NULL, NULL);
   if (st != CL_SUCCESS) {
     size_t n = 0;
     clGetProgramBuildInfo(g_prog, dev, CL_PROGRAM_BUILD_LOG, 0, NULL, &n);

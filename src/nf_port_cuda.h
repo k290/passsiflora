@@ -17,3 +17,6 @@ typedef unsigned int nfuint;
 #define NF_I64_MIN (-9223372036854775807LL - 1)
 #define NF_GID() ((u64)blockIdx.x * (u64)blockDim.x + (u64)threadIdx.x)
 #define NF_ATOMIC_INC(p) atomicAdd((p), 1u)
+// for the kernel's software doubles (NF_SOFT_DOUBLE, nf_kernel.h); the CUDA and MUSA builds use the hardware's
+#define NF_CLZ64(x) __clzll((long long)(x))
+#define NF_MULHI64(a, b) __umul64hi((u64)(a), (u64)(b))

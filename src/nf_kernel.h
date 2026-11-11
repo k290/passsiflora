@@ -11,7 +11,8 @@
 // application reports that number) and writes the few that survive the
 // filter to the output buffer.  Everything that can influence a branch is
 // computed exactly as on the CPU:
-//   * doubles: same operation order, no FMA contraction, IEEE sqrt / divide;
+//   * doubles: same operation order, no FMA contraction, IEEE sqrt / divide; a device without double precision does the
+//     same operations in software (NF_SOFT_DOUBLE, below), with the same results bit for bit;
 //   * integers: unsigned wrap-around arithmetic, like the CPU's long long;
 //   * double -> int64 uses the x86 rule (out of range or NaN gives INT64_MIN).
 // The pre-filter itself is exact integer arithmetic (redc below), with no floating-point operation.
@@ -23,13 +24,258 @@
 #define NI 35
 #define REC 12        // output record: node, m2, m1, bb1..bb9
 
-// ---- helpers -------------------------------------------------------------
-
+// ---- doubles --------------------------------------------------------------
+// The enumeration's bounds are IEEE binary64 arithmetic, exactly as on the CPU.  The kernel writes every double operation as
+// one of the macros below.  Without NF_SOFT_DOUBLE they are the hardware's operators.  With NF_SOFT_DOUBLE (the OpenCL host
+// defines it for a device without cl_khr_fp64: Intel Gen11 / Xe-LP / Arc A-series, Apple) nfdbl holds the bit pattern, the
+// node doubles are read as such, and each operation runs in software on 64-bit integers, correctly rounded to nearest even
+// like the hardware: the same results bit for bit, including signed zeros, infinities, NaN (any NaN: only comparisons and
+// d2l see them) and subnormals.  Structure after Berkeley SoftFloat 3: significands with the leading bit at bit 62 and 10
+// rounding bits; exponents biased, minus one where noted.  The port header supplies NF_CLZ64 and NF_MULHI64.
+// pdfilter_Test/test_soft_double.cpp compares every operation with the CPU's hardware doubles.
+#ifndef NF_SOFT_DOUBLE
+typedef double nfdbl;
 NF_INLINE i64 d2l(double x)
 {
   if (!(x > -9223372036854775808.0 && x < 9223372036854775808.0)) return NF_I64_MIN;
   return (i64)x;
 }
+#define DADD(a, b) ((a) + (b))
+#define DSUB(a, b) ((a) - (b))
+#define DMUL(a, b) ((a) * (b))
+#define DDIV(a, b) ((a) / (b))
+#define DNEG(a) (-(a))
+#define DSQRT(a) sqrt(a)
+#define DCEIL(a) ceil(a)
+#define DFLOOR(a) floor(a)
+#define DFROMI(x) ((double)(i64)(x))
+#define DGE(a, b) ((a) >= (b))
+#define DLE(a, b) ((a) <= (b))
+#define D2L(a) d2l(a)
+#define DK(bits, val) (val)
+#else
+typedef u64 nfdbl;
+#define SD_SIGN(a) ((a) >> 63)
+#define SD_EXP(a) ((int)((a) >> 52) & 0x7FF)
+#define SD_FRAC(a) ((a) & (u64)0x000FFFFFFFFFFFFFUL)
+#define SD_PACK(s, e, sig) (((u64)(s) << 63) + ((u64)(e) << 52) + (sig))
+#define SD_NAN ((u64)0x7FF8000000000000UL)
+#define SD_HID ((u64)0x0010000000000000UL)
+
+NF_INLINE u64 sd_srj(u64 a, int d)                // a >> d, with every bit shifted out ORed into bit 0
+{
+  if (d <= 0) return a;
+  return d < 63 ? (a >> d) | (u64)((a << ((64 - d) & 63)) != 0) : (u64)(a != 0);
+}
+
+NF_INLINE u64 sd_roundpack(u64 s, int e, u64 sig) // e: biased exponent - 1; sig: leading bit at 62
+{
+  u64 rb = sig & 0x3FF;
+  if ((unsigned)e >= 0x7FDu) {
+    if (e < 0) { sig = sd_srj(sig, -e); e = 0; rb = sig & 0x3FF; }
+    else if (e > 0x7FD || sig + 0x200 >= (u64)0x8000000000000000UL) return SD_PACK(s, 0x7FF, 0);
+  }
+  sig = (sig + 0x200) >> 10;
+  if (rb == 0x200) sig &= ~(u64)1;
+  if (!sig) e = 0;
+  return SD_PACK(s, e, sig);
+}
+
+NF_INLINE u64 sd_normroundpack(u64 s, int e, u64 sig)
+{
+  int sh = NF_CLZ64(sig) - 1;
+  e -= sh;
+  if (sh >= 10 && (unsigned)e < 0x7FDu) return SD_PACK(s, sig ? e : 0, sig << (sh - 10));
+  return sd_roundpack(s, e, sig << sh);
+}
+
+NF_INLINE u64 sd_addmags(u64 a, u64 b, u64 s)
+{
+  int ea = SD_EXP(a), eb = SD_EXP(b), d = ea - eb, ez;
+  u64 fa = SD_FRAC(a), fb = SD_FRAC(b), z;
+  if (d == 0) {
+    if (ea == 0) return a + fb;
+    if (ea == 0x7FF) return (fa | fb) ? SD_NAN : a;
+    ez = ea;
+    z = (2 * SD_HID + fa + fb) << 9;
+  } else {
+    fa <<= 9; fb <<= 9;
+    if (d < 0) {
+      if (eb == 0x7FF) return fb ? SD_NAN : SD_PACK(s, 0x7FF, 0);
+      ez = eb;
+      fa = ea ? fa + (u64)0x2000000000000000UL : fa << 1;
+      fa = sd_srj(fa, -d);
+    } else {
+      if (ea == 0x7FF) return fa ? SD_NAN : a;
+      ez = ea;
+      fb = eb ? fb + (u64)0x2000000000000000UL : fb << 1;
+      fb = sd_srj(fb, d);
+    }
+    z = (u64)0x2000000000000000UL + fa + fb;
+    if (z < (u64)0x4000000000000000UL) { ez--; z <<= 1; }
+  }
+  return sd_roundpack(s, ez, z);
+}
+
+NF_INLINE u64 sd_submags(u64 a, u64 b, u64 s)
+{
+  int ea = SD_EXP(a), eb = SD_EXP(b), d = ea - eb, ez;
+  u64 fa = SD_FRAC(a), fb = SD_FRAC(b), z;
+  if (d == 0) {
+    if (ea == 0x7FF) return SD_NAN;
+    i64 df = (i64)fa - (i64)fb;
+    if (df == 0) return 0;
+    if (ea) ea--;
+    if (df < 0) { s ^= 1; df = -df; }
+    int sh = NF_CLZ64((u64)df) - 11;
+    ez = ea - sh;
+    if (ez < 0) { sh = ea; ez = 0; }
+    return SD_PACK(s, ez, (u64)df << sh);
+  }
+  fa <<= 10; fb <<= 10;
+  if (d < 0) {
+    s ^= 1;
+    if (eb == 0x7FF) return fb ? SD_NAN : SD_PACK(s, 0x7FF, 0);
+    fa += ea ? (u64)0x4000000000000000UL : fa;
+    fa = sd_srj(fa, -d);
+    fb |= (u64)0x4000000000000000UL;
+    ez = eb;
+    z = fb - fa;
+  } else {
+    if (ea == 0x7FF) return fa ? SD_NAN : a;
+    fb += eb ? (u64)0x4000000000000000UL : fb;
+    fb = sd_srj(fb, d);
+    fa |= (u64)0x4000000000000000UL;
+    ez = ea;
+    z = fa - fb;
+  }
+  return sd_normroundpack(s, ez - 1, z);
+}
+
+NF_INLINE u64 sd_add(u64 a, u64 b) { return SD_SIGN(a) == SD_SIGN(b) ? sd_addmags(a, b, SD_SIGN(a)) : sd_submags(a, b, SD_SIGN(a)); }
+NF_INLINE u64 sd_sub(u64 a, u64 b) { return SD_SIGN(a) == SD_SIGN(b) ? sd_submags(a, b, SD_SIGN(a)) : sd_addmags(a, b, SD_SIGN(a)); }
+
+NF_INLINE u64 sd_mul(u64 a, u64 b)
+{
+  u64 s = SD_SIGN(a) ^ SD_SIGN(b);
+  int ea = SD_EXP(a), eb = SD_EXP(b);
+  u64 fa = SD_FRAC(a), fb = SD_FRAC(b);
+  if (ea == 0x7FF) { if (fa || (eb == 0x7FF && fb)) return SD_NAN; return (eb || fb) ? SD_PACK(s, 0x7FF, 0) : SD_NAN; }
+  if (eb == 0x7FF) { if (fb) return SD_NAN; return (ea || fa) ? SD_PACK(s, 0x7FF, 0) : SD_NAN; }
+  if (!ea) { if (!fa) return SD_PACK(s, 0, 0); int sh = NF_CLZ64(fa) - 11; ea = 1 - sh; fa <<= sh; }
+  if (!eb) { if (!fb) return SD_PACK(s, 0, 0); int sh = NF_CLZ64(fb) - 11; eb = 1 - sh; fb <<= sh; }
+  int ez = ea + eb - 0x3FF;
+  fa = (fa | SD_HID) << 10;
+  fb = (fb | SD_HID) << 11;
+  u64 z = NF_MULHI64(fa, fb) | (u64)((fa * fb) != 0);
+  if (z < (u64)0x4000000000000000UL) { ez--; z <<= 1; }
+  return sd_roundpack(s, ez, z);
+}
+
+NF_INLINE u64 sd_div(u64 a, u64 b)
+{
+  u64 s = SD_SIGN(a) ^ SD_SIGN(b);
+  int ea = SD_EXP(a), eb = SD_EXP(b);
+  u64 fa = SD_FRAC(a), fb = SD_FRAC(b);
+  if (ea == 0x7FF) { if (fa || eb == 0x7FF) return SD_NAN; return SD_PACK(s, 0x7FF, 0); }
+  if (eb == 0x7FF) { if (fb) return SD_NAN; return SD_PACK(s, 0, 0); }
+  if (!eb) {
+    if (!fb) return (ea || fa) ? SD_PACK(s, 0x7FF, 0) : SD_NAN;
+    int sh = NF_CLZ64(fb) - 11; eb = 1 - sh; fb <<= sh;
+  }
+  if (!ea) { if (!fa) return SD_PACK(s, 0, 0); int sh = NF_CLZ64(fa) - 11; ea = 1 - sh; fa <<= sh; }
+  int ez = ea - eb + 0x3FE;
+  u64 n = fa | SD_HID, dd = fb | SD_HID, q = 0;
+  if (n < dd) { n <<= 1; ez--; }
+  for (int i = 0; i < 55; i++) {                  // n in [dd, 2 dd): 55 quotient bits, the first one 1
+    q <<= 1;
+    if (n >= dd) { n -= dd; q |= 1; }
+    n <<= 1;
+  }
+  return sd_roundpack(s, ez, (q << 8) | (u64)(n != 0));
+}
+
+NF_INLINE u64 sd_sqrt(u64 a)
+{
+  int ea = SD_EXP(a);
+  u64 fa = SD_FRAC(a);
+  if (ea == 0x7FF) return (fa || SD_SIGN(a)) ? SD_NAN : a;
+  if (SD_SIGN(a)) return (ea || fa) ? SD_NAN : a;   // -0 stays -0
+  if (!ea) { if (!fa) return a; int sh = NF_CLZ64(fa) - 11; ea = 1 - sh; fa <<= sh; }
+  u64 m = fa | SD_HID;                            // a = m * 2^e
+  int e = ea - 1075;
+  if (e & 1) { m <<= 1; e--; }
+  u64 hi = m >> 8, lo = m << 56, r = 0, rem = 0;  // the root of m * 2^56 (110 bits) to 55 bits, two bits at a time
+  for (int i = 0; i < 55; i++) {
+    int pos = 108 - 2 * i;
+    u64 two = pos >= 64 ? (hi >> (pos - 64)) & 3 : (lo >> pos) & 3;
+    rem = (rem << 2) | two;
+    u64 t = (r << 2) | 1;
+    if (rem >= t) { rem -= t; r = (r << 1) | 1; } else r <<= 1;
+  }
+  return sd_roundpack(0, 54 + (e - 56) / 2 + 0x3FE, (r << 8) | (u64)(rem != 0));
+}
+
+NF_INLINE u64 sd_from_i64(i64 x)
+{
+  u64 u = (u64)x;
+  if (!(u & (u64)0x7FFFFFFFFFFFFFFFUL)) return x < 0 ? SD_PACK(1, 0x43E, 0) : 0;
+  u64 s = x < 0;
+  return sd_normroundpack(s, 0x43C, s ? (u64)0 - u : u);
+}
+
+NF_INLINE u64 sd_round_int(u64 a, int up)         // up = 1: ceil, 0: floor
+{
+  int e = SD_EXP(a);
+  u64 s = SD_SIGN(a);
+  if (e >= 0x433) return a;                       // |a| >= 2^52, inf, NaN
+  if (e < 0x3FF) {                                // |a| < 1
+    if (!(a << 1)) return a;
+    if (up) return s ? SD_PACK(1, 0, 0) : (u64)0x3FF0000000000000UL;
+    return s ? (u64)0xBFF0000000000000UL : 0;
+  }
+  u64 mask = ((u64)1 << (0x433 - e)) - 1;
+  if (!(a & mask)) return a;
+  if (s != (u64)up) a += mask;                    // away from zero: floor of a negative, ceil of a positive
+  return a & ~mask;
+}
+
+NF_INLINE i64 sd_d2l(u64 a)                       // the x86 rule: out of range or NaN gives INT64_MIN
+{
+  int e = SD_EXP(a);
+  if (e >= 0x43E) return NF_I64_MIN;
+  if (e < 0x3FF) return 0;
+  u64 m = SD_FRAC(a) | SD_HID;
+  int sh = e - 0x433;
+  u64 v = sh >= 0 ? m << sh : m >> (-sh);
+  return SD_SIGN(a) ? -(i64)v : (i64)v;
+}
+
+NF_INLINE int sd_isnan(u64 a) { return (a << 1) > ((u64)0x7FF0000000000000UL << 1); }
+NF_INLINE int sd_le(u64 a, u64 b)                 // a <= b; false when either is NaN
+{
+  if (sd_isnan(a) || sd_isnan(b)) return 0;
+  u64 sa = SD_SIGN(a), sb = SD_SIGN(b);
+  if (sa != sb) return sa || !((a | b) << 1);
+  return a == b || (int)(sa ^ (u64)(a < b));
+}
+
+#define DADD(a, b) sd_add(a, b)
+#define DSUB(a, b) sd_sub(a, b)
+#define DMUL(a, b) sd_mul(a, b)
+#define DDIV(a, b) sd_div(a, b)
+#define DNEG(a) ((a) ^ (u64)0x8000000000000000UL)
+#define DSQRT(a) sd_sqrt(a)
+#define DCEIL(a) sd_round_int(a, 1)
+#define DFLOOR(a) sd_round_int(a, 0)
+#define DFROMI(x) sd_from_i64((i64)(x))
+#define DGE(a, b) sd_le(b, a)
+#define DLE(a, b) sd_le(a, b)
+#define D2L(a) sd_d2l(a)
+#define DK(bits, val) ((u64)bits##UL)
+#endif
+
+// ---- helpers -------------------------------------------------------------
 
 // The filter is integer-only (docs/whitepaper.tex, Theorem E): unsigned 32-bit arithmetic, which wraps modulo 2^32 by the definition
 // of OpenCL C and CUDA, for an odd prime q < 8192 (the table's primes are below 8192).  Residues are kept in [0, 2q): a value is 0 mod q
@@ -175,7 +421,7 @@ NF_KERNEL void nf_selftest_t2(NF_G const nfuint *ts, nfuint nt, NF_G const i64 *
 // up NF_KERNEL_NAME (nf_gpu_backend.h), and the MUSA library reports NF_TABLE_FORMAT.  Change all of them together.
 #define NF_TABLE_FORMAT 2
 
-NF_KERNEL void nf_enum_t2(NF_G const double *nd, NF_G const i64 *ni,
+NF_KERNEL void nf_enum_t2(NF_G const nfdbl *nd, NF_G const i64 *ni,
                       NF_G const u64 *cum, nfuint nnodes, nfuint nodebase, u64 total,
                       NF_C int *qt, nfuint nprime,
                       NF_G i64 *out, NF_G nfuint *outcnt, nfuint outcap,
@@ -191,20 +437,20 @@ NF_KERNEL void nf_enum_t2(NF_G const double *nd, NF_G const i64 *ni,
     if (cum[mid] <= gid) lo = mid; else hi = mid;
   }
   nfuint node = lo;
-  NF_G const double *D = nd + (size_t)(nodebase + node) * ND;
+  NF_G const nfdbl *D = nd + (size_t)(nodebase + node) * ND;
   NF_G const i64 *I = ni + (size_t)(nodebase + node) * NI;
 
   i64 m2 = I[0] + (i64)(gid - cum[node]);
 
   // m1 range exactly as in the CPU code.
-  double m2p = D[1] - (double)m2;
-  double B1 = sqrt(D[2] - D[3] * m2p * m2p);
-  i64 m1_L = d2l(ceil(D[0] + (-B1 + D[4] * m2p) / D[5]));
-  i64 m1_U = d2l(floor(D[0] + (B1 + D[4] * m2p) / D[5]));
+  nfdbl m2p = DSUB(D[1], DFROMI(m2));
+  nfdbl B1 = DSQRT(DSUB(D[2], DMUL(DMUL(D[3], m2p), m2p)));
+  i64 m1_L = D2L(DCEIL(DADD(D[0], DDIV(DADD(DNEG(B1), DMUL(D[4], m2p)), D[5]))));
+  i64 m1_U = D2L(DFLOOR(DADD(D[0], DDIV(DADD(B1, DMUL(D[4], m2p)), D[5]))));
 
-  const double lam1 = D[6], lam2 = D[7], lam1c = D[8], lam2c = D[9];
-  const double T1 = D[10], T2 = D[11];
-  const double t5 = D[12], t6 = D[13], t7 = D[14], t8 = D[15], t9 = D[16], bb8_Upre = D[17];
+  const nfdbl lam1 = D[6], lam2 = D[7], lam1c = D[8], lam2c = D[9];
+  const nfdbl T1 = D[10], T2 = D[11];
+  const nfdbl t5 = D[12], t6 = D[13], t7 = D[14], t8 = D[15], t9 = D[16], bb8_Upre = D[17];
 
   const u64 M11 = (u64)I[2], M12 = (u64)I[3], M21 = (u64)I[4], M22 = (u64)I[5];
   const u64 cv41 = (u64)I[6], cv42 = (u64)I[7];
@@ -228,9 +474,10 @@ NF_KERNEL void nf_enum_t2(NF_G const double *nd, NF_G const i64 *ni,
     u64 a41 = M11 * (u64)m1 + base41;
     u64 a42 = M21 * (u64)m1 + base42;
     u64 a41sq = a41 * a41, a42sq = a42 * a42, a41a42 = a41 * a42;
-    double sd1 = (double)(i64)a41sq + lam1 * (double)(i64)a41a42 + lam2 * (double)(i64)a42sq;
-    double sd2 = (double)(i64)a41sq + lam1c * (double)(i64)a41a42 + lam2c * (double)(i64)a42sq;
-    if (!(sd1 >= 0.0 && sd1 <= T1 && sd2 >= 0.0 && sd2 <= T2)) continue;
+    nfdbl x1 = DFROMI(a41sq), x2 = DFROMI(a41a42), x3 = DFROMI(a42sq);
+    nfdbl sd1 = DADD(DADD(x1, DMUL(lam1, x2)), DMUL(lam2, x3));
+    nfdbl sd2 = DADD(DADD(x1, DMUL(lam1c, x2)), DMUL(lam2c, x3));
+    if (!(DGE(sd1, DK(0, 0.0)) && DLE(sd1, T1) && DGE(sd2, DK(0, 0.0)) && DLE(sd2, T2))) continue;
 
     u64 bb9 = 2 * a41 * a51 + (a41 * a52 + a42 * a51) * Trw + 2 * a42 * a52 * Nmw;
     if (!((i64)bb9 >= bb9L0 && (i64)bb9 <= bb9U0)) continue;
@@ -241,35 +488,36 @@ NF_KERNEL void nf_enum_t2(NF_G const double *nd, NF_G const i64 *ni,
     u64 bb5 = bb5pre2 + 2 * a11 * a41 + (a11 * a42 + a12 * a41) * Trw + 2 * a12 * a42 * Nmw;
     u64 s4 = (u64)(-4L) * bb4 - Sum4;
     u64 Sum = bb4 * S1 + bb3 * S2 + bb2 * S3 + bb1 * s4;
-    if (!((i64)bb5 >= d2l(ceil((-t5 - (double)(i64)Sum) / 5.0)) &&
-          (i64)bb5 <= d2l(floor((t5 - (double)(i64)Sum) / 5.0)))) continue;
+    if (!((i64)bb5 >= D2L(DCEIL(DDIV(DSUB(DNEG(t5), DFROMI(Sum)), DK(0x4014000000000000, 5.0)))) &&
+          (i64)bb5 <= D2L(DFLOOR(DDIV(DSUB(t5, DFROMI(Sum)), DK(0x4014000000000000, 5.0)))))) continue;
 
     u64 bb6 = bb6pre2 + 2 * a21 * a41 + (a21 * a42 + a22 * a41) * Trw + 2 * a22 * a42 * Nmw;
     u64 s5 = (u64)(-5L) * bb5 - Sum;
     Sum = bb5 * S1 + bb4 * S2 + bb3 * S3 + bb2 * s4 + bb1 * s5;
-    if (!((i64)bb6 >= d2l(ceil((-t6 - (double)(i64)Sum) / 6.0)) &&
-          (i64)bb6 <= d2l(floor((t6 - (double)(i64)Sum) / 6.0)))) continue;
+    if (!((i64)bb6 >= D2L(DCEIL(DDIV(DSUB(DNEG(t6), DFROMI(Sum)), DK(0x4018000000000000, 6.0)))) &&
+          (i64)bb6 <= D2L(DFLOOR(DDIV(DSUB(t6, DFROMI(Sum)), DK(0x4018000000000000, 6.0)))))) continue;
 
     u64 bb7 = bb7pre + 2 * a31 * a41 + (a31 * a42 + a32 * a41) * Trw + 2 * a32 * a42 * Nmw;
     u64 s6 = (u64)(-6L) * bb6 - Sum;
     Sum = bb6 * S1 + bb5 * S2 + bb4 * S3 + bb3 * s4 + bb2 * s5 + bb1 * s6;
-    if (!((i64)bb7 >= d2l(ceil((-t7 - (double)(i64)Sum) / 7.0)) &&
-          (i64)bb7 <= d2l(floor((t7 - (double)(i64)Sum) / 7.0)))) continue;
+    if (!((i64)bb7 >= D2L(DCEIL(DDIV(DSUB(DNEG(t7), DFROMI(Sum)), DK(0x401C000000000000, 7.0)))) &&
+          (i64)bb7 <= D2L(DFLOOR(DDIV(DSUB(t7, DFROMI(Sum)), DK(0x401C000000000000, 7.0)))))) continue;
 
     u64 bb8 = bb8pre + a41sq + a41a42 * Trw + a42sq * Nmw;
     u64 s7 = (u64)(-7L) * bb7 - Sum;
     Sum = bb7 * S1 + bb6 * S2 + bb5 * S3 + bb4 * s4 + bb3 * s5 + bb2 * s6 + bb1 * s7;
-    if (!((i64)bb8 >= d2l(ceil((-t8 - (double)(i64)Sum) / 8.0)) &&
-          (i64)bb8 <= d2l(floor((t8 - (double)(i64)Sum) / 8.0)))) continue;
+    if (!((i64)bb8 >= D2L(DCEIL(DDIV(DSUB(DNEG(t8), DFROMI(Sum)), DK(0x4020000000000000, 8.0)))) &&
+          (i64)bb8 <= D2L(DFLOOR(DDIV(DSUB(t8, DFROMI(Sum)), DK(0x4020000000000000, 8.0)))))) continue;
 
     u64 s8 = (u64)(-8L) * bb8 - Sum;
     Sum = bb8 * S1 + bb7 * S2 + bb6 * S3 + bb5 * s4 + bb4 * s5 + bb3 * s6 + bb2 * s7 + bb1 * s8;
-    if (!((i64)bb9 >= d2l(ceil((-t9 - (double)(i64)Sum) / 9.0)) &&
-          (i64)bb9 <= d2l(floor((t9 - (double)(i64)Sum) / 9.0)))) continue;
+    if (!((i64)bb9 >= D2L(DCEIL(DDIV(DSUB(DNEG(t9), DFROMI(Sum)), DK(0x4022000000000000, 9.0)))) &&
+          (i64)bb9 <= D2L(DFLOOR(DDIV(DSUB(t9, DFROMI(Sum)), DK(0x4022000000000000, 9.0)))))) continue;
 
-    double tmpdbl = 0.5 * (double)(i64)bb9 * (double)(i64)bb9 / (double)bb10;
-    if (!((i64)bb8 >= d2l(ceil(tmpdbl - bb8_Upre)) &&
-          (i64)bb8 <= d2l(floor(tmpdbl + bb8_Upre)))) continue;
+    nfdbl b9 = DFROMI(bb9);
+    nfdbl tmpdbl = DDIV(DMUL(DMUL(DK(0x3FE0000000000000, 0.5), b9), b9), DFROMI(bb10));
+    if (!((i64)bb8 >= D2L(DCEIL(DSUB(tmpdbl, bb8_Upre))) &&
+          (i64)bb8 <= D2L(DFLOOR(DADD(tmpdbl, bb8_Upre))))) continue;
 
     // A polynomial of the original enumeration.
     count++;

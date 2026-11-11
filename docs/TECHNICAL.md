@@ -101,7 +101,12 @@ the field discriminant.
 
 Bit-for-bit agreement with the CPU code relies on:
 
-* doubles evaluated in the same order, `FP_CONTRACT OFF`, IEEE `sqrt` and division;
+* doubles evaluated in the same order, `FP_CONTRACT OFF`, IEEE `sqrt` and division; on a device without
+  double precision (no `cl_khr_fp64`: Intel Iris Xe, UHD 700, Arc A-series) the OpenCL host builds the kernel with
+  `NF_SOFT_DOUBLE`, and each of these operations runs in software on 64-bit integers, correctly rounded to nearest
+  even like the hardware (`pdfilter_Test/test_soft_double.cpp` compares every operation with the CPU's). On an
+  Iris Xe that is about as fast as one CPU core at 0.04 of a core's CPU time; on a GTX 1650 about four times slower
+  than its hardware doubles, so a device that has them uses them;
 * integer arithmetic done in `ulong` so it wraps like the CPU's `long long`;
 * double → int64 conversion following the x86 rule (NaN or out of range → INT64_MIN),
   which the CPU code can hit in degenerate cases;
@@ -162,7 +167,7 @@ the first 5 million (0 to 10 in the test units), so it is the self-test that che
   the first lines of `stderr.txt` say which device a task uses and why.
 * **When the GPU cannot be used.** A GPU program (OpenCL, CUDA) uses its GPU or stops the task with a message naming the
   cause (`nfGpuFail`, `nf_gpu_backend.h`): no GPU assigned (the program was listed without a `<coproc>`), a GPU type it does
-  not use, no driver or device, no double precision, a kernel the driver cannot compile, or a failed self-test (exit
+  not use, no driver or device, a kernel the driver cannot compile, or a failed self-test (exit
   status 6). Out of device or host memory and a device in use by another program end the task with
   `boinc_temporary_exit` instead: BOINC restarts it a minute later from its checkpoint. Run by hand every problem is an
   error. Until v0.5.2 these cases ran the task on the CPU; why that was wrong for BOINC is in CHANGES-FROM-GETDECICS.md.
@@ -200,7 +205,10 @@ the first 5 million (0 to 10 in the test units), so it is the self-test that che
 ## Validation
 
 * All 31 work units of upstream's `Test/dataFiles` against their `.truth` outputs
-  (polynomials and every counter): CPU on Linux, CPU on Windows (subset), GPU on Windows.
+  (polynomials and every counter): CPU on Linux, CPU on Windows (subset), GPU on Windows; the software doubles on
+  an Intel Iris Xe (no double precision) and, forced with `NF_SOFT_DOUBLE=1`, on a GTX 1650.
+* `pdfilter_Test/test_soft_double.cpp`: every software double operation against the CPU's, bit for bit (about 20
+  million cases per operation, with every path and special value).
 * `NF_VERIFY=1` also runs the exact GMP test on every polynomial and aborts if the filter
   ever disagrees; `NF_GPUCHECK=1` runs the CPU loops next to the GPU ones and aborts if
   the polynomial counts or the filter's survivors differ.
@@ -224,5 +232,6 @@ None is needed to run the programs; to choose a GPU by hand, use `--device N` or
 | `NF_SELFCHECK_FAULT=1`, `=2` | test hooks: pretend the GPU miscounted (1) or, with `NF_GPUCHECK=1`, lost a filter survivor (2) |
 | `NF_SELFTEST_FAULT=1` | test hook: pretend the device got one value of the start-up self-test wrong |
 | `NF_GPU_ITEMS=N` | fixed work items per launch instead of the adaptive size |
+| `NF_SOFT_DOUBLE=1` | OpenCL: software doubles in the kernel even on a device with double precision (tests) |
 | `NF_MAXPOLYS=N` | stop after N polynomials and print a timing split (CPU mode) |
 | `NF_PDFDEBUG=1` | print per-prime survivor counts for the first batch |

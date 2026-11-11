@@ -21,5 +21,8 @@ typedef unsigned int nfuint;
 static u64 nf_cpu_gid;
 #define NF_GID() nf_cpu_gid
 #define NF_ATOMIC_INC(p) ((*(p))++)
+// for the kernel's software doubles (NF_SOFT_DOUBLE: pdfilter_Test/test_soft_double.cpp); GCC and Clang on 64-bit targets
+#define NF_CLZ64(x) ((x) ? __builtin_clzll((unsigned long long)(x)) : 64)
+#define NF_MULHI64(a, b) ((u64)(((unsigned __int128)(u64)(a) * (u64)(b)) >> 64))
 
 #endif

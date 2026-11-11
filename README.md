@@ -72,7 +72,7 @@ The number after the prefix is the version (`061` = v0.6.1).
 | starts with | what it is | for |
 |---|---|---|
 | `CPU_` | the CPU app | everybody |
-| `GPU_` | the OpenCL GPU app, with an `app_config.xml` | NVIDIA, AMD or Intel cards with double-precision OpenCL |
+| `GPU_` | the OpenCL GPU app, with an `app_config.xml` | NVIDIA, AMD or Intel cards with OpenCL (without double precision, e.g. Intel Iris Xe: software doubles, slower) |
 | `CPU-GPU_` | both apps, with an `app_info.xml` that lists both and an `app_config.xml` for the GPU | as `GPU_`; BOINC runs one app on the card and one on the processor |
 | `GPU-CUDA_`, `CPU-GPU-CUDA_` | the same with CUDA instead of OpenCL (driver only, no toolkit) | NVIDIA cards, Maxwell to Blackwell |
 | `GPU-MUSA_` | the Moore Threads app (a CPU task to BOINC; one task per card also uses the card) | Moore Threads cards, Linux x86-64 |
@@ -154,6 +154,7 @@ bash arith_checks.sh                    # the compiled reductions and the size l
 bash fault_checks.sh 100 test_pdfilter_oracle.cpp                     # deliberate faults and moved primes
 UPSTREAM=<build_src>/GetDecicsSrc bash poldisc_checks.sh                 # GetDecics' exact test against the definition
 TEST=test_gpu_filter.cpp bash build-linux.sh && build/test_gpu_filter 6000000 11 8   # the GPU kernel's filter on the CPU
+TEST=test_soft_double.cpp bash build-linux.sh && build/test_soft_double 20           # the kernel's software doubles vs the CPU's
 python3 checks.py                       # the mathematics, with independent exact models (about a minute)
 ```
 
