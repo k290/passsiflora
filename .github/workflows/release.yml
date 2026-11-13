@@ -53,12 +53,15 @@ jobs:
           apt-get update -qq
           apt-get install -y -qq software-properties-common > /dev/null
           add-apt-repository -y ppa:ubuntu-toolchain-r/test > /dev/null
-          apt-get install -y -qq build-essential gcc-11 g++-11 gfortran-11 libgmp-dev libboinc-app-dev \
+          apt-get install -y -qq build-essential gcc-11 g++-11 gfortran-11 libgmp-dev \
             ocl-icd-opencl-dev opencl-headers bison perl python3 git ca-certificates patch > /dev/null
           for t in gcc g++ gfortran cpp; do ln -sf /usr/bin/$t-11 /usr/local/bin/$t; done
           ln -sf gcc /usr/local/bin/cc && ln -sf g++ /usr/local/bin/c++
           gcc --version | sed -n 1p && gfortran --version | sed -n 1p && ldd --version | sed -n 1p
       - uses: actions/checkout@v4
+      # Ubuntu 20.04's libboinc-app-dev has only shared libraries: BOINC 7.20.7's, built here, as on the other systems
+      - name: BOINC libraries
+        run: PREFIX=/root/boinc bash build/build-boinc-libs.sh
       - uses: actions/download-artifact@v4
         with:
           name: cuda-fatbin
@@ -70,7 +73,7 @@ jobs:
           mkdir -p /pk/src && cp /root/build_src/GetDecicsSrc/* /pk/src/
           cp -r /root/upstream/Pari/pari-2.8-1711-ge5c317c /pk/pari28src
       - name: Build (PARI, CPU, OpenCL, CUDA)
-        run: bash build/build-linux-chroot-inner.sh
+        run: BOINC=/root/boinc bash build/build-linux-chroot-inner.sh
       - name: Logs
         if: failure()
         run: tail -30 /root/pari_conf.log /root/pari_make.log || true
@@ -144,12 +147,14 @@ jobs:
           apt-get update -qq
           apt-get install -y -qq software-properties-common > /dev/null
           add-apt-repository -y ppa:ubuntu-toolchain-r/test > /dev/null
-          apt-get install -y -qq build-essential gcc-11 g++-11 gfortran-11 libgmp-dev libboinc-app-dev \
+          apt-get install -y -qq build-essential gcc-11 g++-11 gfortran-11 libgmp-dev \
             ocl-icd-opencl-dev opencl-headers bison perl python3 git ca-certificates patch > /dev/null
           for t in gcc g++ gfortran cpp; do ln -sf /usr/bin/$t-11 /usr/local/bin/$t; done
           ln -sf gcc /usr/local/bin/cc && ln -sf g++ /usr/local/bin/c++
           gcc --version | sed -n 1p && gfortran --version | sed -n 1p && ldd --version | sed -n 1p
       - uses: actions/checkout@v4
+      - name: BOINC libraries (Ubuntu 20.04's package has only shared ones)
+        run: PREFIX=$HOME/boinc bash build/build-boinc-libs.sh
       - name: Upstream source
         run: |
           bash build/fetch-upstream.sh $HOME/up
@@ -157,7 +162,7 @@ jobs:
           mkdir -p $HOME/pk && cp -r $HOME/bs/GetDecicsSrc $HOME/pk/src && cp -r $HOME/up/Pari/pari-2.8-1711-ge5c317c $HOME/pk/pari
           rm -rf $HOME/pk/pari/O*   # upstream commits a prebuilt x86-64 PARI
       - name: Build (PARI, CPU, OpenCL)
-        run: bash build/build-linux-aarch64.sh
+        run: BOINC=$HOME/boinc bash build/build-linux-aarch64.sh
       - name: Test the CPU program on all work units
         run: |
           bash build/test-suite-unix.sh $HOME/pk/src/GetDecics_cpu $HOME/up/Test/dataFiles $(nproc) | tee suite.txt

@@ -1,7 +1,8 @@
 #!/bin/bash
 # Builds the BOINC application libraries (libboinc_api.a, libboinc.a) from source, for architectures whose
-# distribution packages ship empty archives (Ubuntu 22.04 armhf), or for macOS.  Result: $HOME/pk/boinclibs/*.a, or with
-# PREFIX=dir the libraries in dir/lib and the headers in dir/include/boinc.
+# distribution packages ship empty archives (Ubuntu 22.04 armhf) or none (Ubuntu 20.04 has only shared ones), or for macOS.
+# Result: $HOME/pk/boinclibs/*.a, or with PREFIX=dir the libraries (and libboinc_opencl.a) in dir/lib and the headers in
+# dir/include/boinc.
 # HOST=triple: cross-compiled with the CC, CXX, CFLAGS and CXXFLAGS of the environment (Android: build/android/).
 # MINGW=1: for Windows instead, with BOINC's lib/Makefile.mingw (MinGW-w64 cross compilers on Linux, or MSYS2 MINGW64).
 # Result: $B/lib/libboinc.a and $B/lib/libboinc_api.a, B the BOINC source (the B of build-windows-gpu.sh); AR, RANLIB as needed.
@@ -37,6 +38,8 @@ make -j3 > /tmp/boinc_make.log 2>&1 || true
 if [ -n "$PREFIX" ]; then   # PREFIX=dir: libraries in dir/lib, headers in dir/include/boinc (the BOINC of build-macos.sh)
   mkdir -p "$PREFIX/lib" "$PREFIX/include/boinc"
   cp api/.libs/libboinc_api.a lib/.libs/libboinc.a "$PREFIX/lib/" 2>/dev/null || cp api/libboinc_api.a lib/libboinc.a "$PREFIX/lib/"
+  # the OpenCL programs' device selection (Linux; build-linux-chroot-inner.sh, build-linux-aarch64.sh)
+  cp api/.libs/libboinc_opencl.a "$PREFIX/lib/" 2>/dev/null || cp api/libboinc_opencl.a "$PREFIX/lib/" 2>/dev/null || true
   cp lib/*.h api/*.h version.h config.h "$PREFIX/include/boinc/"
   ls -la "$PREFIX/lib"
   echo BOINCLIBS_OK

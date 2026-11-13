@@ -20,7 +20,9 @@ s = open('nf_port_opencl.h').read() + open('nf_kernel.h').read()
 nl = chr(10)
 open('nf_enum_cl.h', 'w').write('R"NFCL(' + nl + s + ')NFCL"' + nl)
 PY
-INC="-I. -I/usr/include/boinc -I$P/src/headers -I$P/Olinux-x86_64"
+# BOINC: Ubuntu's libboinc-app-dev (22.04), or BOINC=dir as made by PREFIX=dir build-boinc-libs.sh (Ubuntu 20.04 ships no static ones)
+if [ -n "$BOINC" ]; then BI=$BOINC/include/boinc; BL=$BOINC/lib; else BI=/usr/include/boinc; BL=/usr/lib/x86_64-linux-gnu; fi
+INC="-I. -I$BI -I$P/src/headers -I$P/Olinux-x86_64"
 gfortran -O3 -march=x86-64 -mavx2 -mno-popcnt -cpp -DPDF_MOD=pdfilter_v3 "-DPDF_INIT_NAME='pdf_init_v3'" "-DPDF_FILTER_NAME='pdf_filter_v3'" -c pdfilter.f90 -o pdfilter_v3.o
 gfortran -O3 -march=x86-64 -mtune=generic -cpp -DPDF_MOD=pdfilter_base "-DPDF_INIT_NAME='pdf_init_base'" "-DPDF_FILTER_NAME='pdf_filter_base'" -c pdfilter.f90 -o pdfilter_base.o
 # upstream's exact test with -fwrapv: an int64 overflow in it wraps by definition (docs/TECHNICAL.md)
@@ -30,7 +32,6 @@ g++ -O2 -w $INC -c nf_gpu_stub.cpp
 g++ -O2 -std=c++11 -w $INC -c nf_gpu_common.cpp
 g++ -O2 -std=c++11 -w $INC -c nf_gpu_opencl.cpp
 g++ -O2 -std=c++11 -w $INC -c nf_gpu_cuda.cpp
-BL=/usr/lib/x86_64-linux-gnu
 # CPU: fully static
 g++ -O3 -static -Wl,-u,pthread_once -Wl,-u,pthread_getspecific -Wl,-u,pthread_setspecific -Wl,-u,pthread_create -Wl,-u,pthread_join -Wl,-u,pthread_equal -Wl,-u,pthread_self -Wl,-u,pthread_detach -Wl,-u,pthread_cancel -Wl,-u,pthread_mutex_lock -Wl,-u,pthread_mutex_trylock -Wl,-u,pthread_mutex_unlock -Wl,-u,pthread_mutex_init -Wl,-u,pthread_mutex_destroy -Wl,-u,pthread_cond_init -Wl,-u,pthread_cond_broadcast -Wl,-u,pthread_cond_signal -Wl,-u,pthread_cond_wait -Wl,-u,pthread_cond_destroy -Wl,-u,pthread_mutexattr_init -Wl,-u,pthread_mutexattr_settype -Wl,-u,pthread_mutexattr_destroy -Wl,-u,pthread_key_create -Wl,-u,pthread_key_delete -o GetDecics_cpu GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_stub.o pdfilter_v3.o pdfilter_base.o \
   $BL/libboinc_api.a $BL/libboinc.a -L$P/Olinux-x86_64 -l:libpari.a -l:libgfortran.a -l:libquadmath.a -l:libgmp.a -lm -lpthread

@@ -22,8 +22,9 @@ s = open('nf_port_opencl.h').read() + open('nf_kernel.h').read()
 nl = chr(10)
 open('nf_enum_cl.h', 'w').write('R"NFCL(' + nl + s + ')NFCL"' + nl)
 PY
-INC="-I. -I/usr/include/boinc -I$P/src/headers -I$P/$OBJ"
-BL=/usr/lib/aarch64-linux-gnu
+# BOINC: Ubuntu's libboinc-app-dev (22.04), or BOINC=dir as made by PREFIX=dir build-boinc-libs.sh (Ubuntu 20.04 ships no static ones)
+if [ -n "$BOINC" ]; then BI=$BOINC/include/boinc; BL=$BOINC/lib; else BI=/usr/include/boinc; BL=/usr/lib/aarch64-linux-gnu; fi
+INC="-I. -I$BI -I$P/src/headers -I$P/$OBJ"
 rm -f *.o *.mod GetDecics_*
 gfortran -O3 -ffp-contract=off -cpp -c pdfilter.f90 -o pdfilter.o
 # upstream's exact test with -fwrapv: an int64 overflow in it wraps by definition (docs/TECHNICAL.md)
