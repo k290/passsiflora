@@ -67,7 +67,7 @@ time goes, are in the whitepaper, Section 9 "Performance".
 
 **[Latest release](https://github.com/k290/passsiflora/releases/latest).**  Releases from v0.4.0 on contain the integer filter described
 above; v0.1.0 to v0.3.0 ([alplix/passiflora](https://github.com/alplix/passiflora/releases)) contain the earlier floating-point filter.
-The number after the prefix is the version (`061` = v0.6.1).
+The number after the prefix is the version (`062` = v0.6.2).
 
 | starts with | what it is | for |
 |---|---|---|
