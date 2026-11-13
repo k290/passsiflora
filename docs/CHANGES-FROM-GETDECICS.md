@@ -76,12 +76,16 @@ task with exit status 6 (the self-test does so from v0.6.0 on; before, a failed 
 the program uses the AVX2 copy when the processor has AVX2 and FMA. *Why:* one file for anonymous-platform users, who would
 otherwise have to choose; it cannot run the wrong code. A project would use CPU plan classes for the same effect.
 
-**Static programs** (v0.1, v0.2). The Linux CPU program is fully static; the GPU programs are built on Ubuntu 22.04 (glibc 2.34) with
-everything static except the driver, which is loaded at run time. *Why:* the programs run on any distribution without installing
+**Static programs** (v0.1, v0.2). The Linux CPU program is fully static; the GPU programs are built on Ubuntu 20.04 (glibc 2.31) with
+everything static except the C library and the driver, which is loaded at run time. *Why:* the programs run on any distribution without installing
 libraries. From v0.2 to v0.6.0 the GPU programs also loaded `libquadmath.so.0` by mistake (`-lquadmath` without `-static` picks the
 shared library), and on systems without gfortran's runtime their tasks stopped with exit code 127 before starting. Since v0.6.1
 it is static too, the build scripts refuse any shared library other than the C library and the OpenCL loader, and the release
-workflow starts every Linux x86-64 program in a bare Debian 13 container.
+workflow starts every Linux x86-64 program in a bare Debian 13 container. Up to v0.6.1 the GPU programs were built on Ubuntu
+22.04 and needed glibc 2.34: on Ubuntu 20.04, Debian 11 and other systems with an older C library their tasks stopped at start
+("version \`GLIBC_2.34' not found"). After v0.6.1 they are built on Ubuntu 20.04 with the same compiler (GCC 11, from Ubuntu's
+toolchain PPA) and need glibc 2.31; the build scripts refuse a program that needs a newer one, and the release workflow also
+starts each program in a bare Ubuntu 20.04 container (MUSA excepted: Moore Threads' SDK needs Ubuntu 22.04).
 
 **One OpenCL program for NVIDIA, AMD and Intel** (v0.1). The vendor comes from BOINC's `gpu_type`; `app_info.xml` lists the same
 program under the three OpenCL plan classes. *Why:* one file to build and test. BOINC supports this explicitly

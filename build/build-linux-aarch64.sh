@@ -1,5 +1,6 @@
 #!/bin/bash
-# Linux aarch64 build, run natively on an Ubuntu 22.04 arm64 machine or VM (glibc 2.35 -> the programs need glibc 2.34+).
+# Linux aarch64 build, run natively on an Ubuntu 20.04 arm64 machine, VM or container with GCC 11 (the release workflow's
+# setup: the OpenCL program then needs glibc 2.31+; on a newer system set MAX_GLIBC, see below).
 # Needs: build-essential gfortran libgmp-dev libboinc-app-dev bison perl python3 (+ ocl-icd-opencl-dev opencl-headers for OpenCL)
 # Expects $HOME/pk/armpack.tar.gz made from the output of prepare-src.sh (src/), PARI 2.8-1711 (pari/) and Test/.
 # Floating-point contraction is switched off: the enumeration must round exactly like the x86 build.
@@ -33,7 +34,7 @@ done
 g++ -O2 -std=c++11 -w $INC -c nf_gpu_stub.cpp
 g++ -O2 -std=c++11 -w $INC -c nf_gpu_common.cpp
 g++ -O2 -std=c++11 -w $INC -c nf_gpu_opencl.cpp
-# CPU: fully static (the pthread symbols are forced in: static libgfortran otherwise crashes at exit with glibc 2.35)
+# CPU: fully static (the pthread symbols are forced in: static libgfortran otherwise crashes at exit with glibc 2.35 and newer)
 U=""
 for s in pthread_once pthread_getspecific pthread_setspecific pthread_create pthread_join pthread_equal pthread_self pthread_detach pthread_cancel pthread_mutex_lock pthread_mutex_trylock pthread_mutex_unlock pthread_mutex_init pthread_mutex_destroy pthread_cond_init pthread_cond_broadcast pthread_cond_signal pthread_cond_wait pthread_cond_destroy pthread_mutexattr_init pthread_mutexattr_settype pthread_mutexattr_destroy pthread_key_create pthread_key_delete; do U="$U -Wl,-u,$s"; done
 g++ -O3 -static $U -o GetDecics_cpu GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_stub.o pdfilter.o \
@@ -44,7 +45,13 @@ g++ -O3 -o GetDecics_gpu GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_comm
   -static-libgcc -static-libstdc++ -l:libgfortran.a -l:libgmp.a -lOpenCL -lm -lpthread
 strip GetDecics_cpu GetDecics_gpu
 ls -la GetDecics_cpu GetDecics_gpu
-objdump -T GetDecics_gpu | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+# The OpenCL program needs at least the glibc it was linked against: 2.31 when built on Ubuntu 20.04 (build-linux-chroot-inner.sh).
+MAX_GLIBC=${MAX_GLIBC:-2.31}
+g=$(objdump -T GetDecics_gpu | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+echo "GetDecics_gpu needs glibc $g"
+if [ "$(printf '%s\n%s\n' "$g" "$MAX_GLIBC" | sort -V | tail -1)" != "$MAX_GLIBC" ]; then
+  echo "GetDecics_gpu needs glibc $g, newer than $MAX_GLIBC: build it on an older system"; exit 1
+fi
 # Only the C library and the OpenCL loader may be shared: any other library stops every task with exit code 127 on systems
 # without it (build-linux-chroot-inner.sh).
 libs=$(readelf -d GetDecics_gpu | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | tr '\n' ' ')

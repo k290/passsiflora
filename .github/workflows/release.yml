@@ -39,16 +39,25 @@ jobs:
           path: ${{ runner.temp }}/nf_cuda_fatbin.h
           retention-days: 7
 
+  # The Linux programs are built on Ubuntu 20.04: the GPU programs use the system's C library, so they run on glibc 2.31 or
+  # newer (Ubuntu 20.04, Debian 11 and later; v0.6.1 and older, built on Ubuntu 22.04, needed glibc 2.34).  The compiler is
+  # GCC 11 from Ubuntu's toolchain PPA, the same compiler as on Ubuntu 22.04.
   linux-x86-64:
     needs: cuda-kernel
     runs-on: ubuntu-24.04
-    container: ubuntu:22.04
+    container: ubuntu:20.04
     steps:
-      - name: Tools
+      - name: Tools (GCC 11 from Ubuntu's toolchain PPA)
         run: |
+          export DEBIAN_FRONTEND=noninteractive
           apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential gfortran libgmp-dev libboinc-app-dev \
+          apt-get install -y -qq software-properties-common > /dev/null
+          add-apt-repository -y ppa:ubuntu-toolchain-r/test > /dev/null
+          apt-get install -y -qq build-essential gcc-11 g++-11 gfortran-11 libgmp-dev libboinc-app-dev \
             ocl-icd-opencl-dev opencl-headers bison perl python3 git ca-certificates patch > /dev/null
+          for t in gcc g++ gfortran cpp; do ln -sf /usr/bin/$t-11 /usr/local/bin/$t; done
+          ln -sf gcc /usr/local/bin/cc && ln -sf g++ /usr/local/bin/c++
+          gcc --version | head -1 && gfortran --version | head -1 && ldd --version | head -1
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
@@ -124,15 +133,22 @@ jobs:
           path: bin/*.exe
           retention-days: 7
 
+  # Ubuntu 20.04 with GCC 11, like linux-x86-64: the OpenCL program runs on glibc 2.31 or newer.
   linux-aarch64:
     runs-on: ubuntu-24.04-arm
-    container: ubuntu:22.04
+    container: ubuntu:20.04
     steps:
-      - name: Tools
+      - name: Tools (GCC 11 from Ubuntu's toolchain PPA)
         run: |
+          export DEBIAN_FRONTEND=noninteractive
           apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential gfortran libgmp-dev libboinc-app-dev \
+          apt-get install -y -qq software-properties-common > /dev/null
+          add-apt-repository -y ppa:ubuntu-toolchain-r/test > /dev/null
+          apt-get install -y -qq build-essential gcc-11 g++-11 gfortran-11 libgmp-dev libboinc-app-dev \
             ocl-icd-opencl-dev opencl-headers bison perl python3 git ca-certificates patch > /dev/null
+          for t in gcc g++ gfortran cpp; do ln -sf /usr/bin/$t-11 /usr/local/bin/$t; done
+          ln -sf gcc /usr/local/bin/cc && ln -sf g++ /usr/local/bin/c++
+          gcc --version | head -1 && gfortran --version | head -1 && ldd --version | head -1
       - uses: actions/checkout@v4
       - name: Upstream source
         run: |
@@ -412,7 +428,9 @@ jobs:
   # The Linux x86-64 programs must start on a system that has nothing but the graphics driver: each one is started in a
   # bare Debian 13 container with only the OpenCL loader added.  A missing shared library stops a program before it starts,
   # with exit code 127 (up to v0.6.0 the GPU programs needed libquadmath.so.0).  Without a card or input files the programs
-  # then stop with their own message, which is all this checks.
+  # then stop with their own message, which is all this checks.  They are started the same way in a bare Ubuntu 20.04, the
+  # oldest system they are built for: a C library older than the one a program was linked against also stops it before it
+  # starts ("version `GLIBC_2.34' not found"; v0.6.1 and older needed glibc 2.34).  Not MUSA, which needs Ubuntu 22.04.
   linux-bare-start:
     needs: [linux-x86-64, musa]
     runs-on: ubuntu-24.04
@@ -425,19 +443,29 @@ jobs:
         with:
           name: bin-musa
           path: bins/musa
-      - name: Start each program in a bare Debian 13
+      - name: Start each program in a bare Debian 13 and a bare Ubuntu 20.04
         run: |
           chmod +x bins/lin/GetDecics_* bins/musa/GetDecics_musa
-          docker run --rm -v "$PWD/bins":/b:ro debian:13-slim bash -c '
-            apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ocl-icd-libopencl1 > /dev/null
-            bad=0
-            for p in /b/lin/GetDecics_cpu /b/lin/GetDecics_gpu /b/lin/GetDecics_cuda /b/musa/GetDecics_musa; do
-              cd "$(mktemp -d)"
-              timeout 60 "$p" < /dev/null > out.txt 2>&1; rc=$?
-              echo "== $p: exit code $rc"; head -c 400 out.txt; echo
-              if [ $rc = 127 ] || grep -q "error while loading shared libraries" out.txt; then echo "^ does not start"; bad=1; fi
-            done
-            exit $bad'
+          start_in() {  # image, then the programs to start in it
+            img=$1; shift
+            echo "######## $img"
+            docker run --rm -v "$PWD/bins":/b:ro "$img" bash -c '
+              apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ocl-icd-libopencl1 > /dev/null
+              bad=0
+              for p in "$@"; do
+                cd "$(mktemp -d)"
+                timeout 60 "$p" < /dev/null > out.txt 2>&1; rc=$?
+                echo "== $p: exit code $rc"; head -c 400 out.txt; echo
+                if [ $rc = 127 ] || grep -q -e "error while loading shared libraries" -e "not found (required by" out.txt; then
+                  echo "^ does not start"; bad=1
+                fi
+              done
+              exit $bad' sh "$@"
+          }
+          bad=0
+          start_in debian:13-slim /b/lin/GetDecics_cpu /b/lin/GetDecics_gpu /b/lin/GetDecics_cuda /b/musa/GetDecics_musa || bad=1
+          start_in ubuntu:20.04 /b/lin/GetDecics_cpu /b/lin/GetDecics_gpu /b/lin/GetDecics_cuda || bad=1
+          exit $bad
 
   package:
     needs: [linux-x86-64, windows-x86-64, linux-aarch64, linux-emulated, macos-universal, android-test, freebsd-x86-64, musa, linux-bare-start]

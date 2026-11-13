@@ -78,12 +78,15 @@ version to BOINC) refuses an older `libnf_musa.so` and runs on the CPU.
 
 OpenCL GPU build: embed the kernel (`nf_enum_cl.h` is `R"NFCL(` + `nf_port_opencl.h` + `nf_kernel.h` + `)NFCL"`), compile
 `nf_gpu_common.cpp` and `nf_gpu_opencl.cpp` instead of the stub, and link `libboinc_opencl.a` and `-lOpenCL` (everything else
-static). To keep the binary usable on older distributions build in an Ubuntu 22.04 environment
-(glibc 2.34).
+static). The GPU programs use the system's C library and need at least the glibc they were linked against: releases build
+them on Ubuntu 20.04 with GCC 11 from Ubuntu's toolchain PPA (`ppa:ubuntu-toolchain-r/test`), so they run on glibc 2.31 or
+newer (Ubuntu 20.04, Debian 11 and later). `build/build-linux-chroot-inner.sh` stops if a GPU program needs a newer glibc
+than `MAX_GLIBC` (default 2.31); v0.6.1 and older were built on Ubuntu 22.04 and needed glibc 2.34.
 
 ## 3b. Other systems
 
-* **Linux aarch64:** `build/build-linux-aarch64.sh`, run natively on an Ubuntu 22.04 arm64 machine or VM.
+* **Linux aarch64:** `build/build-linux-aarch64.sh`, run natively on an Ubuntu 20.04 arm64 machine or VM with GCC 11 (as
+  for x86-64: the OpenCL program then needs glibc 2.31+).
 * **Linux armhf:** `build/build-linux-cpu-generic.sh` in an Ubuntu 22.04 armhf system
   (natively or emulated). Ubuntu's BOINC libraries are empty archives on armhf: build them first with
   `build/build-boinc-libs.sh`.
@@ -119,7 +122,7 @@ library for `OpenCL.dll` with `dlltool -d OpenCL.def -l libOpenCL.a`). Each scri
 ## 6. Releases
 
 `.github/workflows/release.yml` builds the release: pushing a tag `vX.Y.Z` runs the scripts above on GitHub's runners
-(Linux x86-64 in an Ubuntu 22.04 container, Windows with MSYS2, Linux aarch64 natively, armhf in
+(Linux x86-64 in an Ubuntu 20.04 container, Windows with MSYS2, Linux aarch64 natively in an Ubuntu 20.04 container, armhf in
 an emulated Ubuntu 22.04 container, macOS on Apple silicon and on Intel, Android cross-compiled on x86-64 and tested on an arm64
 runner in Termux's Docker image, FreeBSD in a VM, MUSA in Moore Threads' container), runs the CPU programs on the work units
 (all 31; two small ones on emulated armhf), joins the two macOS programs into one universal program (each half byte
