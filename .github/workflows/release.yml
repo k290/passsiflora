@@ -57,7 +57,7 @@ jobs:
             ocl-icd-opencl-dev opencl-headers bison perl python3 git ca-certificates patch > /dev/null
           for t in gcc g++ gfortran cpp; do ln -sf /usr/bin/$t-11 /usr/local/bin/$t; done
           ln -sf gcc /usr/local/bin/cc && ln -sf g++ /usr/local/bin/c++
-          gcc --version | head -1 && gfortran --version | head -1 && ldd --version | head -1
+          gcc --version | sed -n 1p && gfortran --version | sed -n 1p && ldd --version | sed -n 1p
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
@@ -148,7 +148,7 @@ jobs:
             ocl-icd-opencl-dev opencl-headers bison perl python3 git ca-certificates patch > /dev/null
           for t in gcc g++ gfortran cpp; do ln -sf /usr/bin/$t-11 /usr/local/bin/$t; done
           ln -sf gcc /usr/local/bin/cc && ln -sf g++ /usr/local/bin/c++
-          gcc --version | head -1 && gfortran --version | head -1 && ldd --version | head -1
+          gcc --version | sed -n 1p && gfortran --version | sed -n 1p && ldd --version | sed -n 1p
       - uses: actions/checkout@v4
       - name: Upstream source
         run: |
