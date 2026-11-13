@@ -15,9 +15,9 @@ WHICH FILE DO I DOWNLOAD?
                    the card (one task per card).
 
   ..._windows_x86-64.zip       Windows 64-bit
-  ..._linux_x86-64.tar.gz      Linux 64-bit (GPU packages: glibc 2.31+, i.e. Ubuntu 20.04, Debian 11 or newer;
+  ..._linux_x86-64.tar.gz      Linux 64-bit (GPU packages: glibc 2.29+, i.e. Ubuntu 20.04, Debian 11 or newer;
                                GPU-MUSA: Ubuntu 22.04 or newer)
-  ..._linux_aarch64.tar.gz     Linux 64-bit ARM (Raspberry Pi 4/5, Ampere, Graviton, ...; glibc 2.31+ for GPU)
+  ..._linux_aarch64.tar.gz     Linux 64-bit ARM (Raspberry Pi 4/5, Ampere, Graviton, ...; glibc 2.29+ for GPU)
   ..._macos_universal.tar.gz   macOS 15 and newer, Intel and Apple silicon (one universal program), CPU only
   ..._android_aarch64.tar.gz   Android 64-bit ARM (Android 10 and newer), CPU only: NumberFields' Android app
   ..._freebsd_x86-64.tar.gz    FreeBSD 14 and newer, x86-64, CPU only (data folder /var/db/boinc/projects/..., service boinc-client)

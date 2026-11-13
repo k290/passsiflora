@@ -39,9 +39,9 @@ jobs:
           path: ${{ runner.temp }}/nf_cuda_fatbin.h
           retention-days: 7
 
-  # The Linux programs are built on Ubuntu 20.04: the GPU programs use the system's C library, so they run on glibc 2.31 or
-  # newer (Ubuntu 20.04, Debian 11 and later; v0.6.1 and older, built on Ubuntu 22.04, needed glibc 2.34).  The compiler is
-  # GCC 11 from Ubuntu's toolchain PPA, the same compiler as on Ubuntu 22.04.
+  # The Linux programs are built on Ubuntu 20.04 (glibc 2.31): the GPU programs use the system's C library and need glibc 2.29
+  # or newer (2.29's exp, log and pow are the newest functions they use: Ubuntu 20.04, Debian 11 and later; v0.6.1 and older,
+  # built on Ubuntu 22.04, needed glibc 2.34).  The compiler is GCC 11 from Ubuntu's toolchain PPA, as on Ubuntu 22.04.
   linux-x86-64:
     needs: cuda-kernel
     runs-on: ubuntu-24.04
@@ -136,7 +136,7 @@ jobs:
           path: bin/*.exe
           retention-days: 7
 
-  # Ubuntu 20.04 with GCC 11, like linux-x86-64: the OpenCL program runs on glibc 2.31 or newer.
+  # Ubuntu 20.04 with GCC 11, like linux-x86-64: the OpenCL program needs glibc 2.29 or newer.
   linux-aarch64:
     runs-on: ubuntu-24.04-arm
     container: ubuntu:20.04

@@ -79,16 +79,17 @@ version to BOINC) refuses an older `libnf_musa.so` and runs on the CPU.
 OpenCL GPU build: embed the kernel (`nf_enum_cl.h` is `R"NFCL(` + `nf_port_opencl.h` + `nf_kernel.h` + `)NFCL"`), compile
 `nf_gpu_common.cpp` and `nf_gpu_opencl.cpp` instead of the stub, and link `libboinc_opencl.a` and `-lOpenCL` (everything else
 static). The GPU programs use the system's C library and need at least the glibc they were linked against: releases build
-them on Ubuntu 20.04 with GCC 11 from Ubuntu's toolchain PPA (`ppa:ubuntu-toolchain-r/test`), so they run on glibc 2.31 or
-newer (Ubuntu 20.04, Debian 11 and later). Ubuntu 20.04's `libboinc-app-dev` has only shared libraries, so the release
+them on Ubuntu 20.04 (glibc 2.31) with GCC 11 from Ubuntu's toolchain PPA (`ppa:ubuntu-toolchain-r/test`), and the newest
+glibc functions they use are 2.29's `exp`, `log` and `pow`, so they run on glibc 2.29 or newer (Ubuntu 20.04, Debian 11 and
+later). Ubuntu 20.04's `libboinc-app-dev` has only shared libraries, so the release
 builds BOINC 7.20.7's with `PREFIX=dir build/build-boinc-libs.sh` and passes `BOINC=dir` to the build scripts (without it
 they use Ubuntu's package). `build/build-linux-chroot-inner.sh` stops if a GPU program needs a newer glibc
-than `MAX_GLIBC` (default 2.31); v0.6.1 and older were built on Ubuntu 22.04 and needed glibc 2.34.
+than `MAX_GLIBC` (default 2.29); v0.6.1 and older were built on Ubuntu 22.04 and needed glibc 2.34.
 
 ## 3b. Other systems
 
 * **Linux aarch64:** `build/build-linux-aarch64.sh`, run natively on an Ubuntu 20.04 arm64 machine or VM with GCC 11 (as
-  for x86-64: the OpenCL program then needs glibc 2.31+).
+  for x86-64: the OpenCL program then needs glibc 2.29+).
 * **Linux armhf:** `build/build-linux-cpu-generic.sh` in an Ubuntu 22.04 armhf system
   (natively or emulated). Ubuntu's BOINC libraries are empty archives on armhf: build them first with
   `build/build-boinc-libs.sh`.

@@ -1,5 +1,5 @@
 # Linux build (author machine paths): prepares the source tree, then builds everything in an Ubuntu 22.04 chroot.  Releases are
-# built on Ubuntu 20.04 (glibc 2.31) instead; a 22.04 chroot's GPU programs need glibc 2.34, so run this with MAX_GLIBC=2.34.
+# built on Ubuntu 20.04 (GPU programs need glibc 2.29) instead; a 22.04 chroot's need glibc 2.34: run this with MAX_GLIBC=2.34.
 J=/root/jammy
 mountpoint -q $J/proc || mount -t proc proc $J/proc
 mountpoint -q $J/dev || mount --bind /dev $J/dev

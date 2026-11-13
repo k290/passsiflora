@@ -1,6 +1,6 @@
 #!/bin/bash
 # Linux aarch64 build, run natively on an Ubuntu 20.04 arm64 machine, VM or container with GCC 11 (the release workflow's
-# setup: the OpenCL program then needs glibc 2.31+; on a newer system set MAX_GLIBC, see below).
+# setup: the OpenCL program then needs glibc 2.29+; on a newer system set MAX_GLIBC, see below).
 # Needs: build-essential gfortran libgmp-dev libboinc-app-dev bison perl python3 (+ ocl-icd-opencl-dev opencl-headers for OpenCL)
 # Expects $HOME/pk/armpack.tar.gz made from the output of prepare-src.sh (src/), PARI 2.8-1711 (pari/) and Test/.
 # Floating-point contraction is switched off: the enumeration must round exactly like the x86 build.
@@ -46,8 +46,9 @@ g++ -O3 -o GetDecics_gpu GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_comm
   -static-libgcc -static-libstdc++ -l:libgfortran.a -l:libgmp.a -lOpenCL -lm -lpthread
 strip GetDecics_cpu GetDecics_gpu
 ls -la GetDecics_cpu GetDecics_gpu
-# The OpenCL program needs at least the glibc it was linked against: 2.31 when built on Ubuntu 20.04 (build-linux-chroot-inner.sh).
-MAX_GLIBC=${MAX_GLIBC:-2.31}
+# The OpenCL program needs the newest glibc version among the functions it uses: 2.29 when built on Ubuntu 20.04
+# (build-linux-chroot-inner.sh).
+MAX_GLIBC=${MAX_GLIBC:-2.29}
 g=$(objdump -T GetDecics_gpu | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
 echo "GetDecics_gpu needs glibc $g"
 if [ "$(printf '%s\n%s\n' "$g" "$MAX_GLIBC" | sort -V | tail -1)" != "$MAX_GLIBC" ]; then

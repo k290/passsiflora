@@ -77,7 +77,7 @@ The number after the prefix is the version (`062` = v0.6.2).
 | `GPU-CUDA_`, `CPU-GPU-CUDA_` | the same with CUDA instead of OpenCL (driver only, no toolkit) | NVIDIA cards, Maxwell to Blackwell |
 | `GPU-MUSA_` | the Moore Threads app (a CPU task to BOINC; one task per card also uses the card) | Moore Threads cards, Linux x86-64 |
 
-Systems: Windows x86-64; Linux x86-64 (CPU fully static; GPU needs glibc 2.31+, MUSA 2.34+); Linux aarch64; Android aarch64 (Android 10+; NumberFields'
+Systems: Windows x86-64; Linux x86-64 (CPU fully static; GPU needs glibc 2.29+, MUSA 2.34+); Linux aarch64; Android aarch64 (Android 10+; NumberFields'
 Android app); FreeBSD 14+ x86-64; Linux armhf; macOS 15+ on Intel and Apple silicon (one
 universal program, CPU only).  Install steps are in `INSTALL.txt`, attached to every release; each package has a `README.txt`.
 

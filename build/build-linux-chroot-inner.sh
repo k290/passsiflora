@@ -1,5 +1,5 @@
 # Builds PARI 2.8, then the CPU, OpenCL and CUDA programs.  Runs on Ubuntu 20.04 with GCC 11 (the release workflow's container,
-# so the GPU programs need glibc 2.31+), or inside a chroot (build-linux-chroot.sh).
+# so the GPU programs need glibc 2.29+), or inside a chroot (build-linux-chroot.sh).
 set -e
 cd /root
 if [ ! -f pari28/Olinux-x86_64/libpari.a ]; then
@@ -44,11 +44,11 @@ g++ -O3 -o GetDecics_cuda GetDecics.o TgtMartinet.o polDiscTest_cpu.o nf_gpu_com
 cp GetDecics_cpu GetDecics_cpu.unstripped
 strip GetDecics_cpu GetDecics_gpu GetDecics_cuda
 ls -la GetDecics_cpu GetDecics_gpu GetDecics_cuda
-# The GPU programs use the system's C library and need at least the glibc they were linked against.  Built on Ubuntu 20.04
-# that is glibc 2.31 (Ubuntu 20.04, Debian 11 and later); v0.6.1 and older, built on Ubuntu 22.04, needed glibc 2.34 and
-# stopped at start elsewhere ("version `GLIBC_2.34' not found").  A build on a newer system fails here unless MAX_GLIBC
-# is raised (e.g. MAX_GLIBC=2.34 in an Ubuntu 22.04 chroot).
-MAX_GLIBC=${MAX_GLIBC:-2.31}
+# The GPU programs use the system's C library and need the newest glibc version among the functions they use.  Built on
+# Ubuntu 20.04 (glibc 2.31) that is 2.29, for exp, log and pow (Ubuntu 20.04, Debian 11 and later); v0.6.1 and older, built
+# on Ubuntu 22.04, needed glibc 2.34 and stopped at start elsewhere ("version `GLIBC_2.34' not found").  A build on a newer
+# system fails here unless MAX_GLIBC is raised (e.g. MAX_GLIBC=2.34 in an Ubuntu 22.04 chroot).
+MAX_GLIBC=${MAX_GLIBC:-2.29}
 for b in GetDecics_gpu GetDecics_cuda; do
   g=$(objdump -T $b | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
   echo "$b needs glibc $g"
